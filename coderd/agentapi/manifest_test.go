@@ -21,6 +21,7 @@ import (
 	"github.com/coder/coder/v2/coderd/database"
 	"github.com/coder/coder/v2/coderd/database/dbmock"
 	"github.com/coder/coder/v2/coderd/database/dbtime"
+	"cdr.dev/slog/v3/sloggers/slogtest"
 	"github.com/coder/coder/v2/coderd/externalauth"
 	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/tailnet"
@@ -314,11 +315,11 @@ func TestGetManifest(t *testing.T) {
 		api := &agentapi.ManifestAPI{
 			AccessURL:   &url.URL{Scheme: "https", Host: "example.com"},
 			AppHostname: "*--apps.example.com",
-			ExternalAuthConfigs: []*externalauth.Config{
+			ExternalAuthRegistry: externalauth.NewRegistry(slogtest.Make(t, nil), []*externalauth.Config{
 				{Type: string(codersdk.EnhancedExternalAuthProviderGitHub)},
 				{Type: "some-provider"},
 				{Type: string(codersdk.EnhancedExternalAuthProviderGitLab)},
-			},
+			}),
 			DisableDirectConnections: true,
 			DerpForceWebSockets:      true,
 
@@ -381,11 +382,11 @@ func TestGetManifest(t *testing.T) {
 		api := &agentapi.ManifestAPI{
 			AccessURL:   &url.URL{Scheme: "https", Host: "example.com"},
 			AppHostname: "*--apps.example.com",
-			ExternalAuthConfigs: []*externalauth.Config{
+			ExternalAuthRegistry: externalauth.NewRegistry(slogtest.Make(t, nil), []*externalauth.Config{
 				{Type: string(codersdk.EnhancedExternalAuthProviderGitHub)},
 				{Type: "some-provider"},
 				{Type: string(codersdk.EnhancedExternalAuthProviderGitLab)},
-			},
+			}),
 			DisableDirectConnections: true,
 			DerpForceWebSockets:      true,
 
@@ -563,11 +564,11 @@ func TestGetManifest(t *testing.T) {
 		api := &agentapi.ManifestAPI{
 			AccessURL:   &url.URL{Scheme: "https", Host: "example.com"},
 			AppHostname: "",
-			ExternalAuthConfigs: []*externalauth.Config{
+			ExternalAuthRegistry: externalauth.NewRegistry(slogtest.Make(t, nil), []*externalauth.Config{
 				{Type: string(codersdk.EnhancedExternalAuthProviderGitHub)},
 				{Type: "some-provider"},
 				{Type: string(codersdk.EnhancedExternalAuthProviderGitLab)},
-			},
+			}),
 			DisableDirectConnections: true,
 			DerpForceWebSockets:      true,
 

@@ -5302,7 +5302,7 @@ func setup(t *testing.T, ignoreLogErrors bool, ov *overrides) (proto.DRPCProvisi
 		usageInserter,
 		deploymentValues,
 		provisionerdserver.Options{
-			ExternalAuthConfigs:   externalAuthConfigs,
+			ExternalAuthRegistry:  externalauth.NewRegistry(slogtest.Make(t, nil), externalAuthConfigs),
 			Clock:                 clock,
 			OIDCConfig:            &oauth2.Config{},
 			AcquireJobLongPollDur: pollDur,

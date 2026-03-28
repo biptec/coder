@@ -773,7 +773,7 @@ func TestGetMCPServerConfigs(t *testing.T) {
 			accessURL := "https://my-cool-deployment.com"
 			srv, err := aibridgedserver.NewServer(t.Context(), db, logger, accessURL, codersdk.AIBridgeConfig{
 				InjectCoderMCPTools: serpent.Bool(!tc.disableCoderMCPInjection),
-			}, tc.externalAuthConfigs, tc.experiments, agplaiseats.Noop{})
+			}, externalauth.NewRegistry(logger, tc.externalAuthConfigs), tc.experiments, agplaiseats.Noop{})
 			require.NoError(t, err)
 			require.NotNil(t, srv)
 
@@ -811,7 +811,7 @@ func TestGetMCPServerAccessTokensBatch(t *testing.T) {
 	logger := testutil.Logger(t)
 
 	// Given: 2 external auth configured with MCP and 1 without.
-	srv, err := aibridgedserver.NewServer(t.Context(), db, logger, "/", codersdk.AIBridgeConfig{}, []*externalauth.Config{
+	srv, err := aibridgedserver.NewServer(t.Context(), db, logger, "/", codersdk.AIBridgeConfig{}, externalauth.NewRegistry(logger, []*externalauth.Config{
 		{
 			ID:     "1",
 			MCPURL: "1.com/mcp",
@@ -823,7 +823,7 @@ func TestGetMCPServerAccessTokensBatch(t *testing.T) {
 		{
 			ID: "3",
 		},
-	}, requiredExperiments, agplaiseats.Noop{})
+	}), requiredExperiments, agplaiseats.Noop{})
 	require.NoError(t, err)
 	require.NotNil(t, srv)
 

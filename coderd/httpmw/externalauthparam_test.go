@@ -24,9 +24,12 @@ func TestExternalAuthParam(t *testing.T) {
 		r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, routeCtx))
 		res := httptest.NewRecorder()
 
-		httpmw.ExtractExternalAuthParam([]*externalauth.Config{{
-			ID: "my-id",
-		}})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		httpmw.ExtractExternalAuthParam(func(id string) (*externalauth.Config, bool) {
+			if id == "my-id" {
+				return &externalauth.Config{ID: "my-id"}, true
+			}
+			return nil, false
+		})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			require.Equal(t, "my-id", httpmw.ExternalAuthParam(r).ID)
 			w.WriteHeader(http.StatusOK)
 		})).ServeHTTP(res, r)
@@ -42,7 +45,9 @@ func TestExternalAuthParam(t *testing.T) {
 		r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, routeCtx))
 		res := httptest.NewRecorder()
 
-		httpmw.ExtractExternalAuthParam([]*externalauth.Config{})(nil).ServeHTTP(res, r)
+		httpmw.ExtractExternalAuthParam(func(string) (*externalauth.Config, bool) {
+			return nil, false
+		})(nil).ServeHTTP(res, r)
 
 		require.Equal(t, http.StatusNotFound, res.Result().StatusCode)
 	})
