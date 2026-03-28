@@ -740,7 +740,7 @@ func (r *RootCmd) Server(newAPI func(context.Context, *coderd.Options) (*coderd.
 				Pubsub:                      nil,
 				CacheDir:                    cacheDir,
 				GoogleTokenValidator:        googleTokenValidator,
-				ExternalAuthConfigs:         nil,
+				ExternalAuthRegistry:        nil,
 				RealIPConfig:                realIPConfig,
 				SSHKeygenAlgorithm:          sshKeygenAlgorithm,
 				TracerProvider:              tracerProvider,
@@ -943,7 +943,7 @@ func (r *RootCmd) Server(newAPI func(context.Context, *coderd.Options) (*coderd.
 				return xerrors.Errorf("maybe append default github external auth provider: %w", err)
 			}
 
-			options.ExternalAuthConfigs, err = externalauth.ConvertConfig(
+			configs, err := externalauth.ConvertConfig(
 				oauthInstrument,
 				mergedExternalAuthProviders,
 				vals.AccessURL.Value(),
@@ -951,7 +951,8 @@ func (r *RootCmd) Server(newAPI func(context.Context, *coderd.Options) (*coderd.
 			if err != nil {
 				return xerrors.Errorf("convert external auth config: %w", err)
 			}
-			for _, c := range options.ExternalAuthConfigs {
+			options.ExternalAuthRegistry = externalauth.NewRegistry(logger, configs)
+			for _, c := range configs {
 				logger.Debug(
 					ctx, "loaded external auth config",
 					slog.F("id", c.ID),
@@ -1167,6 +1168,15 @@ func (r *RootCmd) Server(newAPI func(context.Context, *coderd.Options) (*coderd.
 				defer unsubscribeProviderReload()
 			}
 
+			// Provide the registry with the dependencies it needs
+			// for Reload() (DB, promoauth factory, access URL).
+			// This must happen after newAPI because the enterprise
+			// coderd wraps the database with dbcrypt.
+			if coderAPI.ExternalAuthRegistry != nil {
+				coderAPI.ExternalAuthRegistry.SetReloadDeps(coderAPI.Database, oauthInstrument, vals.AccessURL.Value())
+			}
+
+
 			// Sync env/YAML external auth providers to the DB and
 			// reload all providers (env + DB-sourced). This must
 			// happen after newAPI because the enterprise coderd wraps
@@ -1192,7 +1202,7 @@ func (r *RootCmd) Server(newAPI func(context.Context, *coderd.Options) (*coderd.
 					if convertErr != nil {
 						return xerrors.Errorf("convert reloaded external auth config: %w", convertErr)
 					}
-					coderAPI.ExternalAuthConfigs = newConfigs
+					coderAPI.ExternalAuthRegistry.Replace(newConfigs)
 					for _, c := range newConfigs {
 						logger.Debug(ctx, "loaded external auth config from database",
 							slog.F("id", c.ID),

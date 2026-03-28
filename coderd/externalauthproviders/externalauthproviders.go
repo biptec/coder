@@ -9,6 +9,7 @@ import (
 
 	"cdr.dev/slog/v3"
 	"github.com/coder/coder/v2/coderd/audit"
+	"github.com/coder/coder/v2/coderd/externalauth"
 	"github.com/coder/coder/v2/coderd/database"
 	"github.com/coder/coder/v2/coderd/database/dbtime"
 	"github.com/coder/coder/v2/coderd/httpapi"
@@ -65,7 +66,7 @@ func Get(db database.Store) http.HandlerFunc {
 
 // Create returns an http.HandlerFunc that handles
 // POST /external-auth-providers.
-func Create(db database.Store, auditor *audit.Auditor, logger slog.Logger) http.HandlerFunc {
+func Create(db database.Store, registry *externalauth.Registry, auditor *audit.Auditor, logger slog.Logger) http.HandlerFunc {
 	return func(rw http.ResponseWriter, r *http.Request) {
 		var (
 			ctx               = r.Context()
@@ -117,6 +118,10 @@ func Create(db database.Store, auditor *audit.Auditor, logger slog.Logger) http.
 			return
 		}
 
+		if err := registry.Reload(ctx); err != nil {
+			logger.Error(ctx, "failed to reload external auth registry", slog.Error(err))
+		}
+
 		aReq.New = cfg
 		httpapi.Write(ctx, rw, http.StatusCreated, convertProviderConfig(cfg))
 	}
@@ -124,7 +129,7 @@ func Create(db database.Store, auditor *audit.Auditor, logger slog.Logger) http.
 
 // Update returns an http.HandlerFunc that handles
 // PUT /external-auth-providers/{externalAuthProvider}.
-func Update(db database.Store, auditor *audit.Auditor, logger slog.Logger) http.HandlerFunc {
+func Update(db database.Store, registry *externalauth.Registry, auditor *audit.Auditor, logger slog.Logger) http.HandlerFunc {
 	return func(rw http.ResponseWriter, r *http.Request) {
 		var (
 			ctx               = r.Context()
@@ -208,6 +213,10 @@ func Update(db database.Store, auditor *audit.Auditor, logger slog.Logger) http.
 			return
 		}
 
+		if err := registry.Reload(ctx); err != nil {
+			logger.Error(ctx, "failed to reload external auth registry", slog.Error(err))
+		}
+
 		aReq.New = cfg
 		httpapi.Write(ctx, rw, http.StatusOK, convertProviderConfig(cfg))
 	}
@@ -215,7 +224,7 @@ func Update(db database.Store, auditor *audit.Auditor, logger slog.Logger) http.
 
 // Delete returns an http.HandlerFunc that handles
 // DELETE /external-auth-providers/{externalAuthProvider}.
-func Delete(db database.Store, auditor *audit.Auditor, logger slog.Logger) http.HandlerFunc {
+func Delete(db database.Store, registry *externalauth.Registry, auditor *audit.Auditor, logger slog.Logger) http.HandlerFunc {
 	return func(rw http.ResponseWriter, r *http.Request) {
 		var (
 			ctx               = r.Context()
@@ -261,6 +270,10 @@ func Delete(db database.Store, auditor *audit.Auditor, logger slog.Logger) http.
 				Detail:  err.Error(),
 			})
 			return
+		}
+
+		if err := registry.Reload(ctx); err != nil {
+			logger.Error(ctx, "failed to reload external auth registry", slog.Error(err))
 		}
 
 		rw.WriteHeader(http.StatusNoContent)

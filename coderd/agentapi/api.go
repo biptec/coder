@@ -103,7 +103,7 @@ type Options struct {
 	DisableDirectConnections  bool
 	DerpForceWebSockets       bool
 	DerpMapUpdateFrequency    time.Duration
-	ExternalAuthConfigs       []*externalauth.Config
+	ExternalAuthRegistry      *externalauth.Registry
 	Experiments               codersdk.Experiments
 
 	UpdateAgentMetricsFn func(ctx context.Context, labels prometheusmetrics.AgentMetricLabels, metrics []*agentproto.Stats_Metric)
@@ -122,7 +122,7 @@ func New(opts Options, workspace database.Workspace, agent database.WorkspaceAge
 	api.ManifestAPI = &ManifestAPI{
 		AccessURL:                opts.AccessURL,
 		AppHostname:              opts.AppHostname,
-		ExternalAuthConfigs:      opts.ExternalAuthConfigs,
+		ExternalAuthRegistry:     opts.ExternalAuthRegistry,
 		DisableDirectConnections: opts.DisableDirectConnections,
 		DerpForceWebSockets:      opts.DerpForceWebSockets,
 		AgentFn:                  api.agent,

@@ -187,7 +187,7 @@ type Options struct {
 	SSHKeygenAlgorithm             gitsshkey.Algorithm
 	Telemetry                      telemetry.Reporter
 	TracerProvider                 trace.TracerProvider
-	ExternalAuthConfigs            []*externalauth.Config
+	ExternalAuthRegistry           *externalauth.Registry
 	RealIPConfig                   *httpmw.RealIPConfig
 	TrialGenerator                 func(ctx context.Context, body codersdk.LicensorTrialRequest) error
 	// RefreshEntitlements is used to set correct entitlements after creating first user and generating trial license.
@@ -1107,8 +1107,10 @@ func New(options *Options) *API {
 		})
 	}
 
-	// Register callback handlers for each OAuth2 provider.
+	// Register callback handlers for external auth providers.
 	// We must support gitauth and externalauth for backwards compatibility.
+	// Uses a parameterized route so dynamically-added providers are
+	// picked up without restarting the server.
 	for _, route := range []string{"gitauth", "external-auth"} {
 		r.Route("/"+route, func(r chi.Router) {
 			for _, externalAuthConfig := range options.ExternalAuthConfigs {
@@ -1124,6 +1126,9 @@ func New(options *Options) *API {
 					r.Get("/", api.externalAuthCallback(externalAuthConfig))
 				})
 			}
+		r.Route("/"+route+"/{externalauth}/callback", func(r chi.Router) {
+			r.Use(apiKeyMiddlewareRedirect)
+			r.Get("/", api.externalAuthCallback)
 		})
 	}
 
@@ -1504,7 +1509,7 @@ func New(options *Options) *API {
 			r.Get("/", api.listUserExternalAuths)
 			r.Route("/{externalauth}", func(r chi.Router) {
 				r.Use(
-					httpmw.ExtractExternalAuthParam(options.ExternalAuthConfigs),
+					httpmw.ExtractExternalAuthParam(options.ExternalAuthRegistry.Get),
 				)
 				r.Delete("/", api.deleteExternalAuthByID)
 				r.Get("/", api.externalAuthByID)
@@ -2547,7 +2552,7 @@ func (api *API) CreateInMemoryTaggedProvisionerDaemon(dialCtx context.Context, n
 		api.DeploymentValues,
 		provisionerdserver.Options{
 			OIDCConfig:          api.OIDCConfig,
-			ExternalAuthConfigs: api.ExternalAuthConfigs,
+			ExternalAuthRegistry: api.ExternalAuthRegistry,
 			AISeatTracker:       api.AISeatTracker,
 			Clock:               api.Clock,
 			HeartbeatFn:         options.heartbeatFn,

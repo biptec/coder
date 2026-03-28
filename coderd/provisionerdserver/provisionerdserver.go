@@ -76,7 +76,7 @@ const (
 
 type Options struct {
 	OIDCConfig          promoauth.OAuth2Config
-	ExternalAuthConfigs []*externalauth.Config
+	ExternalAuthRegistry *externalauth.Registry
 	AISeatTracker       aiseats.SeatTracker
 
 	// Clock for testing
@@ -107,7 +107,7 @@ type server struct {
 	OrganizationID              uuid.UUID
 	Logger                      slog.Logger
 	Provisioners                []database.ProvisionerType
-	ExternalAuthConfigs         []*externalauth.Config
+	ExternalAuthRegistry        *externalauth.Registry
 	Tags                        Tags
 	Database                    database.Store
 	Pubsub                      pubsub.Pubsub
@@ -239,7 +239,7 @@ func NewServer(
 		OrganizationID:              organizationID,
 		Logger:                      logger,
 		Provisioners:                provisioners,
-		ExternalAuthConfigs:         options.ExternalAuthConfigs,
+		ExternalAuthRegistry:        options.ExternalAuthRegistry,
 		Tags:                        tags,
 		Database:                    db,
 		Pubsub:                      ps,
@@ -657,14 +657,7 @@ func (s *server) acquireProtoJob(ctx context.Context, job database.ProvisionerJo
 			if err != nil {
 				return nil, failJob(fmt.Sprintf("acquire external auth link: %s", err))
 			}
-			var config *externalauth.Config
-			for _, c := range s.ExternalAuthConfigs {
-				if c.ID != p.ID {
-					continue
-				}
-				config = c
-				break
-			}
+			config, _ := s.ExternalAuthRegistry.Get(p.ID)
 			// We weren't able to find a matching config for the ID!
 			if config == nil {
 				s.Logger.Warn(ctx, "workspace build job is missing external auth provider",
@@ -1821,13 +1814,7 @@ func (s *server) completeTemplateImportJob(ctx context.Context, job database.Pro
 		var completedError sql.NullString
 
 		for _, externalAuthProvider := range jobType.TemplateImport.ExternalAuthProviders {
-			contains := false
-			for _, configuredProvider := range s.ExternalAuthConfigs {
-				if configuredProvider.ID == externalAuthProvider.Id {
-					contains = true
-					break
-				}
-			}
+			_, contains := s.ExternalAuthRegistry.Get(externalAuthProvider.Id)
 			if !contains {
 				completedError = sql.NullString{
 					String: fmt.Sprintf("external auth provider %q is not configured", externalAuthProvider.Id),

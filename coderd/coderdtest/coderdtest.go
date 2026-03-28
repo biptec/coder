@@ -607,7 +607,7 @@ func NewOptions(t testing.TB, options *Options) (func(http.Handler), context.Can
 			Database:                       options.Database,
 			Pubsub:                         options.Pubsub,
 			ReplicaSyncPubsub:              options.ReplicaSyncPubsub,
-			ExternalAuthConfigs:            options.ExternalAuthConfigs,
+			ExternalAuthRegistry:           externalauth.NewRegistry(*options.Logger, options.ExternalAuthConfigs),
 			UsageInserter:                  usageInserter,
 
 			Auditor:                            options.Auditor,

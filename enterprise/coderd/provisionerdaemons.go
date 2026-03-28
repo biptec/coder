@@ -352,7 +352,7 @@ func (api *API) provisionerDaemonServe(rw http.ResponseWriter, r *http.Request) 
 		api.AGPL.UsageInserter,
 		api.DeploymentValues,
 		provisionerdserver.Options{
-			ExternalAuthConfigs: api.ExternalAuthConfigs,
+			ExternalAuthRegistry: api.ExternalAuthRegistry,
 			OIDCConfig:          api.OIDCConfig,
 			AISeatTracker:       api.AGPL.AISeatTracker,
 			Clock:               api.Clock,

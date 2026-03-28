@@ -1991,7 +1991,7 @@ func (api *API) workspaceAgentsExternalAuth(rw http.ResponseWriter, r *http.Requ
 	listen := query.Has("listen")
 
 	var externalAuthConfig *externalauth.Config
-	for _, extAuth := range api.ExternalAuthConfigs {
+	for _, extAuth := range api.ExternalAuthRegistry.List() {
 		if extAuth.ID == id {
 			externalAuthConfig = extAuth
 			break
@@ -2007,9 +2007,9 @@ func (api *API) workspaceAgentsExternalAuth(rw http.ResponseWriter, r *http.Requ
 	}
 	if externalAuthConfig == nil {
 		detail := "External auth provider not found."
-		if len(api.ExternalAuthConfigs) > 0 {
-			regexURLs := make([]string, 0, len(api.ExternalAuthConfigs))
-			for _, extAuth := range api.ExternalAuthConfigs {
+		if api.ExternalAuthRegistry.Len() > 0 {
+			regexURLs := make([]string, 0, api.ExternalAuthRegistry.Len())
+			for _, extAuth := range api.ExternalAuthRegistry.List() {
 				if extAuth.Regex == nil {
 					continue
 				}

@@ -900,12 +900,12 @@ func (api *API) updateEntitlements(ctx context.Context) error {
 
 		reloadedEntitlements, err := license.Entitlements(
 			ctx, api.Database,
-			len(agedReplicas), len(api.ExternalAuthConfigs), api.LicenseKeys, map[codersdk.FeatureName]bool{
+			len(agedReplicas), api.ExternalAuthRegistry.Len(), api.LicenseKeys, map[codersdk.FeatureName]bool{
 				codersdk.FeatureAuditLog:                   api.AuditLogging,
 				codersdk.FeatureConnectionLog:              api.ConnectionLogging,
 				codersdk.FeatureBrowserOnly:                api.BrowserOnly,
 				codersdk.FeatureSCIM:                       len(api.SCIMAPIKey) != 0,
-				codersdk.FeatureMultipleExternalAuth:       len(api.ExternalAuthConfigs) > 1,
+				codersdk.FeatureMultipleExternalAuth:       api.ExternalAuthRegistry.Len() > 1,
 				codersdk.FeatureTemplateRBAC:               api.RBAC,
 				codersdk.FeatureExternalTokenEncryption:    len(api.ExternalTokenEncryption) > 0,
 				codersdk.FeatureExternalProvisionerDaemons: true,

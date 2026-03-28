@@ -185,7 +185,7 @@ func (api *API) workspaceAgentRPC(rw http.ResponseWriter, r *http.Request) {
 		DisableDirectConnections:  api.DeploymentValues.DERP.Config.BlockDirect.Value(),
 		DerpForceWebSockets:       api.DeploymentValues.DERP.Config.ForceWebSockets.Value(),
 		DerpMapUpdateFrequency:    api.Options.DERPMapUpdateFrequency,
-		ExternalAuthConfigs:       api.ExternalAuthConfigs,
+		ExternalAuthRegistry:      api.ExternalAuthRegistry,
 		Experiments:               api.Experiments,
 		LifecycleMetrics:          api.lifecycleMetrics,
 

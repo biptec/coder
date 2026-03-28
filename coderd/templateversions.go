@@ -364,13 +364,7 @@ func (api *API) templateVersionExternalAuthForUser(ctx context.Context, template
 
 	providers := make([]codersdk.TemplateVersionExternalAuth, 0)
 	for _, rawProvider := range rawProviders {
-		var config *externalauth.Config
-		for _, provider := range api.ExternalAuthConfigs {
-			if provider.ID == rawProvider.ID {
-				config = provider
-				break
-			}
-		}
+		config, _ := api.ExternalAuthRegistry.Get(rawProvider.ID)
 		if config == nil {
 			return nil, httperror.NewResponseError(http.StatusNotFound, codersdk.Response{
 				Message: fmt.Sprintf("The template version references a Git auth provider %q that no longer exists.", rawProvider.ID),

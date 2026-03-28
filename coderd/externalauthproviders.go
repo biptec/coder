@@ -39,7 +39,7 @@ func (api *API) externalAuthProvider() http.HandlerFunc {
 // @Success 201 {object} codersdk.ExternalAuthProviderEntry
 // @Router /external-auth-providers [post]
 func (api *API) postExternalAuthProvider() http.HandlerFunc {
-	return externalauthproviders.Create(api.Database, api.Auditor.Load(), api.Logger)
+	return externalauthproviders.Create(api.Database, api.ExternalAuthRegistry, api.Auditor.Load(), api.Logger)
 }
 
 // @Summary Update external auth provider configuration.
@@ -53,7 +53,7 @@ func (api *API) postExternalAuthProvider() http.HandlerFunc {
 // @Success 200 {object} codersdk.ExternalAuthProviderEntry
 // @Router /external-auth-providers/{externalAuthProvider} [put]
 func (api *API) putExternalAuthProvider() http.HandlerFunc {
-	return externalauthproviders.Update(api.Database, api.Auditor.Load(), api.Logger)
+	return externalauthproviders.Update(api.Database, api.ExternalAuthRegistry, api.Auditor.Load(), api.Logger)
 }
 
 // @Summary Delete external auth provider configuration.
@@ -64,5 +64,5 @@ func (api *API) putExternalAuthProvider() http.HandlerFunc {
 // @Success 204
 // @Router /external-auth-providers/{externalAuthProvider} [delete]
 func (api *API) deleteExternalAuthProvider() http.HandlerFunc {
-	return externalauthproviders.Delete(api.Database, api.Auditor.Load(), api.Logger)
+	return externalauthproviders.Delete(api.Database, api.ExternalAuthRegistry, api.Auditor.Load(), api.Logger)
 }

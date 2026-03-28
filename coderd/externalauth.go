@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/sqlc-dev/pqtype"
 	"golang.org/x/sync/errgroup"
 
@@ -256,84 +257,104 @@ func (*API) externalAuthDeviceByID(rw http.ResponseWriter, r *http.Request) {
 	httpapi.Write(ctx, rw, http.StatusOK, deviceAuth)
 }
 
-func (api *API) externalAuthCallback(externalAuthConfig *externalauth.Config) http.HandlerFunc {
-	return func(rw http.ResponseWriter, r *http.Request) {
-		var (
-			ctx    = r.Context()
-			state  = httpmw.OAuth2(r)
-			apiKey = httpmw.APIKey(r)
-		)
+func (api *API) externalAuthCallback(rw http.ResponseWriter, r *http.Request) {
+	providerID := chi.URLParam(r, "externalauth")
+	config, ok := api.ExternalAuthRegistry.Get(providerID)
+	if !ok {
+		httpapi.ResourceNotFound(rw)
+		return
+	}
+	if config.DeviceAuth != nil {
+		httpapi.Write(r.Context(), rw, http.StatusBadRequest, codersdk.Response{
+			Message: "This provider uses device authentication and does not support callbacks.",
+		})
+		return
+	}
 
-		extra, err := externalAuthConfig.GenerateTokenExtra(state.Token)
-		if err != nil {
-			httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
-				Message: "Failed to generate token extra.",
+	// Dynamically apply OAuth2 exchange middleware for this config.
+	inner := http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		api.handleExternalAuthCallback(rw, r, config)
+	})
+	httpmw.ExtractOAuth2(config, api.HTTPClient, api.DeploymentValues.HTTPCookies, nil, config.CodeChallengeMethodsSupported)(inner).ServeHTTP(rw, r)
+}
+
+func (api *API) handleExternalAuthCallback(rw http.ResponseWriter, r *http.Request, externalAuthConfig *externalauth.Config) {
+	var (
+		ctx    = r.Context()
+		state  = httpmw.OAuth2(r)
+		apiKey = httpmw.APIKey(r)
+	)
+
+	extra, err := externalAuthConfig.GenerateTokenExtra(state.Token)
+	if err != nil {
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
+			Message: "Failed to generate token extra.",
+			Detail:  err.Error(),
+		})
+		return
+	}
+	_, err = api.Database.GetExternalAuthLink(ctx, database.GetExternalAuthLinkParams{
+		ProviderID: externalAuthConfig.ID,
+		UserID:     apiKey.UserID,
+	})
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
+				Message: "Failed to get external auth link.",
 				Detail:  err.Error(),
 			})
 			return
 		}
-		_, err = api.Database.GetExternalAuthLink(ctx, database.GetExternalAuthLinkParams{
-			ProviderID: externalAuthConfig.ID,
-			UserID:     apiKey.UserID,
+
+		_, err = api.Database.InsertExternalAuthLink(ctx, database.InsertExternalAuthLinkParams{
+			ProviderID:             externalAuthConfig.ID,
+			UserID:                 apiKey.UserID,
+			CreatedAt:              dbtime.Now(),
+			UpdatedAt:              dbtime.Now(),
+			OAuthAccessToken:       state.Token.AccessToken,
+			OAuthAccessTokenKeyID:  sql.NullString{}, // dbcrypt will set as required
+			OAuthRefreshToken:      state.Token.RefreshToken,
+			OAuthRefreshTokenKeyID: sql.NullString{}, // dbcrypt will set as required
+			OAuthExpiry:            state.Token.Expiry,
+			OAuthExtra:             extra,
 		})
 		if err != nil {
-			if !errors.Is(err, sql.ErrNoRows) {
-				httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
-					Message: "Failed to get external auth link.",
-					Detail:  err.Error(),
-				})
-				return
-			}
-
-			_, err = api.Database.InsertExternalAuthLink(ctx, database.InsertExternalAuthLinkParams{
-				ProviderID:             externalAuthConfig.ID,
-				UserID:                 apiKey.UserID,
-				CreatedAt:              dbtime.Now(),
-				UpdatedAt:              dbtime.Now(),
-				OAuthAccessToken:       state.Token.AccessToken,
-				OAuthAccessTokenKeyID:  sql.NullString{}, // dbcrypt will set as required
-				OAuthRefreshToken:      state.Token.RefreshToken,
-				OAuthRefreshTokenKeyID: sql.NullString{}, // dbcrypt will set as required
-				OAuthExpiry:            state.Token.Expiry,
-				OAuthExtra:             extra,
+			httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
+				Message: "Failed to insert external auth link.",
+				Detail:  err.Error(),
 			})
-			if err != nil {
-				httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
-					Message: "Failed to insert external auth link.",
-					Detail:  err.Error(),
-				})
-				return
-			}
-		} else {
-			_, err = api.Database.UpdateExternalAuthLink(ctx, database.UpdateExternalAuthLinkParams{
-				ProviderID:             externalAuthConfig.ID,
-				UserID:                 apiKey.UserID,
-				UpdatedAt:              dbtime.Now(),
-				OAuthAccessToken:       state.Token.AccessToken,
-				OAuthAccessTokenKeyID:  sql.NullString{}, // dbcrypt will update as required
-				OAuthRefreshToken:      state.Token.RefreshToken,
-				OAuthRefreshTokenKeyID: sql.NullString{}, // dbcrypt will update as required
-				OAuthExpiry:            state.Token.Expiry,
-				OAuthExtra:             extra,
+			return
+		}
+	} else {
+		_, err = api.Database.UpdateExternalAuthLink(ctx, database.UpdateExternalAuthLinkParams{
+			ProviderID:             externalAuthConfig.ID,
+			UserID:                 apiKey.UserID,
+			UpdatedAt:              dbtime.Now(),
+			OAuthAccessToken:       state.Token.AccessToken,
+			OAuthAccessTokenKeyID:  sql.NullString{}, // dbcrypt will update as required
+			OAuthRefreshToken:      state.Token.RefreshToken,
+			OAuthRefreshTokenKeyID: sql.NullString{}, // dbcrypt will update as required
+			OAuthExpiry:            state.Token.Expiry,
+			OAuthExtra:             extra,
+		})
+		if err != nil {
+			httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
+				Message: "Failed to update external auth link.",
+				Detail:  err.Error(),
 			})
-			if err != nil {
-				httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
-					Message: "Failed to update external auth link.",
-					Detail:  err.Error(),
-				})
-				return
-			}
+			return
 		}
-
-		redirect := state.Redirect
-		if redirect == "" {
-			// This is a nicely rendered screen on the frontend. Passing the query param lets the
-			// FE know not to enter the authentication loop again, and instead display an error.
-			redirect = fmt.Sprintf("/external-auth/%s?redirected=true", externalAuthConfig.ID)
-		}
-		redirect = uriFromURL(redirect)
-		http.Redirect(rw, r, redirect, http.StatusTemporaryRedirect)
 	}
+
+	redirect := state.Redirect
+	if redirect == "" {
+		// This is a nicely rendered screen on the frontend. Passing
+		// the query param lets the FE know not to enter the
+		// authentication loop again, and instead display an error.
+		redirect = fmt.Sprintf("/external-auth/%s?redirected=true", externalAuthConfig.ID)
+	}
+	redirect = uriFromURL(redirect)
+	http.Redirect(rw, r, redirect, http.StatusTemporaryRedirect)
 }
 
 // listUserExternalAuths lists all external auths available to a user and
@@ -368,7 +389,7 @@ func (api *API) listUserExternalAuths(rw http.ResponseWriter, r *http.Request) {
 	// authentication issues.
 	// We can do this in parallel if we want to speed it up.
 	configs := make(map[string]*externalauth.Config)
-	for _, cfg := range api.ExternalAuthConfigs {
+	for _, cfg := range api.ExternalAuthRegistry.List() {
 		configs[cfg.ID] = cfg
 	}
 	// Check if the links are authenticated.
@@ -400,7 +421,7 @@ func (api *API) listUserExternalAuths(rw http.ResponseWriter, r *http.Request) {
 	// traffic on this request, so the user will have to do this with a separate
 	// call.
 	httpapi.Write(ctx, rw, http.StatusOK, codersdk.ListUserExternalAuthResponse{
-		Providers: ExternalAuthConfigs(api.ExternalAuthConfigs),
+		Providers: ExternalAuthConfigs(api.ExternalAuthRegistry.List()),
 		Links:     db2sdk.ExternalAuths(links, linkMeta),
 	})
 }

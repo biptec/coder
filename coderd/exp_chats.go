@@ -4316,9 +4316,9 @@ func (api *API) resolveChatDiffReference(
 	// reported branch/origin yet), derive a partial ref from the
 	// PR URL so the caller can still show provider/owner/repo.
 	if reference.RepositoryRef == nil && reference.PullRequestURL != "" {
-		for _, extAuth := range api.ExternalAuthConfigs {
-			gp, err := extAuth.Git(api.HTTPClient)
-			if err != nil || gp == nil {
+		for _, extAuth := range api.ExternalAuthRegistry.List() {
+			gp := extAuth.Git(api.HTTPClient)
+			if gp == nil {
 				continue
 			}
 			if parsed, ok := gp.ParsePullRequestURL(reference.PullRequestURL); ok {
@@ -4420,7 +4420,7 @@ func (api *API) resolveExternalAuth(ctx context.Context, origin string) (provide
 	if origin == "" {
 		return "", nil
 	}
-	for _, extAuth := range api.ExternalAuthConfigs {
+	for _, extAuth := range api.ExternalAuthRegistry.List() {
 		if extAuth.Regex == nil || !extAuth.Regex.MatchString(origin) {
 			continue
 		}
@@ -4460,7 +4460,7 @@ func (api *API) resolveChatGitAccessToken(
 	// This ensures multi-provider setups (github.com + GHE) get the
 	// correct token.
 	if origin != "" {
-		for _, config := range api.ExternalAuthConfigs {
+		for _, config := range api.ExternalAuthRegistry.List() {
 			if config.Regex == nil || !config.Regex.MatchString(origin) {
 				continue
 			}
@@ -4492,7 +4492,7 @@ func (api *API) resolveChatGitAccessToken(
 	// or when the origin-specific lookup above failed.
 	configs := make(map[string]*externalauth.Config)
 	providerIDs := []string{}
-	for _, config := range api.ExternalAuthConfigs {
+	for _, config := range api.ExternalAuthRegistry.List() {
 		providerIDs = append(providerIDs, config.ID)
 		configs[config.ID] = config
 	}

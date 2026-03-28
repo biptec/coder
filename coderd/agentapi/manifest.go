@@ -27,7 +27,7 @@ import (
 type ManifestAPI struct {
 	AccessURL                *url.URL
 	AppHostname              string
-	ExternalAuthConfigs      []*externalauth.Config
+	ExternalAuthRegistry     *externalauth.Registry
 	DisableDirectConnections bool
 	DerpForceWebSockets      bool
 	WorkspaceID              uuid.UUID
@@ -113,7 +113,7 @@ func (a *ManifestAPI) GetManifest(ctx context.Context, _ *agentproto.GetManifest
 	}
 
 	var gitAuthConfigs uint32
-	for _, cfg := range a.ExternalAuthConfigs {
+	for _, cfg := range a.ExternalAuthRegistry.List() {
 		if codersdk.EnhancedExternalAuthProvider(cfg.Type).Git() {
 			gitAuthConfigs++
 		}

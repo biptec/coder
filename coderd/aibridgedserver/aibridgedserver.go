@@ -102,7 +102,7 @@ type Server struct {
 	lifecycleCtx        context.Context
 	store               store
 	logger              slog.Logger
-	externalAuthConfigs map[string]*externalauth.Config
+	externalAuthRegistry *externalauth.Registry
 
 	coderMCPConfig    *proto.MCPServerConfig // may be nil if not available
 	structuredLogging bool
@@ -113,24 +113,14 @@ type Server struct {
 }
 
 func NewServer(lifecycleCtx context.Context, store store, logger slog.Logger, accessURL string,
-	bridgeCfg codersdk.AIBridgeConfig, externalAuthConfigs []*externalauth.Config, experiments codersdk.Experiments,
+	bridgeCfg codersdk.AIBridgeConfig, externalAuthRegistry *externalauth.Registry, experiments codersdk.Experiments,
 	aiSeatTracker aiseats.SeatTracker,
 ) (*Server, error) {
-	eac := make(map[string]*externalauth.Config, len(externalAuthConfigs))
-
-	for _, cfg := range externalAuthConfigs {
-		// Only External Auth configs which are configured with an MCP URL are relevant to aibridged.
-		if cfg.MCPURL == "" {
-			continue
-		}
-		eac[cfg.ID] = cfg
-	}
-
 	srv := &Server{
-		lifecycleCtx:        lifecycleCtx,
-		store:               store,
-		logger:              logger,
-		externalAuthConfigs: eac,
+		lifecycleCtx:         lifecycleCtx,
+		store:                store,
+		logger:               logger,
+		externalAuthRegistry: externalAuthRegistry,
 		structuredLogging:   bridgeCfg.StructuredLogging.Value(),
 		aiSeatTracker:       aiSeatTracker,
 		budgetPolicy:        codersdk.NewAIBudgetPolicyFromString(bridgeCfg.BudgetPolicy),
@@ -525,8 +515,12 @@ func (s *Server) findInterceptionLineage(ctx context.Context, toolCallID string)
 }
 
 func (s *Server) GetMCPServerConfigs(_ context.Context, _ *proto.GetMCPServerConfigsRequest) (*proto.GetMCPServerConfigsResponse, error) {
-	cfgs := make([]*proto.MCPServerConfig, 0, len(s.externalAuthConfigs))
-	for _, eac := range s.externalAuthConfigs {
+	allConfigs := s.externalAuthRegistry.List()
+	cfgs := make([]*proto.MCPServerConfig, 0, len(allConfigs))
+	for _, eac := range allConfigs {
+		if eac.MCPURL == "" {
+			continue
+		}
 		var allowlist, denylist string
 		if eac.MCPToolAllowRegex != nil {
 			allowlist = eac.MCPToolAllowRegex.String()
@@ -586,8 +580,8 @@ func (s *Server) GetMCPServerAccessTokensBatch(ctx context.Context, in *proto.Ge
 
 externalAuthLoop:
 	for _, id := range ids {
-		eac, ok := s.externalAuthConfigs[id]
-		if !ok {
+		eac, ok := s.externalAuthRegistry.Get(id)
+		if !ok || eac.MCPURL == "" {
 			mu.Lock()
 			s.logger.Warn(ctx, "no MCP server config found by given ID", slog.F("id", id))
 			tokenErrs[id] = ErrNoMCPConfigFound.Error()
