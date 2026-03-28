@@ -2022,6 +2022,17 @@ func New(options *Options) *API {
 				options.PrometheusRegistry, promhttp.HandlerFor(options.PrometheusRegistry, promhttp.HandlerOpts{}),
 			).ServeHTTP)
 		})
+		// Manage external authentication provider configurations.
+		r.Route("/external-auth-providers", func(r chi.Router) {
+			r.Use(apiKeyMiddleware)
+			r.Get("/", api.externalAuthProviders())
+			r.Post("/", api.postExternalAuthProvider())
+			r.Route("/{externalAuthProvider}", func(r chi.Router) {
+				r.Get("/", api.externalAuthProvider())
+				r.Put("/", api.putExternalAuthProvider())
+				r.Delete("/", api.deleteExternalAuthProvider())
+			})
+		})
 		// Manage OAuth2 applications that can use Coder as an OAuth2 provider.
 		r.Route("/oauth2-provider", func(r chi.Router) {
 			r.Use(
