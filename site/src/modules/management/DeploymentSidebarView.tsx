@@ -1,20 +1,17 @@
 import { ArrowUpRightIcon } from "lucide-react";
 import type { FC } from "react";
-import type { BuildInfoResponse, Experiment } from "#/api/typesGenerated";
 import {
 	Sidebar as BaseSidebar,
 	SettingsSidebarNavItem as SidebarNavItem,
 } from "#/components/Sidebar/Sidebar";
 import type { Permissions } from "#/modules/permissions";
-import { getPrereleaseFlag } from "#/utils/buildInfo";
+>>>>>>> 244569afed (feat(site): promote OAuth2 Applications sidebar item to GA visibility)
 
 interface DeploymentSidebarViewProps {
 	/** Site-wide permissions. */
 	permissions: Permissions;
 	showOrganizations: boolean;
 	hasPremiumLicense: boolean;
-	experiments: Experiment[];
-	buildInfo: BuildInfoResponse;
 }
 
 /**
@@ -25,8 +22,6 @@ export const DeploymentSidebarView: FC<DeploymentSidebarViewProps> = ({
 	permissions,
 	showOrganizations,
 	hasPremiumLicense,
-	experiments,
-	buildInfo,
 }) => {
 	return (
 		<BaseSidebar>
@@ -52,6 +47,7 @@ export const DeploymentSidebarView: FC<DeploymentSidebarViewProps> = ({
 						External Authentication
 					</SidebarNavItem>
 				)}
+<<<<<<< HEAD
 				{permissions.viewDeploymentConfig &&
 					(experiments.includes("oauth2") ||
 						getPrereleaseFlag(buildInfo) === "devel") && (
@@ -59,6 +55,12 @@ export const DeploymentSidebarView: FC<DeploymentSidebarViewProps> = ({
 							OAuth2 Applications
 						</SidebarNavItem>
 					)}
+=======
+				{permissions.viewDeploymentConfig && (
+					<SidebarNavItem href="/deployment/oauth2-provider/apps">
+						OAuth2 Applications
+					</SidebarNavItem>
+				)}
 				{permissions.viewDeploymentConfig && (
 					<SidebarNavItem href="/deployment/network">Network</SidebarNavItem>
 				)}
