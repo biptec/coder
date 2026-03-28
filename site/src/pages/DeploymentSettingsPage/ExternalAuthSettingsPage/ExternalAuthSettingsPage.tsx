@@ -28,7 +28,7 @@ const ExternalAuthSettingsPage: FC = () => {
 				error={providersQuery.error}
 				canCreateProvider={canCreateProvider}
 				onDeleteProvider={(id) => deleteProviderMutation.mutate(id)}
-				deleteProviderLoading={deleteProviderMutation.isLoading}
+				deleteProviderLoading={deleteProviderMutation.isPending}
 			/>
 		</>
 	);
