@@ -54,6 +54,10 @@ const (
 	ResourceTypeChat                 ResourceType = "chat"
 	ResourceTypeUserSecret           ResourceType = "user_secret"
 	ResourceTypeUserSkill            ResourceType = "user_skill"
+	ResourceTypeWorkspaceApp ResourceType = "workspace_app"
+	ResourceTypeTask                        ResourceType = "task"
+	ResourceTypeAISeat                      ResourceType = "ai_seat"
+	ResourceTypeExternalAuthProviderConfig ResourceType = "external_auth_provider_config"
 )
 
 func (r ResourceType) FriendlyString() string {
@@ -130,6 +134,8 @@ func (r ResourceType) FriendlyString() string {
 		return "user secret"
 	case ResourceTypeUserSkill:
 		return "user skill"
+	case ResourceTypeExternalAuthProviderConfig:
+		return "external auth provider config"
 	default:
 		return "unknown"
 	}

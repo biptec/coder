@@ -13928,6 +13928,477 @@ func (q *sqlQuerier) UpdateExternalAuthLinkRefreshToken(ctx context.Context, arg
 	return err
 }
 
+const deleteExternalAuthProviderConfig = `-- name: DeleteExternalAuthProviderConfig :exec
+DELETE FROM external_auth_provider_configs WHERE id = $1
+`
+
+func (q *sqlQuerier) DeleteExternalAuthProviderConfig(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, deleteExternalAuthProviderConfig, id)
+	return err
+}
+
+const getExternalAuthProviderConfigByID = `-- name: GetExternalAuthProviderConfigByID :one
+SELECT id, created_at, updated_at, provider_id, type, display_name, display_icon, client_id, client_secret_encrypted, client_secret_key_id, auth_url, token_url, validate_url, revoke_url, device_code_url, scopes, extra_token_keys, no_refresh, device_flow, regex, app_install_url, app_installations_url, code_challenge_methods, source FROM external_auth_provider_configs WHERE id = $1
+`
+
+func (q *sqlQuerier) GetExternalAuthProviderConfigByID(ctx context.Context, id uuid.UUID) (ExternalAuthProviderConfig, error) {
+	row := q.db.QueryRowContext(ctx, getExternalAuthProviderConfigByID, id)
+	var i ExternalAuthProviderConfig
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ProviderID,
+		&i.Type,
+		&i.DisplayName,
+		&i.DisplayIcon,
+		&i.ClientID,
+		&i.ClientSecretEncrypted,
+		&i.ClientSecretKeyID,
+		&i.AuthUrl,
+		&i.TokenUrl,
+		&i.ValidateUrl,
+		&i.RevokeUrl,
+		&i.DeviceCodeUrl,
+		pq.Array(&i.Scopes),
+		pq.Array(&i.ExtraTokenKeys),
+		&i.NoRefresh,
+		&i.DeviceFlow,
+		&i.Regex,
+		&i.AppInstallUrl,
+		&i.AppInstallationsUrl,
+		pq.Array(&i.CodeChallengeMethods),
+		&i.Source,
+	)
+	return i, err
+}
+
+const getExternalAuthProviderConfigByProviderID = `-- name: GetExternalAuthProviderConfigByProviderID :one
+SELECT id, created_at, updated_at, provider_id, type, display_name, display_icon, client_id, client_secret_encrypted, client_secret_key_id, auth_url, token_url, validate_url, revoke_url, device_code_url, scopes, extra_token_keys, no_refresh, device_flow, regex, app_install_url, app_installations_url, code_challenge_methods, source FROM external_auth_provider_configs WHERE provider_id = $1
+`
+
+func (q *sqlQuerier) GetExternalAuthProviderConfigByProviderID(ctx context.Context, providerID string) (ExternalAuthProviderConfig, error) {
+	row := q.db.QueryRowContext(ctx, getExternalAuthProviderConfigByProviderID, providerID)
+	var i ExternalAuthProviderConfig
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ProviderID,
+		&i.Type,
+		&i.DisplayName,
+		&i.DisplayIcon,
+		&i.ClientID,
+		&i.ClientSecretEncrypted,
+		&i.ClientSecretKeyID,
+		&i.AuthUrl,
+		&i.TokenUrl,
+		&i.ValidateUrl,
+		&i.RevokeUrl,
+		&i.DeviceCodeUrl,
+		pq.Array(&i.Scopes),
+		pq.Array(&i.ExtraTokenKeys),
+		&i.NoRefresh,
+		&i.DeviceFlow,
+		&i.Regex,
+		&i.AppInstallUrl,
+		&i.AppInstallationsUrl,
+		pq.Array(&i.CodeChallengeMethods),
+		&i.Source,
+	)
+	return i, err
+}
+
+const getExternalAuthProviderConfigs = `-- name: GetExternalAuthProviderConfigs :many
+SELECT id, created_at, updated_at, provider_id, type, display_name, display_icon, client_id, client_secret_encrypted, client_secret_key_id, auth_url, token_url, validate_url, revoke_url, device_code_url, scopes, extra_token_keys, no_refresh, device_flow, regex, app_install_url, app_installations_url, code_challenge_methods, source FROM external_auth_provider_configs ORDER BY (display_name, provider_id) ASC
+`
+
+func (q *sqlQuerier) GetExternalAuthProviderConfigs(ctx context.Context) ([]ExternalAuthProviderConfig, error) {
+	rows, err := q.db.QueryContext(ctx, getExternalAuthProviderConfigs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ExternalAuthProviderConfig
+	for rows.Next() {
+		var i ExternalAuthProviderConfig
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ProviderID,
+			&i.Type,
+			&i.DisplayName,
+			&i.DisplayIcon,
+			&i.ClientID,
+			&i.ClientSecretEncrypted,
+			&i.ClientSecretKeyID,
+			&i.AuthUrl,
+			&i.TokenUrl,
+			&i.ValidateUrl,
+			&i.RevokeUrl,
+			&i.DeviceCodeUrl,
+			pq.Array(&i.Scopes),
+			pq.Array(&i.ExtraTokenKeys),
+			&i.NoRefresh,
+			&i.DeviceFlow,
+			&i.Regex,
+			&i.AppInstallUrl,
+			&i.AppInstallationsUrl,
+			pq.Array(&i.CodeChallengeMethods),
+			&i.Source,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const insertExternalAuthProviderConfig = `-- name: InsertExternalAuthProviderConfig :one
+INSERT INTO external_auth_provider_configs (
+    id, created_at, updated_at,
+    provider_id, type, display_name, display_icon,
+    client_id, client_secret_encrypted, client_secret_key_id,
+    auth_url, token_url, validate_url, revoke_url, device_code_url,
+    scopes, extra_token_keys, no_refresh, device_flow, regex,
+    app_install_url, app_installations_url,
+    code_challenge_methods,
+    source
+) VALUES (
+    $1, $2, $3,
+    $4, $5, $6, $7,
+    $8, $9, $10,
+    $11, $12, $13, $14, $15,
+    $16, $17, $18, $19, $20,
+    $21, $22,
+    $23,
+    $24
+) RETURNING id, created_at, updated_at, provider_id, type, display_name, display_icon, client_id, client_secret_encrypted, client_secret_key_id, auth_url, token_url, validate_url, revoke_url, device_code_url, scopes, extra_token_keys, no_refresh, device_flow, regex, app_install_url, app_installations_url, code_challenge_methods, source
+`
+
+type InsertExternalAuthProviderConfigParams struct {
+	ID                    uuid.UUID      `db:"id" json:"id"`
+	CreatedAt             time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt             time.Time      `db:"updated_at" json:"updated_at"`
+	ProviderID            string         `db:"provider_id" json:"provider_id"`
+	Type                  string         `db:"type" json:"type"`
+	DisplayName           string         `db:"display_name" json:"display_name"`
+	DisplayIcon           string         `db:"display_icon" json:"display_icon"`
+	ClientID              string         `db:"client_id" json:"client_id"`
+	ClientSecretEncrypted string         `db:"client_secret_encrypted" json:"client_secret_encrypted"`
+	ClientSecretKeyID     sql.NullString `db:"client_secret_key_id" json:"client_secret_key_id"`
+	AuthUrl               string         `db:"auth_url" json:"auth_url"`
+	TokenUrl              string         `db:"token_url" json:"token_url"`
+	ValidateUrl           string         `db:"validate_url" json:"validate_url"`
+	RevokeUrl             string         `db:"revoke_url" json:"revoke_url"`
+	DeviceCodeUrl         string         `db:"device_code_url" json:"device_code_url"`
+	Scopes                []string       `db:"scopes" json:"scopes"`
+	ExtraTokenKeys        []string       `db:"extra_token_keys" json:"extra_token_keys"`
+	NoRefresh             bool           `db:"no_refresh" json:"no_refresh"`
+	DeviceFlow            bool           `db:"device_flow" json:"device_flow"`
+	Regex                 string         `db:"regex" json:"regex"`
+	AppInstallUrl         string         `db:"app_install_url" json:"app_install_url"`
+	AppInstallationsUrl   string         `db:"app_installations_url" json:"app_installations_url"`
+	CodeChallengeMethods  []string       `db:"code_challenge_methods" json:"code_challenge_methods"`
+	Source                string         `db:"source" json:"source"`
+}
+
+func (q *sqlQuerier) InsertExternalAuthProviderConfig(ctx context.Context, arg InsertExternalAuthProviderConfigParams) (ExternalAuthProviderConfig, error) {
+	row := q.db.QueryRowContext(ctx, insertExternalAuthProviderConfig,
+		arg.ID,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+		arg.ProviderID,
+		arg.Type,
+		arg.DisplayName,
+		arg.DisplayIcon,
+		arg.ClientID,
+		arg.ClientSecretEncrypted,
+		arg.ClientSecretKeyID,
+		arg.AuthUrl,
+		arg.TokenUrl,
+		arg.ValidateUrl,
+		arg.RevokeUrl,
+		arg.DeviceCodeUrl,
+		pq.Array(arg.Scopes),
+		pq.Array(arg.ExtraTokenKeys),
+		arg.NoRefresh,
+		arg.DeviceFlow,
+		arg.Regex,
+		arg.AppInstallUrl,
+		arg.AppInstallationsUrl,
+		pq.Array(arg.CodeChallengeMethods),
+		arg.Source,
+	)
+	var i ExternalAuthProviderConfig
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ProviderID,
+		&i.Type,
+		&i.DisplayName,
+		&i.DisplayIcon,
+		&i.ClientID,
+		&i.ClientSecretEncrypted,
+		&i.ClientSecretKeyID,
+		&i.AuthUrl,
+		&i.TokenUrl,
+		&i.ValidateUrl,
+		&i.RevokeUrl,
+		&i.DeviceCodeUrl,
+		pq.Array(&i.Scopes),
+		pq.Array(&i.ExtraTokenKeys),
+		&i.NoRefresh,
+		&i.DeviceFlow,
+		&i.Regex,
+		&i.AppInstallUrl,
+		&i.AppInstallationsUrl,
+		pq.Array(&i.CodeChallengeMethods),
+		&i.Source,
+	)
+	return i, err
+}
+
+const updateExternalAuthProviderConfig = `-- name: UpdateExternalAuthProviderConfig :one
+UPDATE external_auth_provider_configs SET
+    updated_at = $2,
+    type = $3,
+    display_name = $4,
+    display_icon = $5,
+    client_id = $6,
+    client_secret_encrypted = $7,
+    client_secret_key_id = $8,
+    auth_url = $9,
+    token_url = $10,
+    validate_url = $11,
+    revoke_url = $12,
+    device_code_url = $13,
+    scopes = $14,
+    extra_token_keys = $15,
+    no_refresh = $16,
+    device_flow = $17,
+    regex = $18,
+    app_install_url = $19,
+    app_installations_url = $20,
+    code_challenge_methods = $21,
+    source = $22
+WHERE id = $1 RETURNING id, created_at, updated_at, provider_id, type, display_name, display_icon, client_id, client_secret_encrypted, client_secret_key_id, auth_url, token_url, validate_url, revoke_url, device_code_url, scopes, extra_token_keys, no_refresh, device_flow, regex, app_install_url, app_installations_url, code_challenge_methods, source
+`
+
+type UpdateExternalAuthProviderConfigParams struct {
+	ID                    uuid.UUID      `db:"id" json:"id"`
+	UpdatedAt             time.Time      `db:"updated_at" json:"updated_at"`
+	Type                  string         `db:"type" json:"type"`
+	DisplayName           string         `db:"display_name" json:"display_name"`
+	DisplayIcon           string         `db:"display_icon" json:"display_icon"`
+	ClientID              string         `db:"client_id" json:"client_id"`
+	ClientSecretEncrypted string         `db:"client_secret_encrypted" json:"client_secret_encrypted"`
+	ClientSecretKeyID     sql.NullString `db:"client_secret_key_id" json:"client_secret_key_id"`
+	AuthUrl               string         `db:"auth_url" json:"auth_url"`
+	TokenUrl              string         `db:"token_url" json:"token_url"`
+	ValidateUrl           string         `db:"validate_url" json:"validate_url"`
+	RevokeUrl             string         `db:"revoke_url" json:"revoke_url"`
+	DeviceCodeUrl         string         `db:"device_code_url" json:"device_code_url"`
+	Scopes                []string       `db:"scopes" json:"scopes"`
+	ExtraTokenKeys        []string       `db:"extra_token_keys" json:"extra_token_keys"`
+	NoRefresh             bool           `db:"no_refresh" json:"no_refresh"`
+	DeviceFlow            bool           `db:"device_flow" json:"device_flow"`
+	Regex                 string         `db:"regex" json:"regex"`
+	AppInstallUrl         string         `db:"app_install_url" json:"app_install_url"`
+	AppInstallationsUrl   string         `db:"app_installations_url" json:"app_installations_url"`
+	CodeChallengeMethods  []string       `db:"code_challenge_methods" json:"code_challenge_methods"`
+	Source                string         `db:"source" json:"source"`
+}
+
+func (q *sqlQuerier) UpdateExternalAuthProviderConfig(ctx context.Context, arg UpdateExternalAuthProviderConfigParams) (ExternalAuthProviderConfig, error) {
+	row := q.db.QueryRowContext(ctx, updateExternalAuthProviderConfig,
+		arg.ID,
+		arg.UpdatedAt,
+		arg.Type,
+		arg.DisplayName,
+		arg.DisplayIcon,
+		arg.ClientID,
+		arg.ClientSecretEncrypted,
+		arg.ClientSecretKeyID,
+		arg.AuthUrl,
+		arg.TokenUrl,
+		arg.ValidateUrl,
+		arg.RevokeUrl,
+		arg.DeviceCodeUrl,
+		pq.Array(arg.Scopes),
+		pq.Array(arg.ExtraTokenKeys),
+		arg.NoRefresh,
+		arg.DeviceFlow,
+		arg.Regex,
+		arg.AppInstallUrl,
+		arg.AppInstallationsUrl,
+		pq.Array(arg.CodeChallengeMethods),
+		arg.Source,
+	)
+	var i ExternalAuthProviderConfig
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ProviderID,
+		&i.Type,
+		&i.DisplayName,
+		&i.DisplayIcon,
+		&i.ClientID,
+		&i.ClientSecretEncrypted,
+		&i.ClientSecretKeyID,
+		&i.AuthUrl,
+		&i.TokenUrl,
+		&i.ValidateUrl,
+		&i.RevokeUrl,
+		&i.DeviceCodeUrl,
+		pq.Array(&i.Scopes),
+		pq.Array(&i.ExtraTokenKeys),
+		&i.NoRefresh,
+		&i.DeviceFlow,
+		&i.Regex,
+		&i.AppInstallUrl,
+		&i.AppInstallationsUrl,
+		pq.Array(&i.CodeChallengeMethods),
+		&i.Source,
+	)
+	return i, err
+}
+
+const upsertExternalAuthProviderConfigFromEnv = `-- name: UpsertExternalAuthProviderConfigFromEnv :one
+INSERT INTO external_auth_provider_configs (
+    id, created_at, updated_at,
+    provider_id, type, display_name, display_icon,
+    client_id, client_secret_encrypted, client_secret_key_id,
+    auth_url, token_url, validate_url, revoke_url, device_code_url,
+    scopes, extra_token_keys, no_refresh, device_flow, regex,
+    app_install_url, app_installations_url,
+    code_challenge_methods,
+    source
+) VALUES (
+    $1, $2, $3,
+    $4, $5, $6, $7,
+    $8, $9, $10,
+    $11, $12, $13, $14, $15,
+    $16, $17, $18, $19, $20,
+    $21, $22,
+    $23,
+    'env'
+) ON CONFLICT (provider_id) DO UPDATE SET
+    updated_at = EXCLUDED.updated_at,
+    type = EXCLUDED.type,
+    display_name = EXCLUDED.display_name,
+    display_icon = EXCLUDED.display_icon,
+    client_id = EXCLUDED.client_id,
+    client_secret_encrypted = EXCLUDED.client_secret_encrypted,
+    client_secret_key_id = EXCLUDED.client_secret_key_id,
+    auth_url = EXCLUDED.auth_url,
+    token_url = EXCLUDED.token_url,
+    validate_url = EXCLUDED.validate_url,
+    revoke_url = EXCLUDED.revoke_url,
+    device_code_url = EXCLUDED.device_code_url,
+    scopes = EXCLUDED.scopes,
+    extra_token_keys = EXCLUDED.extra_token_keys,
+    no_refresh = EXCLUDED.no_refresh,
+    device_flow = EXCLUDED.device_flow,
+    regex = EXCLUDED.regex,
+    app_install_url = EXCLUDED.app_install_url,
+    app_installations_url = EXCLUDED.app_installations_url,
+    code_challenge_methods = EXCLUDED.code_challenge_methods,
+    source = 'env'
+RETURNING id, created_at, updated_at, provider_id, type, display_name, display_icon, client_id, client_secret_encrypted, client_secret_key_id, auth_url, token_url, validate_url, revoke_url, device_code_url, scopes, extra_token_keys, no_refresh, device_flow, regex, app_install_url, app_installations_url, code_challenge_methods, source
+`
+
+type UpsertExternalAuthProviderConfigFromEnvParams struct {
+	ID                    uuid.UUID      `db:"id" json:"id"`
+	CreatedAt             time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt             time.Time      `db:"updated_at" json:"updated_at"`
+	ProviderID            string         `db:"provider_id" json:"provider_id"`
+	Type                  string         `db:"type" json:"type"`
+	DisplayName           string         `db:"display_name" json:"display_name"`
+	DisplayIcon           string         `db:"display_icon" json:"display_icon"`
+	ClientID              string         `db:"client_id" json:"client_id"`
+	ClientSecretEncrypted string         `db:"client_secret_encrypted" json:"client_secret_encrypted"`
+	ClientSecretKeyID     sql.NullString `db:"client_secret_key_id" json:"client_secret_key_id"`
+	AuthUrl               string         `db:"auth_url" json:"auth_url"`
+	TokenUrl              string         `db:"token_url" json:"token_url"`
+	ValidateUrl           string         `db:"validate_url" json:"validate_url"`
+	RevokeUrl             string         `db:"revoke_url" json:"revoke_url"`
+	DeviceCodeUrl         string         `db:"device_code_url" json:"device_code_url"`
+	Scopes                []string       `db:"scopes" json:"scopes"`
+	ExtraTokenKeys        []string       `db:"extra_token_keys" json:"extra_token_keys"`
+	NoRefresh             bool           `db:"no_refresh" json:"no_refresh"`
+	DeviceFlow            bool           `db:"device_flow" json:"device_flow"`
+	Regex                 string         `db:"regex" json:"regex"`
+	AppInstallUrl         string         `db:"app_install_url" json:"app_install_url"`
+	AppInstallationsUrl   string         `db:"app_installations_url" json:"app_installations_url"`
+	CodeChallengeMethods  []string       `db:"code_challenge_methods" json:"code_challenge_methods"`
+}
+
+func (q *sqlQuerier) UpsertExternalAuthProviderConfigFromEnv(ctx context.Context, arg UpsertExternalAuthProviderConfigFromEnvParams) (ExternalAuthProviderConfig, error) {
+	row := q.db.QueryRowContext(ctx, upsertExternalAuthProviderConfigFromEnv,
+		arg.ID,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+		arg.ProviderID,
+		arg.Type,
+		arg.DisplayName,
+		arg.DisplayIcon,
+		arg.ClientID,
+		arg.ClientSecretEncrypted,
+		arg.ClientSecretKeyID,
+		arg.AuthUrl,
+		arg.TokenUrl,
+		arg.ValidateUrl,
+		arg.RevokeUrl,
+		arg.DeviceCodeUrl,
+		pq.Array(arg.Scopes),
+		pq.Array(arg.ExtraTokenKeys),
+		arg.NoRefresh,
+		arg.DeviceFlow,
+		arg.Regex,
+		arg.AppInstallUrl,
+		arg.AppInstallationsUrl,
+		pq.Array(arg.CodeChallengeMethods),
+	)
+	var i ExternalAuthProviderConfig
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ProviderID,
+		&i.Type,
+		&i.DisplayName,
+		&i.DisplayIcon,
+		&i.ClientID,
+		&i.ClientSecretEncrypted,
+		&i.ClientSecretKeyID,
+		&i.AuthUrl,
+		&i.TokenUrl,
+		&i.ValidateUrl,
+		&i.RevokeUrl,
+		&i.DeviceCodeUrl,
+		pq.Array(&i.Scopes),
+		pq.Array(&i.ExtraTokenKeys),
+		&i.NoRefresh,
+		&i.DeviceFlow,
+		&i.Regex,
+		&i.AppInstallUrl,
+		&i.AppInstallationsUrl,
+		pq.Array(&i.CodeChallengeMethods),
+		&i.Source,
+	)
+	return i, err
+}
+
 const getFileByHashAndCreator = `-- name: GetFileByHashAndCreator :one
 SELECT
 	hash, created_at, created_by, mimetype, data, id

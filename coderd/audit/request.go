@@ -156,6 +156,8 @@ func ResourceTarget[T Auditable](tgt T) string {
 		return typed.Name
 	case database.UserSkill:
 		return typed.Name
+	case database.ExternalAuthProviderConfig:
+		return typed.ProviderID
 	default:
 		panic(fmt.Sprintf("unknown resource %T for ResourceTarget", tgt))
 	}
@@ -237,6 +239,7 @@ func ResourceID[T Auditable](tgt T) uuid.UUID {
 	case database.UserSecret:
 		return typed.ID
 	case database.UserSkill:
+	case database.ExternalAuthProviderConfig:
 		return typed.ID
 	default:
 		panic(fmt.Sprintf("unknown resource %T for ResourceID", tgt))
@@ -311,6 +314,8 @@ func ResourceType[T Auditable](tgt T) database.ResourceType {
 		return database.ResourceTypeUserSecret
 	case database.UserSkill:
 		return database.ResourceTypeUserSkill
+	case database.ExternalAuthProviderConfig:
+		return database.ResourceTypeExternalAuthProviderConfig
 	default:
 		panic(fmt.Sprintf("unknown resource %T for ResourceType", typed))
 	}
@@ -397,6 +402,8 @@ func ResourceRequiresOrgID[T Auditable]() bool {
 		return false
 	case database.UserSkill:
 		// User skills are global to the user across organizations.
+	case database.ExternalAuthProviderConfig:
+		// Deployment-level config, not org-scoped.
 		return false
 	default:
 		panic(fmt.Sprintf("unknown resource %T for ResourceRequiresOrgID", tgt))
