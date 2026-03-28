@@ -98,3 +98,12 @@ INSERT INTO external_auth_provider_configs (
     code_challenge_methods = EXCLUDED.code_challenge_methods,
     source = 'env'
 RETURNING *;
+
+-- name: DeleteExternalAuthProviderConfigsBySourceNotInProviderIDs :exec
+-- Removes env-sourced external auth provider configs whose provider_id
+-- is not in the given list of active provider IDs. This is used during
+-- startup to clean up stale env-sourced rows that are no longer present
+-- in the deployment configuration.
+DELETE FROM external_auth_provider_configs
+WHERE source = 'env'
+  AND provider_id != ALL(@active_provider_ids::text[]);

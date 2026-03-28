@@ -114,6 +114,11 @@ type sqlcQuerier interface {
 	DeleteExpiredAPIKeys(ctx context.Context, arg DeleteExpiredAPIKeysParams) (int64, error)
 	DeleteExternalAuthLink(ctx context.Context, arg DeleteExternalAuthLinkParams) error
 	DeleteExternalAuthProviderConfig(ctx context.Context, id uuid.UUID) error
+	// Removes env-sourced external auth provider configs whose provider_id
+	// is not in the given list of active provider IDs. This is used during
+	// startup to clean up stale env-sourced rows that are no longer present
+	// in the deployment configuration.
+	DeleteExternalAuthProviderConfigsBySourceNotInProviderIDs(ctx context.Context, activeProviderIds []string) error
 	DeleteGroupByID(ctx context.Context, id uuid.UUID) error
 	DeleteGroupMemberFromGroup(ctx context.Context, arg DeleteGroupMemberFromGroupParams) error
 	DeleteLicense(ctx context.Context, id int32) (int32, error)

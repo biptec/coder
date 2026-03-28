@@ -67,6 +67,7 @@ import (
 	"github.com/coder/coder/v2/coderd/authlink"
 	"github.com/coder/coder/v2/coderd/autobuild"
 	"github.com/coder/coder/v2/coderd/database"
+	"github.com/coder/coder/v2/coderd/database/dbtime"
 	"github.com/coder/coder/v2/coderd/database/awsiamrds"
 	"github.com/coder/coder/v2/coderd/database/dbauthz"
 	"github.com/coder/coder/v2/coderd/database/dbmetrics"
@@ -1164,6 +1165,40 @@ func (r *RootCmd) Server(newAPI func(context.Context, *coderd.Options) (*coderd.
 				// release pool/recorder resources at shutdown.
 				defer aibridgeDaemon.Close()
 				defer unsubscribeProviderReload()
+			}
+
+			// Sync env/YAML external auth providers to the DB and
+			// reload all providers (env + DB-sourced). This must
+			// happen after newAPI because the enterprise coderd wraps
+			// the database with dbcrypt for secret encryption.
+			{
+				// nolint:gocritic // Startup sync requires system privileges
+				// to upsert and clean up external auth provider configs.
+				reloadedProviders, syncErr := SyncAndLoadExternalAuthProviders(
+					dbauthz.AsSystemRestricted(ctx), logger, coderAPI.Database,
+					mergedExternalAuthProviders,
+				)
+				if syncErr != nil {
+					logger.Warn(ctx, "failed to sync external auth providers to database, using in-memory config",
+						slog.Error(syncErr))
+				} else {
+					// Re-convert with the full set from the DB,
+					// which may include DB-only providers not in env.
+					newConfigs, convertErr := externalauth.ConvertConfig(
+						oauthInstrument,
+						reloadedProviders,
+						vals.AccessURL.Value(),
+					)
+					if convertErr != nil {
+						return xerrors.Errorf("convert reloaded external auth config: %w", convertErr)
+					}
+					coderAPI.ExternalAuthConfigs = newConfigs
+					for _, c := range newConfigs {
+						logger.Debug(ctx, "loaded external auth config from database",
+							slog.F("id", c.ID),
+						)
+					}
+				}
 			}
 
 			if vals.Prometheus.Enable {
@@ -2974,6 +3009,91 @@ func redirectHTTPToHTTPSDeprecation(ctx context.Context, logger slog.Logger, inv
 		logger.Warn(ctx, "⚠️ --tls-redirect-http-to-https is deprecated, please use --redirect-to-access-url instead")
 		cfg.RedirectToAccessURL = cfg.TLS.RedirectHTTP
 	}
+}
+
+// SyncAndLoadExternalAuthProviders syncs env/YAML-configured external
+// auth providers to the database and loads all providers (env +
+// DB-sourced) for runtime use. The database must have dbcrypt applied
+// before calling this function so that client secrets are encrypted
+// at rest.
+func SyncAndLoadExternalAuthProviders(
+	ctx context.Context,
+	logger slog.Logger,
+	db database.Store,
+	envProviders []codersdk.ExternalAuthConfig,
+) ([]codersdk.ExternalAuthConfig, error) {
+	// Step 1: Upsert each env provider into the DB.
+	activeProviderIDs := make([]string, 0, len(envProviders))
+	for _, p := range envProviders {
+		providerID := p.ID
+		if providerID == "" {
+			providerID = p.Type
+		}
+		activeProviderIDs = append(activeProviderIDs, providerID)
+
+		scopes := p.Scopes
+		if scopes == nil {
+			scopes = []string{}
+		}
+		extraTokenKeys := p.ExtraTokenKeys
+		if extraTokenKeys == nil {
+			extraTokenKeys = []string{}
+		}
+		codeChallengeMethods := p.CodeChallengeMethodsSupported
+		if codeChallengeMethods == nil {
+			codeChallengeMethods = []string{}
+		}
+
+		now := dbtime.Now()
+		_, err := db.UpsertExternalAuthProviderConfigFromEnv(ctx, database.UpsertExternalAuthProviderConfigFromEnvParams{
+			ID:                    uuid.New(),
+			CreatedAt:             now,
+			UpdatedAt:             now,
+			ProviderID:            providerID,
+			Type:                  p.Type,
+			ClientID:              p.ClientID,
+			ClientSecretEncrypted: p.ClientSecret,
+			AuthUrl:               p.AuthURL,
+			TokenUrl:              p.TokenURL,
+			ValidateUrl:           p.ValidateURL,
+			RevokeUrl:             p.RevokeURL,
+			DeviceCodeUrl:         p.DeviceCodeURL,
+			Scopes:                scopes,
+			ExtraTokenKeys:        extraTokenKeys,
+			NoRefresh:             p.NoRefresh,
+			DeviceFlow:            p.DeviceFlow,
+			Regex:                 p.Regex,
+			DisplayName:           p.DisplayName,
+			DisplayIcon:           p.DisplayIcon,
+			AppInstallUrl:         p.AppInstallURL,
+			AppInstallationsUrl:   p.AppInstallationsURL,
+			CodeChallengeMethods:  codeChallengeMethods,
+		})
+		if err != nil {
+			return nil, xerrors.Errorf("upsert env external auth provider %q: %w", providerID, err)
+		}
+	}
+
+	// Step 2: Delete stale env-sourced rows that are no longer in
+	// the current configuration.
+	err := db.DeleteExternalAuthProviderConfigsBySourceNotInProviderIDs(ctx, activeProviderIDs)
+	if err != nil {
+		return nil, xerrors.Errorf("delete stale env external auth providers: %w", err)
+	}
+
+	// Step 3: Load all providers from DB (env + database-sourced).
+	dbConfigs, err := db.GetExternalAuthProviderConfigs(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("get external auth provider configs: %w", err)
+	}
+
+	// Step 4: Convert DB rows to SDK configs.
+	sdkConfigs := make([]codersdk.ExternalAuthConfig, 0, len(dbConfigs))
+	for _, cfg := range dbConfigs {
+		sdkConfigs = append(sdkConfigs, externalauth.ExternalAuthProviderConfigToSDK(cfg))
+	}
+
+	return sdkConfigs, nil
 }
 
 // ReadExternalAuthProvidersFromEnv is provided for compatibility purposes with

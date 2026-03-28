@@ -13937,6 +13937,21 @@ func (q *sqlQuerier) DeleteExternalAuthProviderConfig(ctx context.Context, id uu
 	return err
 }
 
+const deleteExternalAuthProviderConfigsBySourceNotInProviderIDs = `-- name: DeleteExternalAuthProviderConfigsBySourceNotInProviderIDs :exec
+DELETE FROM external_auth_provider_configs
+WHERE source = 'env'
+  AND provider_id != ALL($1::text[])
+`
+
+// Removes env-sourced external auth provider configs whose provider_id
+// is not in the given list of active provider IDs. This is used during
+// startup to clean up stale env-sourced rows that are no longer present
+// in the deployment configuration.
+func (q *sqlQuerier) DeleteExternalAuthProviderConfigsBySourceNotInProviderIDs(ctx context.Context, activeProviderIds []string) error {
+	_, err := q.db.ExecContext(ctx, deleteExternalAuthProviderConfigsBySourceNotInProviderIDs, pq.Array(activeProviderIds))
+	return err
+}
+
 const getExternalAuthProviderConfigByID = `-- name: GetExternalAuthProviderConfigByID :one
 SELECT id, created_at, updated_at, provider_id, type, display_name, display_icon, client_id, client_secret_encrypted, client_secret_key_id, auth_url, token_url, validate_url, revoke_url, device_code_url, scopes, extra_token_keys, no_refresh, device_flow, regex, app_install_url, app_installations_url, code_challenge_methods, source FROM external_auth_provider_configs WHERE id = $1
 `

@@ -1962,6 +1962,13 @@ func (q *querier) DeleteExternalAuthProviderConfig(ctx context.Context, id uuid.
 	return q.db.DeleteExternalAuthProviderConfig(ctx, id)
 }
 
+func (q *querier) DeleteExternalAuthProviderConfigsBySourceNotInProviderIDs(ctx context.Context, activeProviderIds []string) error {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceDeploymentConfig); err != nil {
+		return err
+	}
+	return q.db.DeleteExternalAuthProviderConfigsBySourceNotInProviderIDs(ctx, activeProviderIds)
+}
+
 func (q *querier) DeleteGroupByID(ctx context.Context, id uuid.UUID) error {
 	return deleteQ(q.log, q.auth, q.db.GetGroupByID, q.db.DeleteGroupByID)(ctx, id)
 }

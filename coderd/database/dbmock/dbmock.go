@@ -843,6 +843,20 @@ func (mr *MockStoreMockRecorder) DeleteExternalAuthProviderConfig(ctx, id any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteExternalAuthProviderConfig", reflect.TypeOf((*MockStore)(nil).DeleteExternalAuthProviderConfig), ctx, id)
 }
 
+// DeleteExternalAuthProviderConfigsBySourceNotInProviderIDs mocks base method.
+func (m *MockStore) DeleteExternalAuthProviderConfigsBySourceNotInProviderIDs(ctx context.Context, activeProviderIds []string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteExternalAuthProviderConfigsBySourceNotInProviderIDs", ctx, activeProviderIds)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteExternalAuthProviderConfigsBySourceNotInProviderIDs indicates an expected call of DeleteExternalAuthProviderConfigsBySourceNotInProviderIDs.
+func (mr *MockStoreMockRecorder) DeleteExternalAuthProviderConfigsBySourceNotInProviderIDs(ctx, activeProviderIds any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteExternalAuthProviderConfigsBySourceNotInProviderIDs", reflect.TypeOf((*MockStore)(nil).DeleteExternalAuthProviderConfigsBySourceNotInProviderIDs), ctx, activeProviderIds)
+}
+
 // DeleteGroupByID mocks base method.
 func (m *MockStore) DeleteGroupByID(ctx context.Context, id uuid.UUID) error {
 	m.ctrl.T.Helper()

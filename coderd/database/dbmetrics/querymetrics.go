@@ -512,6 +512,14 @@ func (m queryMetricsStore) DeleteExternalAuthProviderConfig(ctx context.Context,
 	return r0
 }
 
+func (m queryMetricsStore) DeleteExternalAuthProviderConfigsBySourceNotInProviderIDs(ctx context.Context, activeProviderIds []string) error {
+	start := time.Now()
+	r0 := m.s.DeleteExternalAuthProviderConfigsBySourceNotInProviderIDs(ctx, activeProviderIds)
+	m.queryLatencies.WithLabelValues("DeleteExternalAuthProviderConfigsBySourceNotInProviderIDs").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "DeleteExternalAuthProviderConfigsBySourceNotInProviderIDs").Inc()
+	return r0
+}
+
 func (m queryMetricsStore) DeleteGroupByID(ctx context.Context, id uuid.UUID) error {
 	start := time.Now()
 	r0 := m.s.DeleteGroupByID(ctx, id)
