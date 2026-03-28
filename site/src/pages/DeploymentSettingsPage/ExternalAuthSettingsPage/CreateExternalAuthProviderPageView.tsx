@@ -50,7 +50,13 @@ export const CreateExternalAuthProviderPageView: FC<
 			<Stack>
 				{error ? <ErrorAlert error={error} /> : undefined}
 				<ExternalAuthProviderForm
-					onSubmit={createProvider}
+					onSubmit={
+						createProvider as (
+							data:
+								| TypesGen.CreateExternalAuthProviderRequest
+								| TypesGen.UpdateExternalAuthProviderRequest,
+						) => void
+					}
 					isSubmitting={isSubmitting}
 					error={error}
 					disabled={!canEdit}

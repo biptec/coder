@@ -676,6 +676,14 @@ export const router = createBrowserRouter(
 									)
 								}
 							/>
+							<Route
+								path=":providerId"
+								lazy={() =>
+									import(
+										"./pages/DeploymentSettingsPage/ExternalAuthSettingsPage/EditExternalAuthProviderPage"
+									)
+								}
+							/>
 						</Route>
 						<Route path="oauth2-provider">
 							<Route index element={<NotFoundPage />} />

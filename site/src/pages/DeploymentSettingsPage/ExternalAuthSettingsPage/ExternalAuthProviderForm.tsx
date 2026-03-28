@@ -8,6 +8,10 @@ import type * as TypesGen from "#/api/typesGenerated";
 import { Button } from "#/components/Button/Button";
 import { Spinner } from "#/components/Spinner/Spinner";
 
+type FormSubmitData =
+	| TypesGen.CreateExternalAuthProviderRequest
+	| TypesGen.UpdateExternalAuthProviderRequest;
+
 const PROVIDER_PRESETS: Record<
 	string,
 	{ displayName: string; displayIcon: string }
@@ -36,10 +40,12 @@ const PROVIDER_PRESETS: Record<
 };
 
 type ExternalAuthProviderFormProps = {
-	onSubmit: (data: TypesGen.CreateExternalAuthProviderRequest) => void;
+	onSubmit: (data: FormSubmitData) => void;
 	error?: unknown;
 	isSubmitting: boolean;
 	disabled?: boolean;
+	initialValues?: TypesGen.ExternalAuthProviderEntry;
+	isEditing?: boolean;
 };
 
 export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
@@ -47,9 +53,16 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 	error,
 	isSubmitting,
 	disabled,
+	initialValues,
+	isEditing = false,
 }) => {
-	const [selectedType, setSelectedType] = useState("");
-	const [deviceFlow, setDeviceFlow] = useState(false);
+	const [selectedType, setSelectedType] = useState(
+		initialValues?.type ?? "",
+	);
+	const [deviceFlow, setDeviceFlow] = useState(
+		initialValues?.device_flow ?? false,
+	);
+	const [changeSecret, setChangeSecret] = useState(!isEditing);
 	const formRef = useRef<HTMLFormElement>(null);
 
 	const apiValidationErrors = isApiValidationError(error)
@@ -102,13 +115,12 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 			onSubmit={(event) => {
 				event.preventDefault();
 				const formData = new FormData(event.target as HTMLFormElement);
-				onSubmit({
-					provider_id: (formData.get("provider_id") as string) || "",
+
+				const sharedFields = {
 					type: selectedType || "custom",
 					display_name: (formData.get("display_name") as string) || "",
 					display_icon: (formData.get("display_icon") as string) || "",
 					client_id: (formData.get("client_id") as string) || "",
-					client_secret: (formData.get("client_secret") as string) || "",
 					auth_url: (formData.get("auth_url") as string) || "",
 					token_url: (formData.get("token_url") as string) || "",
 					validate_url: (formData.get("validate_url") as string) || "",
@@ -130,7 +142,28 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 					code_challenge_methods: splitCommaSeparated(
 						(formData.get("code_challenge_methods") as string) || "",
 					),
-				});
+				};
+
+				if (isEditing) {
+					// In edit mode, only include client_secret when the
+					// user explicitly chose to change it.
+					const updateData: TypesGen.UpdateExternalAuthProviderRequest = {
+						...sharedFields,
+						...(changeSecret
+							? {
+									client_secret:
+										(formData.get("client_secret") as string) || "",
+								}
+							: {}),
+					};
+					onSubmit(updateData);
+				} else {
+					onSubmit({
+						...sharedFields,
+						provider_id: (formData.get("provider_id") as string) || "",
+						client_secret: (formData.get("client_secret") as string) || "",
+					});
+				}
 			}}
 		>
 			<div className="flex flex-col gap-5">
@@ -140,8 +173,12 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 					label="Provider Type"
 					value={selectedType}
 					onChange={(e) => handleTypeChange(e.target.value)}
-					helperText="Select a preset provider or choose Custom."
-					disabled={disabled}
+					helperText={
+						isEditing
+							? "The provider type cannot be changed after creation."
+							: "Select a preset provider or choose Custom."
+					}
+					disabled={disabled || isEditing}
 					fullWidth
 				>
 					<MenuItem value="">Custom</MenuItem>
@@ -157,18 +194,22 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 					name="provider_id"
 					label="Provider ID"
 					required
+					defaultValue={initialValues?.provider_id}
 					error={Boolean(apiValidationErrors?.provider_id)}
 					helperText={
 						apiValidationErrors?.provider_id ||
-						"A unique identifier for this provider (e.g. github, my-gitlab)."
+						(isEditing
+							? "The provider ID cannot be changed."
+							: "A unique identifier for this provider (e.g. github, my-gitlab).")
 					}
-					disabled={disabled}
-					autoFocus
+					disabled={disabled || isEditing}
+					autoFocus={!isEditing}
 					fullWidth
 				/>
 				<TextField
 					name="display_name"
 					label="Display Name"
+					defaultValue={initialValues?.display_name}
 					error={Boolean(apiValidationErrors?.display_name)}
 					helperText={
 						apiValidationErrors?.display_name ||
@@ -180,6 +221,7 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 				<TextField
 					name="display_icon"
 					label="Display Icon URL"
+					defaultValue={initialValues?.display_icon}
 					error={Boolean(apiValidationErrors?.display_icon)}
 					helperText={
 						apiValidationErrors?.display_icon ||
@@ -192,6 +234,7 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 					name="client_id"
 					label="Client ID"
 					required
+					defaultValue={initialValues?.client_id}
 					error={Boolean(apiValidationErrors?.client_id)}
 					helperText={
 						apiValidationErrors?.client_id ||
@@ -200,18 +243,39 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 					disabled={disabled}
 					fullWidth
 				/>
-				<TextField
-					name="client_secret"
-					label="Client Secret"
-					type="password"
-					error={Boolean(apiValidationErrors?.client_secret)}
-					helperText={
-						apiValidationErrors?.client_secret ||
-						"The OAuth2 client secret for this provider."
-					}
-					disabled={disabled}
-					fullWidth
-				/>
+				{isEditing && !changeSecret ? (
+					<div className="flex items-center gap-2">
+						<TextField
+							disabled
+							fullWidth
+							label="Client Secret"
+							value="••••••••"
+							helperText="The existing secret is preserved unless you change it."
+						/>
+						<Button
+							variant="outline"
+							type="button"
+							disabled={disabled}
+							onClick={() => setChangeSecret(true)}
+						>
+							Change
+						</Button>
+					</div>
+				) : (
+					<TextField
+						name="client_secret"
+						label="Client Secret"
+						type="password"
+						autoFocus={isEditing && changeSecret}
+						error={Boolean(apiValidationErrors?.client_secret)}
+						helperText={
+							apiValidationErrors?.client_secret ||
+							"The OAuth2 client secret for this provider."
+						}
+						disabled={disabled}
+						fullWidth
+					/>
+				)}
 
 				{/* Endpoints */}
 				<h4 className="m-0 text-sm font-medium text-content-secondary">
@@ -220,6 +284,7 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 				<TextField
 					name="auth_url"
 					label="Auth URL"
+					defaultValue={initialValues?.auth_url}
 					error={Boolean(apiValidationErrors?.auth_url)}
 					helperText={
 						apiValidationErrors?.auth_url ||
@@ -231,6 +296,7 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 				<TextField
 					name="token_url"
 					label="Token URL"
+					defaultValue={initialValues?.token_url}
 					error={Boolean(apiValidationErrors?.token_url)}
 					helperText={
 						apiValidationErrors?.token_url || "The token endpoint URL."
@@ -241,6 +307,7 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 				<TextField
 					name="validate_url"
 					label="Validate URL"
+					defaultValue={initialValues?.validate_url}
 					error={Boolean(apiValidationErrors?.validate_url)}
 					helperText={
 						apiValidationErrors?.validate_url ||
@@ -252,6 +319,7 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 				<TextField
 					name="revoke_url"
 					label="Revoke URL"
+					defaultValue={initialValues?.revoke_url}
 					error={Boolean(apiValidationErrors?.revoke_url)}
 					helperText={
 						apiValidationErrors?.revoke_url ||
@@ -268,6 +336,7 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 				<TextField
 					name="scopes"
 					label="Scopes"
+					defaultValue={initialValues?.scopes?.join(", ")}
 					error={Boolean(apiValidationErrors?.scopes)}
 					helperText={
 						apiValidationErrors?.scopes ||
@@ -279,6 +348,7 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 				<TextField
 					name="regex"
 					label="Regex"
+					defaultValue={initialValues?.regex}
 					error={Boolean(apiValidationErrors?.regex)}
 					helperText={
 						apiValidationErrors?.regex ||
@@ -307,6 +377,7 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 					<TextField
 						name="device_code_url"
 						label="Device Code URL"
+						defaultValue={initialValues?.device_code_url}
 						error={Boolean(apiValidationErrors?.device_code_url)}
 						helperText={
 							apiValidationErrors?.device_code_url ||
@@ -323,13 +394,18 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 				</h4>
 				<FormControlLabel
 					control={
-						<Checkbox name="no_refresh" disabled={disabled} />
+						<Checkbox
+							name="no_refresh"
+							defaultChecked={initialValues?.no_refresh}
+							disabled={disabled}
+						/>
 					}
 					label="No Refresh (disable token refresh)"
 				/>
 				<TextField
 					name="extra_token_keys"
 					label="Extra Token Keys"
+					defaultValue={initialValues?.extra_token_keys?.join(", ")}
 					error={Boolean(apiValidationErrors?.extra_token_keys)}
 					helperText={
 						apiValidationErrors?.extra_token_keys ||
@@ -341,6 +417,7 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 				<TextField
 					name="code_challenge_methods"
 					label="Code Challenge Methods"
+					defaultValue={initialValues?.code_challenge_methods?.join(", ")}
 					error={Boolean(apiValidationErrors?.code_challenge_methods)}
 					helperText={
 						apiValidationErrors?.code_challenge_methods ||
@@ -352,6 +429,7 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 				<TextField
 					name="app_install_url"
 					label="App Install URL"
+					defaultValue={initialValues?.app_install_url}
 					error={Boolean(apiValidationErrors?.app_install_url)}
 					helperText={
 						apiValidationErrors?.app_install_url ||
@@ -363,6 +441,7 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 				<TextField
 					name="app_installations_url"
 					label="App Installations URL"
+					defaultValue={initialValues?.app_installations_url}
 					error={Boolean(apiValidationErrors?.app_installations_url)}
 					helperText={
 						apiValidationErrors?.app_installations_url ||
@@ -378,7 +457,7 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 						type="submit"
 					>
 						<Spinner loading={isSubmitting} />
-						Create provider
+						{isEditing ? "Save changes" : "Create provider"}
 					</Button>
 				</div>
 			</div>

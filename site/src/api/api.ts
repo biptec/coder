@@ -2004,6 +2004,27 @@ class ApiMethods {
 		await this.axios.delete(`/api/v2/external-auth-providers/${id}`);
 	};
 
+	getExternalAuthProviderConfig = async (
+		id: string,
+	): Promise<TypesGen.ExternalAuthProviderEntry> => {
+		const res = await this.axios.get(
+			`/api/v2/external-auth-providers/${id}`,
+		);
+		return res.data;
+	};
+
+	updateExternalAuthProviderConfig = async (
+		id: string,
+		req: TypesGen.UpdateExternalAuthProviderRequest,
+	): Promise<TypesGen.ExternalAuthProviderEntry> => {
+		const res = await this.axios.put(
+			`/api/v2/external-auth-providers/${id}`,
+			req,
+		);
+		return res.data;
+	};
+
+
 	getExternalAuthProvider = async (
 		provider: string,
 	): Promise<TypesGen.ExternalAuth> => {
