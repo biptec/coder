@@ -109,6 +109,10 @@ const (
 
 	// EntitlementsWarnings contains active warnings for the user's entitlements.
 	EntitlementsWarningHeader = "X-Coder-Entitlements-Warning"
+
+	// CoderWarningHeader conveys non-fatal warnings to the client
+	// (e.g. a provider was saved but the runtime reload failed).
+	CoderWarningHeader = "X-Coder-Warning"
 )
 
 // loggableMimeTypes is a list of MIME types that are safe to log

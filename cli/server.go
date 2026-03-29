@@ -3079,6 +3079,11 @@ func SyncAndLoadExternalAuthProviders(
 			AppInstallationsUrl:   p.AppInstallationsURL,
 			CodeChallengeMethods:  codeChallengeMethods,
 		})
+		if errors.Is(err, sql.ErrNoRows) {
+			logger.Warn(ctx, "env provider_id collides with database-sourced provider, skipping",
+				slog.F("provider_id", providerID))
+			continue
+		}
 		if err != nil {
 			return nil, xerrors.Errorf("upsert env external auth provider %q: %w", providerID, err)
 		}

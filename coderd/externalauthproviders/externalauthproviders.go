@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"regexp"
 
 	"github.com/google/uuid"
 
@@ -84,6 +85,37 @@ func Create(db database.Store, registry *externalauth.Registry, auditor *audit.A
 			return
 		}
 
+		if err := codersdk.NameValid(req.ProviderID); err != nil {
+			httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
+				Message: "Invalid provider ID.",
+				Detail:  err.Error(),
+			})
+			return
+		}
+
+		if req.Regex != "" {
+			if _, err := regexp.Compile(req.Regex); err != nil {
+				httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
+					Message: "Invalid regex pattern.",
+					Detail:  err.Error(),
+				})
+				return
+			}
+		}
+
+		scopes := req.Scopes
+		if scopes == nil {
+			scopes = []string{}
+		}
+		extraTokenKeys := req.ExtraTokenKeys
+		if extraTokenKeys == nil {
+			extraTokenKeys = []string{}
+		}
+		codeChallengeMethods := req.CodeChallengeMethods
+		if codeChallengeMethods == nil {
+			codeChallengeMethods = []string{}
+		}
+
 		cfg, err := db.InsertExternalAuthProviderConfig(ctx, database.InsertExternalAuthProviderConfigParams{
 			ID:                    uuid.New(),
 			CreatedAt:             dbtime.Now(),
@@ -100,14 +132,14 @@ func Create(db database.Store, registry *externalauth.Registry, auditor *audit.A
 			ValidateUrl:           req.ValidateURL,
 			RevokeUrl:             req.RevokeURL,
 			DeviceCodeUrl:         req.DeviceCodeURL,
-			Scopes:                req.Scopes,
-			ExtraTokenKeys:        req.ExtraTokenKeys,
+			Scopes:                scopes,
+			ExtraTokenKeys:        extraTokenKeys,
 			NoRefresh:             req.NoRefresh,
 			DeviceFlow:            req.DeviceFlow,
 			Regex:                 req.Regex,
 			AppInstallUrl:         req.AppInstallURL,
 			AppInstallationsUrl:   req.AppInstallationsURL,
-			CodeChallengeMethods:  req.CodeChallengeMethods,
+			CodeChallengeMethods:  codeChallengeMethods,
 			Source:                "database",
 		})
 		if err != nil {
@@ -119,7 +151,9 @@ func Create(db database.Store, registry *externalauth.Registry, auditor *audit.A
 		}
 
 		if err := registry.Reload(ctx); err != nil {
-			logger.Error(ctx, "failed to reload external auth registry", slog.Error(err))
+			logger.Error(ctx, "failed to reload external auth registry after create", slog.Error(err))
+			rw.Header().Set(codersdk.CoderWarningHeader,
+				"Provider saved but runtime reload failed; restart may be required")
 		}
 
 		aReq.New = cfg
@@ -173,6 +207,29 @@ func Update(db database.Store, registry *externalauth.Registry, auditor *audit.A
 			return
 		}
 
+		if req.Regex != "" {
+			if _, err := regexp.Compile(req.Regex); err != nil {
+				httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
+					Message: "Invalid regex pattern.",
+					Detail:  err.Error(),
+				})
+				return
+			}
+		}
+
+		scopes := req.Scopes
+		if scopes == nil {
+			scopes = []string{}
+		}
+		extraTokenKeys := req.ExtraTokenKeys
+		if extraTokenKeys == nil {
+			extraTokenKeys = []string{}
+		}
+		codeChallengeMethods := req.CodeChallengeMethods
+		if codeChallengeMethods == nil {
+			codeChallengeMethods = []string{}
+		}
+
 		params := database.UpdateExternalAuthProviderConfigParams{
 			ID:                    id,
 			UpdatedAt:             dbtime.Now(),
@@ -187,14 +244,14 @@ func Update(db database.Store, registry *externalauth.Registry, auditor *audit.A
 			ValidateUrl:           req.ValidateURL,
 			RevokeUrl:             req.RevokeURL,
 			DeviceCodeUrl:         req.DeviceCodeURL,
-			Scopes:                req.Scopes,
-			ExtraTokenKeys:        req.ExtraTokenKeys,
+			Scopes:                scopes,
+			ExtraTokenKeys:        extraTokenKeys,
 			NoRefresh:             req.NoRefresh,
 			DeviceFlow:            req.DeviceFlow,
 			Regex:                 req.Regex,
 			AppInstallUrl:         req.AppInstallURL,
 			AppInstallationsUrl:   req.AppInstallationsURL,
-			CodeChallengeMethods:  req.CodeChallengeMethods,
+			CodeChallengeMethods:  codeChallengeMethods,
 			Source:                existing.Source,
 		}
 		if req.ClientSecret != nil {
@@ -205,6 +262,12 @@ func Update(db database.Store, registry *externalauth.Registry, auditor *audit.A
 		}
 
 		cfg, err := db.UpdateExternalAuthProviderConfig(ctx, params)
+		if errors.Is(err, sql.ErrNoRows) {
+			httpapi.Write(ctx, rw, http.StatusConflict, codersdk.Response{
+				Message: "Provider was modified concurrently.",
+			})
+			return
+		}
 		if err != nil {
 			httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 				Message: "Internal error updating external auth provider configuration.",
@@ -214,7 +277,9 @@ func Update(db database.Store, registry *externalauth.Registry, auditor *audit.A
 		}
 
 		if err := registry.Reload(ctx); err != nil {
-			logger.Error(ctx, "failed to reload external auth registry", slog.Error(err))
+			logger.Error(ctx, "failed to reload external auth registry after update", slog.Error(err))
+			rw.Header().Set(codersdk.CoderWarningHeader,
+				"Provider saved but runtime reload failed; restart may be required")
 		}
 
 		aReq.New = cfg
@@ -263,7 +328,7 @@ func Delete(db database.Store, registry *externalauth.Registry, auditor *audit.A
 
 		aReq.Old = existing
 
-		err = db.DeleteExternalAuthProviderConfig(ctx, id)
+		rowsAffected, err := db.DeleteExternalAuthProviderConfig(ctx, id)
 		if err != nil {
 			httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 				Message: "Internal error deleting external auth provider configuration.",
@@ -271,9 +336,17 @@ func Delete(db database.Store, registry *externalauth.Registry, auditor *audit.A
 			})
 			return
 		}
+		if rowsAffected == 0 {
+			httpapi.Write(ctx, rw, http.StatusConflict, codersdk.Response{
+				Message: "Provider was modified concurrently or is now env-sourced.",
+			})
+			return
+		}
 
 		if err := registry.Reload(ctx); err != nil {
-			logger.Error(ctx, "failed to reload external auth registry", slog.Error(err))
+			logger.Error(ctx, "failed to reload external auth registry after delete", slog.Error(err))
+			rw.Header().Set(codersdk.CoderWarningHeader,
+				"Provider deleted but runtime reload failed; restart may be required")
 		}
 
 		rw.WriteHeader(http.StatusNoContent)
