@@ -20,6 +20,7 @@ import (
 // via Reload.
 type Registry struct {
 	mu        sync.RWMutex
+	reloadMu  sync.Mutex         // serializes Reload() calls
 	providers map[string]*Config // keyed by Config.ID
 	ordered   []*Config          // preserves insertion order for List()
 
@@ -101,6 +102,9 @@ func (r *Registry) replace(configs []*Config) {
 // atomically replaces the registry contents. SetReloadDeps must
 // have been called first.
 func (r *Registry) Reload(ctx context.Context) error {
+	r.reloadMu.Lock()
+	defer r.reloadMu.Unlock()
+
 	r.mu.RLock()
 	db := r.db
 	instrument := r.instrument
@@ -124,9 +128,16 @@ func (r *Registry) Reload(ctx context.Context) error {
 		sdkConfigs = append(sdkConfigs, ExternalAuthProviderConfigToSDK(row))
 	}
 
-	configs, err := ConvertConfig(instrument, sdkConfigs, accessURL)
-	if err != nil {
-		return xerrors.Errorf("convert external auth configs: %w", err)
+	var configs []*Config
+	for _, sdkCfg := range sdkConfigs {
+		cfgs, err := ConvertConfig(instrument, []codersdk.ExternalAuthConfig{sdkCfg}, accessURL)
+		if err != nil {
+			r.logger.Warn(ctx, "skipping invalid external auth provider during reload",
+				slog.F("provider_id", sdkCfg.ID),
+				slog.Error(err))
+			continue
+		}
+		configs = append(configs, cfgs...)
 	}
 
 	r.Replace(configs)
