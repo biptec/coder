@@ -41,7 +41,7 @@ export const CreateExternalAuthProviderPageView: FC<
 
 				<Button variant="outline" asChild>
 					<RouterLink to="/deployment/external-auth">
-						<ChevronLeftIcon />
+						<ChevronLeftIcon aria-hidden="true" />
 						All External Auth Providers
 					</RouterLink>
 				</Button>
@@ -50,13 +50,13 @@ export const CreateExternalAuthProviderPageView: FC<
 			<Stack>
 				{error ? <ErrorAlert error={error} /> : undefined}
 				<ExternalAuthProviderForm
-					onSubmit={
-						createProvider as (
-							data:
-								| TypesGen.CreateExternalAuthProviderRequest
-								| TypesGen.UpdateExternalAuthProviderRequest,
-						) => void
-					}
+					onSubmit={(data) => {
+						// The form produces CreateExternalAuthProviderRequest
+						// when isEditing is false (the default).
+						createProvider(
+							data as TypesGen.CreateExternalAuthProviderRequest,
+						);
+					}}
 					isSubmitting={isSubmitting}
 					error={error}
 					disabled={!canEdit}

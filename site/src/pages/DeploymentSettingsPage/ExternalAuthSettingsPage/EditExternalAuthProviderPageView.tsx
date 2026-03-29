@@ -68,7 +68,7 @@ export const EditExternalAuthProviderPageView: FC<
 
 				<Button variant="outline" asChild>
 					<RouterLink to="/deployment/external-auth">
-						<ChevronLeftIcon />
+						<ChevronLeftIcon aria-hidden="true" />
 						All External Auth Providers
 					</RouterLink>
 				</Button>

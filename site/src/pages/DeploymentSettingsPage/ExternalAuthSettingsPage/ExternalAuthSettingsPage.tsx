@@ -1,5 +1,8 @@
 import type { FC } from "react";
 import { useMutation, useQuery, useQueryClient } from "react-query";
+import { toast } from "sonner";
+import { getErrorDetail } from "#/api/errors";
+import type { ExternalAuthProviderEntry } from "#/api/typesGenerated";
 import {
 	deleteExternalAuthProviderConfig,
 	externalAuthProviderConfigs,
@@ -27,7 +30,21 @@ const ExternalAuthSettingsPage: FC = () => {
 				isLoading={providersQuery.isLoading}
 				error={providersQuery.error}
 				canCreateProvider={canCreateProvider}
-				onDeleteProvider={(id) => deleteProviderMutation.mutate(id)}
+				onDeleteProvider={async (provider: ExternalAuthProviderEntry) => {
+					const displayName =
+						provider.display_name || provider.provider_id;
+					const mutation =
+						deleteProviderMutation.mutateAsync(provider.id);
+					toast.promise(mutation, {
+						loading: `Deleting external auth provider "${displayName}"...`,
+						success: `External auth provider "${displayName}" deleted.`,
+						error: (error) => ({
+							message: `Failed to delete external auth provider "${displayName}".`,
+							description: getErrorDetail(error),
+						}),
+					});
+					return mutation;
+				}}
 				deleteProviderLoading={deleteProviderMutation.isPending}
 			/>
 		</>

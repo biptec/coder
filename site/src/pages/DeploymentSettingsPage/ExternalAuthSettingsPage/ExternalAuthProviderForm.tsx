@@ -2,7 +2,8 @@ import Checkbox from "@mui/material/Checkbox";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import MenuItem from "@mui/material/MenuItem";
 import TextField from "@mui/material/TextField";
-import { type FC, useRef, useState } from "react";
+import { type FC, useState } from "react";
+import { Link } from "react-router";
 import { isApiValidationError, mapApiErrorToFieldErrors } from "#/api/errors";
 import type * as TypesGen from "#/api/typesGenerated";
 import { Button } from "#/components/Button/Button";
@@ -59,11 +60,19 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 	const [selectedType, setSelectedType] = useState(
 		initialValues?.type ?? "",
 	);
+	const [providerId, setProviderId] = useState(
+		initialValues?.provider_id ?? "",
+	);
+	const [displayName, setDisplayName] = useState(
+		initialValues?.display_name ?? "",
+	);
+	const [displayIcon, setDisplayIcon] = useState(
+		initialValues?.display_icon ?? "",
+	);
 	const [deviceFlow, setDeviceFlow] = useState(
 		initialValues?.device_flow ?? false,
 	);
 	const [changeSecret, setChangeSecret] = useState(!isEditing);
-	const formRef = useRef<HTMLFormElement>(null);
 
 	const apiValidationErrors = isApiValidationError(error)
 		? mapApiErrorToFieldErrors(error.response.data)
@@ -72,30 +81,13 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 	// When a preset type is selected, auto-fill fields.
 	const handleTypeChange = (value: string) => {
 		setSelectedType(value);
-		const form = formRef.current;
-		if (!form) return;
-
 		const preset = PROVIDER_PRESETS[value];
 		if (preset) {
-			const providerIdInput = form.elements.namedItem(
-				"provider_id",
-			) as HTMLInputElement | null;
-			const displayNameInput = form.elements.namedItem(
-				"display_name",
-			) as HTMLInputElement | null;
-			const displayIconInput = form.elements.namedItem(
-				"display_icon",
-			) as HTMLInputElement | null;
-
-			if (providerIdInput) {
-				providerIdInput.value = value;
+			if (!isEditing) {
+				setProviderId(value);
 			}
-			if (displayNameInput) {
-				displayNameInput.value = preset.displayName;
-			}
-			if (displayIconInput) {
-				displayIconInput.value = preset.displayIcon;
-			}
+			setDisplayName(preset.displayName);
+			setDisplayIcon(preset.displayIcon);
 		}
 	};
 
@@ -110,7 +102,6 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 
 	return (
 		<form
-			ref={formRef}
 			className="mt-2.5"
 			onSubmit={(event) => {
 				event.preventDefault();
@@ -194,7 +185,8 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 					name="provider_id"
 					label="Provider ID"
 					required
-					defaultValue={initialValues?.provider_id}
+					value={providerId}
+					onChange={(e) => setProviderId(e.target.value)}
 					error={Boolean(apiValidationErrors?.provider_id)}
 					helperText={
 						apiValidationErrors?.provider_id ||
@@ -209,7 +201,8 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 				<TextField
 					name="display_name"
 					label="Display Name"
-					defaultValue={initialValues?.display_name}
+					value={displayName}
+					onChange={(e) => setDisplayName(e.target.value)}
 					error={Boolean(apiValidationErrors?.display_name)}
 					helperText={
 						apiValidationErrors?.display_name ||
@@ -221,7 +214,8 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 				<TextField
 					name="display_icon"
 					label="Display Icon URL"
-					defaultValue={initialValues?.display_icon}
+					value={displayIcon}
+					onChange={(e) => setDisplayIcon(e.target.value)}
 					error={Boolean(apiValidationErrors?.display_icon)}
 					helperText={
 						apiValidationErrors?.display_icon ||
@@ -278,9 +272,9 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 				)}
 
 				{/* Endpoints */}
-				<h4 className="m-0 text-sm font-medium text-content-secondary">
+				<h3 className="m-0 text-sm font-medium text-content-secondary">
 					Endpoints
-				</h4>
+				</h3>
 				<TextField
 					name="auth_url"
 					label="Auth URL"
@@ -330,9 +324,9 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 				/>
 
 				{/* Scopes & Matching */}
-				<h4 className="m-0 text-sm font-medium text-content-secondary">
+				<h3 className="m-0 text-sm font-medium text-content-secondary">
 					Scopes & Matching
-				</h4>
+				</h3>
 				<TextField
 					name="scopes"
 					label="Scopes"
@@ -359,9 +353,9 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 				/>
 
 				{/* Device Flow */}
-				<h4 className="m-0 text-sm font-medium text-content-secondary">
+				<h3 className="m-0 text-sm font-medium text-content-secondary">
 					Device Flow
-				</h4>
+				</h3>
 				<FormControlLabel
 					control={
 						<Checkbox
@@ -389,9 +383,9 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 				)}
 
 				{/* Advanced */}
-				<h4 className="m-0 text-sm font-medium text-content-secondary">
+				<h3 className="m-0 text-sm font-medium text-content-secondary">
 					Advanced
-				</h4>
+				</h3>
 				<FormControlLabel
 					control={
 						<Checkbox
@@ -458,6 +452,9 @@ export const ExternalAuthProviderForm: FC<ExternalAuthProviderFormProps> = ({
 					>
 						<Spinner loading={isSubmitting} />
 						{isEditing ? "Save changes" : "Create provider"}
+					</Button>
+					<Button variant="outline" asChild>
+						<Link to="/deployment/external-auth">Cancel</Link>
 					</Button>
 				</div>
 			</div>

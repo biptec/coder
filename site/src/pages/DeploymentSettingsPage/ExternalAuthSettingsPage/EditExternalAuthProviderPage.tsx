@@ -1,6 +1,6 @@
 import type { FC } from "react";
 import { useMutation, useQuery, useQueryClient } from "react-query";
-import { useNavigate, useParams } from "react-router";
+import { Navigate, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { getErrorDetail } from "#/api/errors";
 import type { UpdateExternalAuthProviderRequest } from "#/api/typesGenerated";
@@ -13,7 +13,10 @@ import { pageTitle } from "#/utils/page";
 import { EditExternalAuthProviderPageView } from "./EditExternalAuthProviderPageView";
 
 const EditExternalAuthProviderPage: FC = () => {
-	const { providerId } = useParams() as { providerId: string };
+	const { providerId } = useParams();
+	if (!providerId) {
+		return <Navigate to="/deployment/external-auth" />;
+	}
 	const navigate = useNavigate();
 	const { permissions } = useAuthenticated();
 	const queryClient = useQueryClient();
