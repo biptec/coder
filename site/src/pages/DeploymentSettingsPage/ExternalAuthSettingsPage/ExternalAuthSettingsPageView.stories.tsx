@@ -88,7 +88,7 @@ const meta: Meta<typeof ExternalAuthSettingsPageView> = {
 		isLoading: false,
 		error: undefined,
 		canCreateProvider: true,
-		onDeleteProvider: () => {},
+		onDeleteProvider: async () => {},
 		deleteProviderLoading: false,
 	},
 };
