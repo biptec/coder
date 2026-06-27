@@ -1495,6 +1495,9 @@ type AIProvider struct {
 	// bedrock is populated when the provider's settings include Bedrock
 	// credentials (regardless of provider type).
 	Bedrock *AIProviderKindBedrock `protobuf:"bytes,6,opt,name=bedrock,proto3" json:"bedrock,omitempty"`
+	// claude_platform is populated when the provider's settings include
+	// Claude Platform for AWS credentials (type=claude-platform-aws).
+	ClaudePlatform *AIProviderKindClaudePlatformAWS `protobuf:"bytes,7,opt,name=claude_platform,json=claudePlatform,proto3" json:"claude_platform,omitempty"`
 }
 
 func (x *AIProvider) Reset() {
@@ -1567,6 +1570,13 @@ func (x *AIProvider) GetKeys() []string {
 func (x *AIProvider) GetBedrock() *AIProviderKindBedrock {
 	if x != nil {
 		return x.Bedrock
+	}
+	return nil
+}
+
+func (x *AIProvider) GetClaudePlatform() *AIProviderKindClaudePlatformAWS {
+	if x != nil {
+		return x.ClaudePlatform
 	}
 	return nil
 }
@@ -1662,6 +1672,101 @@ func (x *AIProviderKindBedrock) GetRoleArn() string {
 func (x *AIProviderKindBedrock) GetExternalId() string {
 	if x != nil {
 		return x.ExternalId
+	}
+	return ""
+}
+
+type AIProviderKindClaudePlatformAWS struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Region          string `protobuf:"bytes,1,opt,name=region,proto3" json:"region,omitempty"`
+	WorkspaceId     string `protobuf:"bytes,2,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
+	AccessKey       string `protobuf:"bytes,3,opt,name=access_key,json=accessKey,proto3" json:"access_key,omitempty"`
+	AccessKeySecret string `protobuf:"bytes,4,opt,name=access_key_secret,json=accessKeySecret,proto3" json:"access_key_secret,omitempty"`
+	RoleArn         string `protobuf:"bytes,5,opt,name=role_arn,json=roleArn,proto3" json:"role_arn,omitempty"`
+	ExternalId      string `protobuf:"bytes,6,opt,name=external_id,json=externalId,proto3" json:"external_id,omitempty"`
+	ApiKey          string `protobuf:"bytes,7,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
+}
+
+func (x *AIProviderKindClaudePlatformAWS) Reset() {
+	*x = AIProviderKindClaudePlatformAWS{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_coderd_aibridged_proto_aibridged_proto_msgTypes[25]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *AIProviderKindClaudePlatformAWS) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AIProviderKindClaudePlatformAWS) ProtoMessage() {}
+
+func (x *AIProviderKindClaudePlatformAWS) ProtoReflect() protoreflect.Message {
+	mi := &file_coderd_aibridged_proto_aibridged_proto_msgTypes[25]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AIProviderKindClaudePlatformAWS.ProtoReflect.Descriptor instead.
+func (*AIProviderKindClaudePlatformAWS) Descriptor() ([]byte, []int) {
+	return file_coderd_aibridged_proto_aibridged_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *AIProviderKindClaudePlatformAWS) GetRegion() string {
+	if x != nil {
+		return x.Region
+	}
+	return ""
+}
+
+func (x *AIProviderKindClaudePlatformAWS) GetWorkspaceId() string {
+	if x != nil {
+		return x.WorkspaceId
+	}
+	return ""
+}
+
+func (x *AIProviderKindClaudePlatformAWS) GetAccessKey() string {
+	if x != nil {
+		return x.AccessKey
+	}
+	return ""
+}
+
+func (x *AIProviderKindClaudePlatformAWS) GetAccessKeySecret() string {
+	if x != nil {
+		return x.AccessKeySecret
+	}
+	return ""
+}
+
+func (x *AIProviderKindClaudePlatformAWS) GetRoleArn() string {
+	if x != nil {
+		return x.RoleArn
+	}
+	return ""
+}
+
+func (x *AIProviderKindClaudePlatformAWS) GetExternalId() string {
+	if x != nil {
+		return x.ExternalId
+	}
+	return ""
+}
+
+func (x *AIProviderKindClaudePlatformAWS) GetApiKey() string {
+	if x != nil {
+		return x.ApiKey
 	}
 	return ""
 }
@@ -1944,7 +2049,7 @@ var file_coderd_aibridged_proto_aibridged_proto_rawDesc = []byte{
 	0x73, 0x65, 0x12, 0x2f, 0x0a, 0x09, 0x70, 0x72, 0x6f, 0x76, 0x69, 0x64, 0x65, 0x72, 0x73, 0x18,
 	0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x11, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2e, 0x41, 0x49,
 	0x50, 0x72, 0x6f, 0x76, 0x69, 0x64, 0x65, 0x72, 0x52, 0x09, 0x70, 0x72, 0x6f, 0x76, 0x69, 0x64,
-	0x65, 0x72, 0x73, 0x22, 0xb5, 0x01, 0x0a, 0x0a, 0x41, 0x49, 0x50, 0x72, 0x6f, 0x76, 0x69, 0x64,
+	0x65, 0x72, 0x73, 0x22, 0x86, 0x02, 0x0a, 0x0a, 0x41, 0x49, 0x50, 0x72, 0x6f, 0x76, 0x69, 0x64,
 	0x65, 0x72, 0x12, 0x12, 0x0a, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09,
 	0x52, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x12, 0x12, 0x0a, 0x04, 0x74, 0x79, 0x70, 0x65, 0x18, 0x02,
 	0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x74, 0x79, 0x70, 0x65, 0x12, 0x18, 0x0a, 0x07, 0x65, 0x6e,
@@ -1955,23 +2060,44 @@ var file_coderd_aibridged_proto_aibridged_proto_rawDesc = []byte{
 	0x65, 0x79, 0x73, 0x12, 0x36, 0x0a, 0x07, 0x62, 0x65, 0x64, 0x72, 0x6f, 0x63, 0x6b, 0x18, 0x06,
 	0x20, 0x01, 0x28, 0x0b, 0x32, 0x1c, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2e, 0x41, 0x49, 0x50,
 	0x72, 0x6f, 0x76, 0x69, 0x64, 0x65, 0x72, 0x4b, 0x69, 0x6e, 0x64, 0x42, 0x65, 0x64, 0x72, 0x6f,
-	0x63, 0x6b, 0x52, 0x07, 0x62, 0x65, 0x64, 0x72, 0x6f, 0x63, 0x6b, 0x22, 0xf6, 0x01, 0x0a, 0x15,
-	0x41, 0x49, 0x50, 0x72, 0x6f, 0x76, 0x69, 0x64, 0x65, 0x72, 0x4b, 0x69, 0x6e, 0x64, 0x42, 0x65,
-	0x64, 0x72, 0x6f, 0x63, 0x6b, 0x12, 0x16, 0x0a, 0x06, 0x72, 0x65, 0x67, 0x69, 0x6f, 0x6e, 0x18,
-	0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x06, 0x72, 0x65, 0x67, 0x69, 0x6f, 0x6e, 0x12, 0x1d, 0x0a,
-	0x0a, 0x61, 0x63, 0x63, 0x65, 0x73, 0x73, 0x5f, 0x6b, 0x65, 0x79, 0x18, 0x02, 0x20, 0x01, 0x28,
-	0x09, 0x52, 0x09, 0x61, 0x63, 0x63, 0x65, 0x73, 0x73, 0x4b, 0x65, 0x79, 0x12, 0x2a, 0x0a, 0x11,
-	0x61, 0x63, 0x63, 0x65, 0x73, 0x73, 0x5f, 0x6b, 0x65, 0x79, 0x5f, 0x73, 0x65, 0x63, 0x72, 0x65,
-	0x74, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0f, 0x61, 0x63, 0x63, 0x65, 0x73, 0x73, 0x4b,
-	0x65, 0x79, 0x53, 0x65, 0x63, 0x72, 0x65, 0x74, 0x12, 0x14, 0x0a, 0x05, 0x6d, 0x6f, 0x64, 0x65,
-	0x6c, 0x18, 0x04, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x12, 0x28,
-	0x0a, 0x10, 0x73, 0x6d, 0x61, 0x6c, 0x6c, 0x5f, 0x66, 0x61, 0x73, 0x74, 0x5f, 0x6d, 0x6f, 0x64,
-	0x65, 0x6c, 0x18, 0x05, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0e, 0x73, 0x6d, 0x61, 0x6c, 0x6c, 0x46,
-	0x61, 0x73, 0x74, 0x4d, 0x6f, 0x64, 0x65, 0x6c, 0x12, 0x19, 0x0a, 0x08, 0x72, 0x6f, 0x6c, 0x65,
-	0x5f, 0x61, 0x72, 0x6e, 0x18, 0x06, 0x20, 0x01, 0x28, 0x09, 0x52, 0x07, 0x72, 0x6f, 0x6c, 0x65,
-	0x41, 0x72, 0x6e, 0x12, 0x1f, 0x0a, 0x0b, 0x65, 0x78, 0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c, 0x5f,
-	0x69, 0x64, 0x18, 0x07, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0a, 0x65, 0x78, 0x74, 0x65, 0x72, 0x6e,
-	0x61, 0x6c, 0x49, 0x64, 0x32, 0xa9, 0x04, 0x0a, 0x08, 0x52, 0x65, 0x63, 0x6f, 0x72, 0x64, 0x65,
+	0x63, 0x6b, 0x52, 0x07, 0x62, 0x65, 0x64, 0x72, 0x6f, 0x63, 0x6b, 0x12, 0x4f, 0x0a, 0x0f, 0x63,
+	0x6c, 0x61, 0x75, 0x64, 0x65, 0x5f, 0x70, 0x6c, 0x61, 0x74, 0x66, 0x6f, 0x72, 0x6d, 0x18, 0x07,
+	0x20, 0x01, 0x28, 0x0b, 0x32, 0x26, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2e, 0x41, 0x49, 0x50,
+	0x72, 0x6f, 0x76, 0x69, 0x64, 0x65, 0x72, 0x4b, 0x69, 0x6e, 0x64, 0x43, 0x6c, 0x61, 0x75, 0x64,
+	0x65, 0x50, 0x6c, 0x61, 0x74, 0x66, 0x6f, 0x72, 0x6d, 0x41, 0x57, 0x53, 0x52, 0x0e, 0x63, 0x6c,
+	0x61, 0x75, 0x64, 0x65, 0x50, 0x6c, 0x61, 0x74, 0x66, 0x6f, 0x72, 0x6d, 0x22, 0xf6, 0x01, 0x0a,
+	0x15, 0x41, 0x49, 0x50, 0x72, 0x6f, 0x76, 0x69, 0x64, 0x65, 0x72, 0x4b, 0x69, 0x6e, 0x64, 0x42,
+	0x65, 0x64, 0x72, 0x6f, 0x63, 0x6b, 0x12, 0x16, 0x0a, 0x06, 0x72, 0x65, 0x67, 0x69, 0x6f, 0x6e,
+	0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x06, 0x72, 0x65, 0x67, 0x69, 0x6f, 0x6e, 0x12, 0x1d,
+	0x0a, 0x0a, 0x61, 0x63, 0x63, 0x65, 0x73, 0x73, 0x5f, 0x6b, 0x65, 0x79, 0x18, 0x02, 0x20, 0x01,
+	0x28, 0x09, 0x52, 0x09, 0x61, 0x63, 0x63, 0x65, 0x73, 0x73, 0x4b, 0x65, 0x79, 0x12, 0x2a, 0x0a,
+	0x11, 0x61, 0x63, 0x63, 0x65, 0x73, 0x73, 0x5f, 0x6b, 0x65, 0x79, 0x5f, 0x73, 0x65, 0x63, 0x72,
+	0x65, 0x74, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0f, 0x61, 0x63, 0x63, 0x65, 0x73, 0x73,
+	0x4b, 0x65, 0x79, 0x53, 0x65, 0x63, 0x72, 0x65, 0x74, 0x12, 0x14, 0x0a, 0x05, 0x6d, 0x6f, 0x64,
+	0x65, 0x6c, 0x18, 0x04, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x6d, 0x6f, 0x64, 0x65, 0x6c, 0x12,
+	0x28, 0x0a, 0x10, 0x73, 0x6d, 0x61, 0x6c, 0x6c, 0x5f, 0x66, 0x61, 0x73, 0x74, 0x5f, 0x6d, 0x6f,
+	0x64, 0x65, 0x6c, 0x18, 0x05, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0e, 0x73, 0x6d, 0x61, 0x6c, 0x6c,
+	0x46, 0x61, 0x73, 0x74, 0x4d, 0x6f, 0x64, 0x65, 0x6c, 0x12, 0x19, 0x0a, 0x08, 0x72, 0x6f, 0x6c,
+	0x65, 0x5f, 0x61, 0x72, 0x6e, 0x18, 0x06, 0x20, 0x01, 0x28, 0x09, 0x52, 0x07, 0x72, 0x6f, 0x6c,
+	0x65, 0x41, 0x72, 0x6e, 0x12, 0x1f, 0x0a, 0x0b, 0x65, 0x78, 0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c,
+	0x5f, 0x69, 0x64, 0x18, 0x07, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0a, 0x65, 0x78, 0x74, 0x65, 0x72,
+	0x6e, 0x61, 0x6c, 0x49, 0x64, 0x22, 0xfc, 0x01, 0x0a, 0x1f, 0x41, 0x49, 0x50, 0x72, 0x6f, 0x76,
+	0x69, 0x64, 0x65, 0x72, 0x4b, 0x69, 0x6e, 0x64, 0x43, 0x6c, 0x61, 0x75, 0x64, 0x65, 0x50, 0x6c,
+	0x61, 0x74, 0x66, 0x6f, 0x72, 0x6d, 0x41, 0x57, 0x53, 0x12, 0x16, 0x0a, 0x06, 0x72, 0x65, 0x67,
+	0x69, 0x6f, 0x6e, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x06, 0x72, 0x65, 0x67, 0x69, 0x6f,
+	0x6e, 0x12, 0x21, 0x0a, 0x0c, 0x77, 0x6f, 0x72, 0x6b, 0x73, 0x70, 0x61, 0x63, 0x65, 0x5f, 0x69,
+	0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0b, 0x77, 0x6f, 0x72, 0x6b, 0x73, 0x70, 0x61,
+	0x63, 0x65, 0x49, 0x64, 0x12, 0x1d, 0x0a, 0x0a, 0x61, 0x63, 0x63, 0x65, 0x73, 0x73, 0x5f, 0x6b,
+	0x65, 0x79, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x09, 0x61, 0x63, 0x63, 0x65, 0x73, 0x73,
+	0x4b, 0x65, 0x79, 0x12, 0x2a, 0x0a, 0x11, 0x61, 0x63, 0x63, 0x65, 0x73, 0x73, 0x5f, 0x6b, 0x65,
+	0x79, 0x5f, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x18, 0x04, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0f,
+	0x61, 0x63, 0x63, 0x65, 0x73, 0x73, 0x4b, 0x65, 0x79, 0x53, 0x65, 0x63, 0x72, 0x65, 0x74, 0x12,
+	0x19, 0x0a, 0x08, 0x72, 0x6f, 0x6c, 0x65, 0x5f, 0x61, 0x72, 0x6e, 0x18, 0x05, 0x20, 0x01, 0x28,
+	0x09, 0x52, 0x07, 0x72, 0x6f, 0x6c, 0x65, 0x41, 0x72, 0x6e, 0x12, 0x1f, 0x0a, 0x0b, 0x65, 0x78,
+	0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c, 0x5f, 0x69, 0x64, 0x18, 0x06, 0x20, 0x01, 0x28, 0x09, 0x52,
+	0x0a, 0x65, 0x78, 0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c, 0x49, 0x64, 0x12, 0x17, 0x0a, 0x07, 0x61,
+	0x70, 0x69, 0x5f, 0x6b, 0x65, 0x79, 0x18, 0x07, 0x20, 0x01, 0x28, 0x09, 0x52, 0x06, 0x61, 0x70,
+	0x69, 0x4b, 0x65, 0x79, 0x32, 0xa9, 0x04, 0x0a, 0x08, 0x52, 0x65, 0x63, 0x6f, 0x72, 0x64, 0x65,
 	0x72, 0x12, 0x59, 0x0a, 0x12, 0x52, 0x65, 0x63, 0x6f, 0x72, 0x64, 0x49, 0x6e, 0x74, 0x65, 0x72,
 	0x63, 0x65, 0x70, 0x74, 0x69, 0x6f, 0x6e, 0x12, 0x20, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2e,
 	0x52, 0x65, 0x63, 0x6f, 0x72, 0x64, 0x49, 0x6e, 0x74, 0x65, 0x72, 0x63, 0x65, 0x70, 0x74, 0x69,
@@ -2056,7 +2182,7 @@ func file_coderd_aibridged_proto_aibridged_proto_rawDescGZIP() []byte {
 	return file_coderd_aibridged_proto_aibridged_proto_rawDescData
 }
 
-var file_coderd_aibridged_proto_aibridged_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
+var file_coderd_aibridged_proto_aibridged_proto_msgTypes = make([]protoimpl.MessageInfo, 33)
 var file_coderd_aibridged_proto_aibridged_proto_goTypes = []interface{}{
 	(*RecordInterceptionRequest)(nil),             // 0: proto.RecordInterceptionRequest
 	(*RecordInterceptionResponse)(nil),            // 1: proto.RecordInterceptionResponse
@@ -2083,67 +2209,69 @@ var file_coderd_aibridged_proto_aibridged_proto_goTypes = []interface{}{
 	(*GetAIProvidersResponse)(nil),                // 22: proto.GetAIProvidersResponse
 	(*AIProvider)(nil),                            // 23: proto.AIProvider
 	(*AIProviderKindBedrock)(nil),                 // 24: proto.AIProviderKindBedrock
-	nil,                                           // 25: proto.RecordInterceptionRequest.MetadataEntry
-	nil,                                           // 26: proto.RecordTokenUsageRequest.MetadataEntry
-	nil,                                           // 27: proto.RecordPromptUsageRequest.MetadataEntry
-	nil,                                           // 28: proto.RecordToolUsageRequest.MetadataEntry
-	nil,                                           // 29: proto.RecordModelThoughtRequest.MetadataEntry
-	nil,                                           // 30: proto.GetMCPServerAccessTokensBatchResponse.AccessTokensEntry
-	nil,                                           // 31: proto.GetMCPServerAccessTokensBatchResponse.ErrorsEntry
-	(*timestamppb.Timestamp)(nil),                 // 32: google.protobuf.Timestamp
-	(*anypb.Any)(nil),                             // 33: google.protobuf.Any
+	(*AIProviderKindClaudePlatformAWS)(nil),       // 25: proto.AIProviderKindClaudePlatformAWS
+	nil,                                           // 26: proto.RecordInterceptionRequest.MetadataEntry
+	nil,                                           // 27: proto.RecordTokenUsageRequest.MetadataEntry
+	nil,                                           // 28: proto.RecordPromptUsageRequest.MetadataEntry
+	nil,                                           // 29: proto.RecordToolUsageRequest.MetadataEntry
+	nil,                                           // 30: proto.RecordModelThoughtRequest.MetadataEntry
+	nil,                                           // 31: proto.GetMCPServerAccessTokensBatchResponse.AccessTokensEntry
+	nil,                                           // 32: proto.GetMCPServerAccessTokensBatchResponse.ErrorsEntry
+	(*timestamppb.Timestamp)(nil),                 // 33: google.protobuf.Timestamp
+	(*anypb.Any)(nil),                             // 34: google.protobuf.Any
 }
 var file_coderd_aibridged_proto_aibridged_proto_depIdxs = []int32{
-	25, // 0: proto.RecordInterceptionRequest.metadata:type_name -> proto.RecordInterceptionRequest.MetadataEntry
-	32, // 1: proto.RecordInterceptionRequest.started_at:type_name -> google.protobuf.Timestamp
-	32, // 2: proto.RecordInterceptionEndedRequest.ended_at:type_name -> google.protobuf.Timestamp
-	26, // 3: proto.RecordTokenUsageRequest.metadata:type_name -> proto.RecordTokenUsageRequest.MetadataEntry
-	32, // 4: proto.RecordTokenUsageRequest.created_at:type_name -> google.protobuf.Timestamp
-	27, // 5: proto.RecordPromptUsageRequest.metadata:type_name -> proto.RecordPromptUsageRequest.MetadataEntry
-	32, // 6: proto.RecordPromptUsageRequest.created_at:type_name -> google.protobuf.Timestamp
-	28, // 7: proto.RecordToolUsageRequest.metadata:type_name -> proto.RecordToolUsageRequest.MetadataEntry
-	32, // 8: proto.RecordToolUsageRequest.created_at:type_name -> google.protobuf.Timestamp
-	29, // 9: proto.RecordModelThoughtRequest.metadata:type_name -> proto.RecordModelThoughtRequest.MetadataEntry
-	32, // 10: proto.RecordModelThoughtRequest.created_at:type_name -> google.protobuf.Timestamp
+	26, // 0: proto.RecordInterceptionRequest.metadata:type_name -> proto.RecordInterceptionRequest.MetadataEntry
+	33, // 1: proto.RecordInterceptionRequest.started_at:type_name -> google.protobuf.Timestamp
+	33, // 2: proto.RecordInterceptionEndedRequest.ended_at:type_name -> google.protobuf.Timestamp
+	27, // 3: proto.RecordTokenUsageRequest.metadata:type_name -> proto.RecordTokenUsageRequest.MetadataEntry
+	33, // 4: proto.RecordTokenUsageRequest.created_at:type_name -> google.protobuf.Timestamp
+	28, // 5: proto.RecordPromptUsageRequest.metadata:type_name -> proto.RecordPromptUsageRequest.MetadataEntry
+	33, // 6: proto.RecordPromptUsageRequest.created_at:type_name -> google.protobuf.Timestamp
+	29, // 7: proto.RecordToolUsageRequest.metadata:type_name -> proto.RecordToolUsageRequest.MetadataEntry
+	33, // 8: proto.RecordToolUsageRequest.created_at:type_name -> google.protobuf.Timestamp
+	30, // 9: proto.RecordModelThoughtRequest.metadata:type_name -> proto.RecordModelThoughtRequest.MetadataEntry
+	33, // 10: proto.RecordModelThoughtRequest.created_at:type_name -> google.protobuf.Timestamp
 	14, // 11: proto.GetMCPServerConfigsResponse.coder_mcp_config:type_name -> proto.MCPServerConfig
 	14, // 12: proto.GetMCPServerConfigsResponse.external_auth_mcp_configs:type_name -> proto.MCPServerConfig
-	30, // 13: proto.GetMCPServerAccessTokensBatchResponse.access_tokens:type_name -> proto.GetMCPServerAccessTokensBatchResponse.AccessTokensEntry
-	31, // 14: proto.GetMCPServerAccessTokensBatchResponse.errors:type_name -> proto.GetMCPServerAccessTokensBatchResponse.ErrorsEntry
-	32, // 15: proto.IsBudgetExceededRequest.period_start:type_name -> google.protobuf.Timestamp
+	31, // 13: proto.GetMCPServerAccessTokensBatchResponse.access_tokens:type_name -> proto.GetMCPServerAccessTokensBatchResponse.AccessTokensEntry
+	32, // 14: proto.GetMCPServerAccessTokensBatchResponse.errors:type_name -> proto.GetMCPServerAccessTokensBatchResponse.ErrorsEntry
+	33, // 15: proto.IsBudgetExceededRequest.period_start:type_name -> google.protobuf.Timestamp
 	23, // 16: proto.GetAIProvidersResponse.providers:type_name -> proto.AIProvider
 	24, // 17: proto.AIProvider.bedrock:type_name -> proto.AIProviderKindBedrock
-	33, // 18: proto.RecordInterceptionRequest.MetadataEntry.value:type_name -> google.protobuf.Any
-	33, // 19: proto.RecordTokenUsageRequest.MetadataEntry.value:type_name -> google.protobuf.Any
-	33, // 20: proto.RecordPromptUsageRequest.MetadataEntry.value:type_name -> google.protobuf.Any
-	33, // 21: proto.RecordToolUsageRequest.MetadataEntry.value:type_name -> google.protobuf.Any
-	33, // 22: proto.RecordModelThoughtRequest.MetadataEntry.value:type_name -> google.protobuf.Any
-	0,  // 23: proto.Recorder.RecordInterception:input_type -> proto.RecordInterceptionRequest
-	2,  // 24: proto.Recorder.RecordInterceptionEnded:input_type -> proto.RecordInterceptionEndedRequest
-	4,  // 25: proto.Recorder.RecordTokenUsage:input_type -> proto.RecordTokenUsageRequest
-	6,  // 26: proto.Recorder.RecordPromptUsage:input_type -> proto.RecordPromptUsageRequest
-	8,  // 27: proto.Recorder.RecordToolUsage:input_type -> proto.RecordToolUsageRequest
-	10, // 28: proto.Recorder.RecordModelThought:input_type -> proto.RecordModelThoughtRequest
-	12, // 29: proto.MCPConfigurator.GetMCPServerConfigs:input_type -> proto.GetMCPServerConfigsRequest
-	15, // 30: proto.MCPConfigurator.GetMCPServerAccessTokensBatch:input_type -> proto.GetMCPServerAccessTokensBatchRequest
-	17, // 31: proto.Authorizer.IsAuthorized:input_type -> proto.IsAuthorizedRequest
-	19, // 32: proto.Authorizer.IsBudgetExceeded:input_type -> proto.IsBudgetExceededRequest
-	21, // 33: proto.ProviderConfigurator.GetAIProviders:input_type -> proto.GetAIProvidersRequest
-	1,  // 34: proto.Recorder.RecordInterception:output_type -> proto.RecordInterceptionResponse
-	3,  // 35: proto.Recorder.RecordInterceptionEnded:output_type -> proto.RecordInterceptionEndedResponse
-	5,  // 36: proto.Recorder.RecordTokenUsage:output_type -> proto.RecordTokenUsageResponse
-	7,  // 37: proto.Recorder.RecordPromptUsage:output_type -> proto.RecordPromptUsageResponse
-	9,  // 38: proto.Recorder.RecordToolUsage:output_type -> proto.RecordToolUsageResponse
-	11, // 39: proto.Recorder.RecordModelThought:output_type -> proto.RecordModelThoughtResponse
-	13, // 40: proto.MCPConfigurator.GetMCPServerConfigs:output_type -> proto.GetMCPServerConfigsResponse
-	16, // 41: proto.MCPConfigurator.GetMCPServerAccessTokensBatch:output_type -> proto.GetMCPServerAccessTokensBatchResponse
-	18, // 42: proto.Authorizer.IsAuthorized:output_type -> proto.IsAuthorizedResponse
-	20, // 43: proto.Authorizer.IsBudgetExceeded:output_type -> proto.IsBudgetExceededResponse
-	22, // 44: proto.ProviderConfigurator.GetAIProviders:output_type -> proto.GetAIProvidersResponse
-	34, // [34:45] is the sub-list for method output_type
-	23, // [23:34] is the sub-list for method input_type
-	23, // [23:23] is the sub-list for extension type_name
-	23, // [23:23] is the sub-list for extension extendee
-	0,  // [0:23] is the sub-list for field type_name
+	25, // 18: proto.AIProvider.claude_platform:type_name -> proto.AIProviderKindClaudePlatformAWS
+	34, // 19: proto.RecordInterceptionRequest.MetadataEntry.value:type_name -> google.protobuf.Any
+	34, // 20: proto.RecordTokenUsageRequest.MetadataEntry.value:type_name -> google.protobuf.Any
+	34, // 21: proto.RecordPromptUsageRequest.MetadataEntry.value:type_name -> google.protobuf.Any
+	34, // 22: proto.RecordToolUsageRequest.MetadataEntry.value:type_name -> google.protobuf.Any
+	34, // 23: proto.RecordModelThoughtRequest.MetadataEntry.value:type_name -> google.protobuf.Any
+	0,  // 24: proto.Recorder.RecordInterception:input_type -> proto.RecordInterceptionRequest
+	2,  // 25: proto.Recorder.RecordInterceptionEnded:input_type -> proto.RecordInterceptionEndedRequest
+	4,  // 26: proto.Recorder.RecordTokenUsage:input_type -> proto.RecordTokenUsageRequest
+	6,  // 27: proto.Recorder.RecordPromptUsage:input_type -> proto.RecordPromptUsageRequest
+	8,  // 28: proto.Recorder.RecordToolUsage:input_type -> proto.RecordToolUsageRequest
+	10, // 29: proto.Recorder.RecordModelThought:input_type -> proto.RecordModelThoughtRequest
+	12, // 30: proto.MCPConfigurator.GetMCPServerConfigs:input_type -> proto.GetMCPServerConfigsRequest
+	15, // 31: proto.MCPConfigurator.GetMCPServerAccessTokensBatch:input_type -> proto.GetMCPServerAccessTokensBatchRequest
+	17, // 32: proto.Authorizer.IsAuthorized:input_type -> proto.IsAuthorizedRequest
+	19, // 33: proto.Authorizer.IsBudgetExceeded:input_type -> proto.IsBudgetExceededRequest
+	21, // 34: proto.ProviderConfigurator.GetAIProviders:input_type -> proto.GetAIProvidersRequest
+	1,  // 35: proto.Recorder.RecordInterception:output_type -> proto.RecordInterceptionResponse
+	3,  // 36: proto.Recorder.RecordInterceptionEnded:output_type -> proto.RecordInterceptionEndedResponse
+	5,  // 37: proto.Recorder.RecordTokenUsage:output_type -> proto.RecordTokenUsageResponse
+	7,  // 38: proto.Recorder.RecordPromptUsage:output_type -> proto.RecordPromptUsageResponse
+	9,  // 39: proto.Recorder.RecordToolUsage:output_type -> proto.RecordToolUsageResponse
+	11, // 40: proto.Recorder.RecordModelThought:output_type -> proto.RecordModelThoughtResponse
+	13, // 41: proto.MCPConfigurator.GetMCPServerConfigs:output_type -> proto.GetMCPServerConfigsResponse
+	16, // 42: proto.MCPConfigurator.GetMCPServerAccessTokensBatch:output_type -> proto.GetMCPServerAccessTokensBatchResponse
+	18, // 43: proto.Authorizer.IsAuthorized:output_type -> proto.IsAuthorizedResponse
+	20, // 44: proto.Authorizer.IsBudgetExceeded:output_type -> proto.IsBudgetExceededResponse
+	22, // 45: proto.ProviderConfigurator.GetAIProviders:output_type -> proto.GetAIProvidersResponse
+	35, // [35:46] is the sub-list for method output_type
+	24, // [24:35] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_coderd_aibridged_proto_aibridged_proto_init() }
@@ -2452,6 +2580,18 @@ func file_coderd_aibridged_proto_aibridged_proto_init() {
 				return nil
 			}
 		}
+		file_coderd_aibridged_proto_aibridged_proto_msgTypes[25].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*AIProviderKindClaudePlatformAWS); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
 	}
 	file_coderd_aibridged_proto_aibridged_proto_msgTypes[0].OneofWrappers = []interface{}{}
 	file_coderd_aibridged_proto_aibridged_proto_msgTypes[8].OneofWrappers = []interface{}{}
@@ -2462,7 +2602,7 @@ func file_coderd_aibridged_proto_aibridged_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_coderd_aibridged_proto_aibridged_proto_rawDesc,
 			NumEnums:      0,
-			NumMessages:   32,
+			NumMessages:   33,
 			NumExtensions: 0,
 			NumServices:   4,
 		},

@@ -976,9 +976,10 @@ func parseOptionalInt32(n *int32) sql.NullInt32 {
 }
 
 // aiProviderToProto maps a single ai_providers row (and its keys, for enabled
-// providers) to the proto representation served to AI Gateway daemons. Keys and
-// Bedrock settings are only attached for enabled providers; disabled providers
-// never call upstream so their secrets are withheld.
+// providers) to the proto representation served to AI Gateway daemons. Keys,
+// Bedrock, and Claude Platform settings are only attached for enabled
+// providers; disabled providers never call upstream so their secrets are
+// withheld.
 func aiProviderToProto(row database.AIProvider, keys []database.AIProviderKey) (*proto.AIProvider, error) {
 	p := &proto.AIProvider{
 		Name:    row.Name,
@@ -1011,6 +1012,17 @@ func aiProviderToProto(row database.AIProvider, keys []database.AIProviderKey) (
 			SmallFastModel:  settings.Bedrock.SmallFastModel,
 			RoleArn:         settings.Bedrock.RoleARN,
 			ExternalId:      settings.Bedrock.ExternalID,
+		}
+	}
+	if settings.ClaudePlatformAWS != nil {
+		p.ClaudePlatform = &proto.AIProviderKindClaudePlatformAWS{
+			Region:          settings.ClaudePlatformAWS.Region,
+			WorkspaceId:     settings.ClaudePlatformAWS.WorkspaceID,
+			AccessKey:       ptr.NilToEmpty(settings.ClaudePlatformAWS.AccessKey),
+			AccessKeySecret: ptr.NilToEmpty(settings.ClaudePlatformAWS.AccessKeySecret),
+			RoleArn:         settings.ClaudePlatformAWS.RoleARN,
+			ExternalId:      settings.ClaudePlatformAWS.ExternalID,
+			ApiKey:          ptr.NilToEmpty(settings.ClaudePlatformAWS.APIKey),
 		}
 	}
 
