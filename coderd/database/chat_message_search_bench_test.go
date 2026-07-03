@@ -56,6 +56,38 @@ With adjusted dataset to better match dev.coder.com:
     chat_message_search_bench_test.go:95: query="CODAGT-517" count=50 duration=26.511268ms
     chat_message_search_bench_test.go:95: query="database migration" count=50 duration=10.529819ms
     chat_message_search_bench_test.go:95: query="workspace timeout" count=50 duration=12.889135ms
+
+Stored tsvector + periodic sweep, no trigger (BenchmarkChatMessageSearchStoredSweep),
+full 120-user dev distribution, AMD EPYC 9454P, containerized Postgres:
+    stored sweep distribution: users=120 total_chats=5240 expected_messages=1043599
+    seed: users=120 total_chats=5240 seeded_messages=1048980 duration=48.65864694s
+    add column duration: 529.779µs
+    phase A empty index build duration: 158.831653ms
+    phase A after empty index build: index=idx_chat_messages_search_tsv size=16 kB bytes=16384
+    sweep-eligible rows: 507754
+    sweep drain: batch_size=1000 batches=508 total_wall=1m50.232530091s p50=229.120005ms p90=329.950054ms p99=383.510945ms max=404.314215ms
+    after drain: index=idx_chat_messages_search_tsv size=53 MB bytes=55435264
+    sweep drain: batch_size=10000 batches=51 total_wall=37.964280512s p50=763.003409ms p90=860.301538ms p99=881.419068ms max=894.270797ms
+    after drain: index=idx_chat_messages_search_tsv size=62 MB bytes=64905216
+    sweep drain: batch_size=50000 batches=11 total_wall=39.535505979s p50=3.837475508s p90=3.965355856s p99=3.965355856s max=4.134642173s
+    after drain: index=idx_chat_messages_search_tsv size=63 MB bytes=66158592
+    probe checkpoint=25% query="authentication" count=32 duration=2.457814ms (mid N=10000 drain; other probes 1.3-10.1ms, latency grows with index fill)
+    probe checkpoint=100% query="authentication" count=32 duration=10.134386ms
+    phase D steady-state sweep 1: rows=0 duration=369.594258ms
+    phase D steady-state sweep 2: rows=0 duration=360.008061ms
+    phase D steady-state sweep 3: rows=0 duration=358.260275ms
+
+Findings:
+  - Empty index build (the migration-time cost) is ~160ms vs ~17-36s for building
+    a populated index; the build cost moves into the background sweep instead
+    (38s-110s of wall time depending on batch size; N=10000 was the sweet spot).
+  - Steady-state design problem: the no-op sweep tick does a full pkey index scan
+    with search_tsv IS NULL as a plain filter, removing all ~1.05M rows (~360ms per
+    tick, linear in table size). The partial GIN index (search_tsv IS NOT NULL)
+    cannot serve the IS NULL scan. Fixing this needs a temporary partial btree
+    index on the IS NULL predicate, a high-watermark cursor, or a stop condition.
+  - Staleness caveat: with no trigger, any content/deleted/visibility update after
+    a row is swept leaves search_tsv stale until some other mechanism rewrites it.
 */
 
 package database_test
