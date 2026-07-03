@@ -66,6 +66,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -946,5 +947,254 @@ LIMIT 50;
 		require.NoError(t, rows.Close())
 
 		t.Logf("recency query=%q count=%d duration=%s", query, count, time.Since(queryStart))
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Stored tsvector + periodic sweep benchmark.
+//
+// BenchmarkChatMessageSearchStoredSweep models the "stored tsvector + periodic
+// sweep, no trigger" design:
+//   - migration adds a plain nullable search_tsv column (all NULL) and builds a
+//     partial GIN index over it while it is still empty (Phase A),
+//   - a periodic sweep backfills the column in bounded batches until drained
+//     (Phase B), with query probes fired mid-drain (Phase C),
+//   - once drained, the sweep becomes a cheap no-op tick (Phase D).
+//
+// The COALESCE(..., ''::tsvector) in the sweep UPDATE is a sentinel: rows whose
+// extracted text is NULL get an empty tsvector instead of NULL so they are not
+// re-selected by the search_tsv IS NULL predicate on every subsequent sweep.
+func BenchmarkChatMessageSearchStoredSweep(b *testing.B) {
+	ctx := b.Context()
+	db, _, sqlDB := dbtestutil.NewDBWithSQLDB(b)
+
+	createChatMessageSearchTextFunction(ctx, b, sqlDB)
+
+	profiles := chatMessageSearchProfiles(b)
+	totalChats, expectedMessages := chatMessageSearchTotals(profiles)
+	b.Logf("stored sweep distribution: users=%d total_chats=%d expected_messages=%d",
+		len(profiles), totalChats, expectedMessages)
+
+	seedStart := time.Now()
+	seededMessages := seedChatMessageSearchCorpus(ctx, b, db, profiles, 0)
+	b.Logf("seed: users=%d total_chats=%d seeded_messages=%d duration=%s",
+		len(profiles), totalChats, seededMessages, time.Since(seedStart))
+
+	alterStart := time.Now()
+	_, err := sqlDB.ExecContext(ctx, `ALTER TABLE chat_messages ADD COLUMN search_tsv tsvector;`)
+	require.NoError(b, err)
+	b.Logf("add column duration: %s", time.Since(alterStart))
+
+	// Phase A: build the partial GIN index while the column is entirely NULL.
+	// This is the migration-time cost of the design.
+	indexStart := time.Now()
+	_, err = sqlDB.ExecContext(ctx, `
+CREATE INDEX idx_chat_messages_search_tsv
+ON chat_messages USING GIN (search_tsv)
+WHERE search_tsv IS NOT NULL;
+`)
+	require.NoError(b, err)
+	b.Logf("phase A empty index build duration: %s", time.Since(indexStart))
+	logChatMessageSearchNamedIndexSize(ctx, b, sqlDB, "idx_chat_messages_search_tsv", "phase A after empty index build")
+
+	analyzeChatMessageSearchTables(ctx, b, sqlDB)
+
+	var eligible int64
+	err = sqlDB.QueryRowContext(ctx, `
+SELECT count(*) FROM chat_messages
+WHERE search_tsv IS NULL
+  AND deleted = false
+  AND visibility IN ('user', 'both')
+  AND role IN ('user', 'assistant');
+`).Scan(&eligible)
+	require.NoError(b, err)
+	b.Logf("sweep-eligible rows: %d", eligible)
+
+	// Phase B (+ C for N=10000): drain the backfill at several batch sizes,
+	// resetting the column and reindexing between sub-runs.
+	for _, batchSize := range []int{1000, 10_000, 50_000} {
+		batchSize := batchSize
+		b.Run(fmt.Sprintf("sweep_batch_%d", batchSize), func(b *testing.B) {
+			resetChatMessageSearchTsv(ctx, b, sqlDB)
+			runChatMessageSearchSweepDrain(ctx, b, sqlDB, batchSize, eligible, batchSize == 10_000)
+		})
+	}
+
+	// Phase D: steady state after the final drain. The sweep should be a fast
+	// index-assisted no-op; log the plan once to show which index (if any)
+	// serves the search_tsv IS NULL scan.
+	for i := range 3 {
+		start := time.Now()
+		res, err := sqlDB.ExecContext(ctx, chatMessageSearchSweepSQL(1000))
+		require.NoError(b, err)
+		rows, err := res.RowsAffected()
+		require.NoError(b, err)
+		require.Zero(b, rows, "steady-state sweep should update no rows")
+		b.Logf("phase D steady-state sweep %d: rows=%d duration=%s", i+1, rows, time.Since(start))
+	}
+
+	explainRows, err := sqlDB.QueryContext(ctx, "EXPLAIN (ANALYZE, BUFFERS) "+chatMessageSearchSweepSQL(1000))
+	require.NoError(b, err)
+	for explainRows.Next() {
+		var line string
+		require.NoError(b, explainRows.Scan(&line))
+		b.Logf("phase D sweep plan: %s", line)
+	}
+	require.NoError(b, explainRows.Err())
+	require.NoError(b, explainRows.Close())
+}
+
+// chatMessageSearchSweepSQL returns one sweep iteration: pick a bounded batch
+// of unswept searchable rows and store their tsvector, using ''::tsvector as a
+// processed sentinel for rows with no extractable text.
+func chatMessageSearchSweepSQL(batchSize int) string {
+	return fmt.Sprintf(`
+WITH batch AS (
+	SELECT id FROM chat_messages
+	WHERE search_tsv IS NULL
+	  AND deleted = false
+	  AND visibility IN ('user', 'both')
+	  AND role IN ('user', 'assistant')
+	ORDER BY id
+	LIMIT %d
+)
+UPDATE chat_messages cm
+SET search_tsv = COALESCE(to_tsvector('simple', chat_message_search_text(cm.content)), ''::tsvector)
+FROM batch
+WHERE cm.id = batch.id;
+`, batchSize)
+}
+
+// resetChatMessageSearchTsv clears the stored tsvector column and rebuilds the
+// partial index so each sub-run starts from the post-migration state.
+func resetChatMessageSearchTsv(ctx context.Context, t testing.TB, sqlDB *sql.DB) {
+	t.Helper()
+
+	resetStart := time.Now()
+	_, err := sqlDB.ExecContext(ctx, `UPDATE chat_messages SET search_tsv = NULL WHERE search_tsv IS NOT NULL;`)
+	require.NoError(t, err)
+	_, err = sqlDB.ExecContext(ctx, `REINDEX INDEX idx_chat_messages_search_tsv;`)
+	require.NoError(t, err)
+	_, err = sqlDB.ExecContext(ctx, `VACUUM ANALYZE chat_messages;`)
+	require.NoError(t, err)
+	t.Logf("reset column + reindex + vacuum duration: %s", time.Since(resetStart))
+}
+
+// runChatMessageSearchSweepDrain runs sweep batches until the table is drained,
+// logging per-batch latency percentiles, total wall time, and final index
+// size. When probe is true it runs the sample recency queries at roughly
+// 25/50/75/100%% of the expected batch count (Phase C).
+func runChatMessageSearchSweepDrain(ctx context.Context, t testing.TB, sqlDB *sql.DB, batchSize int, eligible int64, probe bool) {
+	t.Helper()
+
+	expectedBatches := int((eligible + int64(batchSize) - 1) / int64(batchSize))
+	checkpoints := map[int]string{}
+	if probe && expectedBatches > 0 {
+		for _, pct := range []int{25, 50, 75, 100} {
+			batch := expectedBatches * pct / 100
+			if batch < 1 {
+				batch = 1
+			}
+			checkpoints[batch] = fmt.Sprintf("%d%%", pct)
+		}
+	}
+
+	sweepSQL := chatMessageSearchSweepSQL(batchSize)
+	var latencies []time.Duration
+	drainStart := time.Now()
+	batches := 0
+	for {
+		batchStart := time.Now()
+		res, err := sqlDB.ExecContext(ctx, sweepSQL)
+		require.NoError(t, err)
+		rows, err := res.RowsAffected()
+		require.NoError(t, err)
+		if rows == 0 {
+			break
+		}
+		latencies = append(latencies, time.Since(batchStart))
+		batches++
+		if label, ok := checkpoints[batches]; ok {
+			runChatMessageSearchStoredRecencyQueries(ctx, t, sqlDB, label)
+		}
+	}
+	totalWall := time.Since(drainStart)
+
+	// Sentinel verification: a drained table must yield an empty batch.
+	var remaining int64
+	err := sqlDB.QueryRowContext(ctx, `
+SELECT count(*) FROM chat_messages
+WHERE search_tsv IS NULL
+  AND deleted = false
+  AND visibility IN ('user', 'both')
+  AND role IN ('user', 'assistant');
+`).Scan(&remaining)
+	require.NoError(t, err)
+	require.Zero(t, remaining, "sweep sentinel failed: unswept rows remain after drain")
+
+	p50, p90, p99, maxLat := chatMessageSearchDurationPercentiles(latencies)
+	t.Logf("sweep drain: batch_size=%d batches=%d total_wall=%s p50=%s p90=%s p99=%s max=%s",
+		batchSize, batches, totalWall, p50, p90, p99, maxLat)
+	logChatMessageSearchNamedIndexSize(ctx, t, sqlDB, "idx_chat_messages_search_tsv", "after drain")
+}
+
+func chatMessageSearchDurationPercentiles(latencies []time.Duration) (p50, p90, p99, max time.Duration) {
+	if len(latencies) == 0 {
+		return 0, 0, 0, 0
+	}
+	sorted := make([]time.Duration, len(latencies))
+	copy(sorted, latencies)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	at := func(pct float64) time.Duration {
+		idx := int(pct * float64(len(sorted)-1))
+		return sorted[idx]
+	}
+	return at(0.50), at(0.90), at(0.99), sorted[len(sorted)-1]
+}
+
+// runChatMessageSearchStoredRecencyQueries runs the sample searches against
+// the stored tsvector column, recency-ordered like the Phase 1 query shape.
+func runChatMessageSearchStoredRecencyQueries(ctx context.Context, t testing.TB, sqlDB *sql.DB, label string) {
+	t.Helper()
+
+	queries := []string{
+		"authentication",
+		"permission denied",
+		"CODAGT-517",
+		"database migration",
+		"workspace timeout",
+	}
+
+	for _, query := range queries {
+		queryStart := time.Now()
+		rows, err := sqlDB.QueryContext(ctx, `
+WITH search_query AS (
+	SELECT websearch_to_tsquery('simple', $1) AS query
+)
+SELECT DISTINCT ON (cm.chat_id)
+	cm.chat_id,
+	c.updated_at
+FROM chat_messages cm
+JOIN chats c ON c.id = cm.chat_id
+CROSS JOIN search_query
+WHERE c.parent_chat_id IS NULL
+  AND c.archived = false
+  AND cm.search_tsv @@ search_query.query
+ORDER BY cm.chat_id, c.updated_at DESC, cm.id DESC
+LIMIT 32;
+`, query)
+		require.NoError(t, err)
+
+		var count int
+		for rows.Next() {
+			var chatID uuid.UUID
+			var updatedAt time.Time
+			require.NoError(t, rows.Scan(&chatID, &updatedAt))
+			count++
+		}
+		require.NoError(t, rows.Err())
+		require.NoError(t, rows.Close())
+
+		t.Logf("probe checkpoint=%s query=%q count=%d duration=%s", label, query, count, time.Since(queryStart))
 	}
 }
