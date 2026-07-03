@@ -1166,12 +1166,21 @@ WHERE cm.id = batch.id;
 func resetChatMessageSearchTsv(ctx context.Context, t testing.TB, sqlDB *sql.DB) {
 	t.Helper()
 
+	// The reset statements touch every row and can spawn parallel workers
+	// whose shared-memory segments exceed the test container's small
+	// /dev/shm, so disable parallelism on a dedicated connection.
+	conn, err := sqlDB.Conn(ctx)
+	require.NoError(t, err)
+	defer conn.Close()
+	_, err = conn.ExecContext(ctx, `SET max_parallel_workers_per_gather = 0; SET max_parallel_maintenance_workers = 0;`)
+	require.NoError(t, err)
+
 	resetStart := time.Now()
-	_, err := sqlDB.ExecContext(ctx, `UPDATE chat_messages SET search_tsv = NULL WHERE search_tsv IS NOT NULL;`)
+	_, err = conn.ExecContext(ctx, `UPDATE chat_messages SET search_tsv = NULL WHERE search_tsv IS NOT NULL;`)
 	require.NoError(t, err)
-	_, err = sqlDB.ExecContext(ctx, `REINDEX INDEX idx_chat_messages_search_tsv;`)
+	_, err = conn.ExecContext(ctx, `REINDEX INDEX idx_chat_messages_search_tsv;`)
 	require.NoError(t, err)
-	_, err = sqlDB.ExecContext(ctx, `VACUUM ANALYZE chat_messages;`)
+	_, err = conn.ExecContext(ctx, `VACUUM ANALYZE chat_messages;`)
 	require.NoError(t, err)
 	t.Logf("reset column + reindex + vacuum duration: %s", time.Since(resetStart))
 }
