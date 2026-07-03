@@ -320,6 +320,74 @@ func TestDecideGenerationActionStructuredOutput(t *testing.T) {
 		require.ErrorIs(t, err, errStructuredOutputNotProduced)
 	})
 
+	t.Run("TextOnlyStreakBelowCapRegenerates", func(t *testing.T) {
+		t.Parallel()
+		messages := []database.ChatMessage{
+			userMessageWithFormat(t, 1, "structured", &format),
+		}
+		for i := range maxStructuredOutputTextOnlySteps - 1 {
+			messages = append(messages, textAssistantMessage(t, int64(2+i), "plain text"))
+		}
+		decision, err := decideGenerationAction(generationDecisionInput{
+			messages:                 messages,
+			stopAfterTools:           stopAfter,
+			structuredOutputRequired: true,
+			maxSteps:                 100,
+		})
+		require.NoError(t, err)
+		require.Equal(t, generationActionGenerateAssistant, decision.kind)
+	})
+
+	t.Run("TextOnlyStreakAtCapFailsTerminally", func(t *testing.T) {
+		t.Parallel()
+		messages := []database.ChatMessage{
+			userMessageWithFormat(t, 1, "structured", &format),
+		}
+		for i := range maxStructuredOutputTextOnlySteps {
+			messages = append(messages, textAssistantMessage(t, int64(2+i), "plain text"))
+		}
+		_, err := decideGenerationAction(generationDecisionInput{
+			messages:                 messages,
+			stopAfterTools:           stopAfter,
+			structuredOutputRequired: true,
+			maxSteps:                 100,
+		})
+		require.Error(t, err)
+		require.True(t, isTerminalGeneration(err))
+		require.ErrorIs(t, err, errStructuredOutputNotProduced)
+	})
+
+	t.Run("ToolCallResetsTextOnlyStreak", func(t *testing.T) {
+		t.Parallel()
+		// A failed finalizer attempt (or any other tool call) resets
+		// the consecutive text-only streak so validation retries keep
+		// their full budget.
+		messages := []database.ChatMessage{
+			userMessageWithFormat(t, 1, "structured", &format),
+		}
+		for i := range maxStructuredOutputTextOnlySteps {
+			messages = append(messages, textAssistantMessage(t, int64(2+i), "plain text"))
+		}
+		next := int64(2 + maxStructuredOutputTextOnlySteps)
+		messages = append(messages,
+			chatMessageWithParts(t, next, database.ChatMessageRoleAssistant, []codersdk.ChatMessagePart{
+				codersdk.ChatMessageToolCall("call_1", structuredoutput.ToolName, json.RawMessage(`{"output":{}}`)),
+			}),
+			chatMessageWithParts(t, next+1, database.ChatMessageRoleTool, []codersdk.ChatMessagePart{
+				codersdk.ChatMessageToolResult("call_1", structuredoutput.ToolName, json.RawMessage(`{"error":"missing answer"}`), true, false),
+			}),
+			textAssistantMessage(t, next+2, "still plain text"),
+		)
+		decision, err := decideGenerationAction(generationDecisionInput{
+			messages:                 messages,
+			stopAfterTools:           stopAfter,
+			structuredOutputRequired: true,
+			maxSteps:                 100,
+		})
+		require.NoError(t, err)
+		require.Equal(t, generationActionGenerateAssistant, decision.kind)
+	})
+
 	t.Run("MaxStepsWithoutStructuredOutputFinishes", func(t *testing.T) {
 		t.Parallel()
 		messages := []database.ChatMessage{

@@ -278,9 +278,7 @@ Experimental: this endpoint is subject to change.
     "json_schema": {
       "description": "string",
       "name": "string",
-      "schema": [
-        0
-      ],
+      "schema": {},
       "strict": true
     },
     "type": "text"
@@ -289,9 +287,7 @@ Experimental: this endpoint is subject to change.
   "unsafe_dynamic_tools": [
     {
       "description": "string",
-      "input_schema": [
-        0
-      ],
+      "input_schema": {},
       "name": "string"
     }
   ],
@@ -1584,9 +1580,7 @@ Experimental: this endpoint is subject to change.
       "chat_id": "efc9fe20-a1e5-4a8c-9c48-f1b30c1e4f86",
       "content": [
         {
-          "args": [
-            0
-          ],
+          "args": {},
           "args_delta": "string",
           "completed_at": "2019-08-24T14:15:22Z",
           "content": "string",
@@ -1631,16 +1625,12 @@ Experimental: this endpoint is subject to change.
             "json_schema": {
               "description": "string",
               "name": "string",
-              "schema": [
-                0
-              ],
+              "schema": {},
               "strict": true
             },
             "type": "text"
           },
-          "result": [
-            0
-          ],
+          "result": {},
           "result_delta": "string",
           "result_reset": true,
           "signature": "string",
@@ -1678,9 +1668,7 @@ Experimental: this endpoint is subject to change.
       "chat_id": "efc9fe20-a1e5-4a8c-9c48-f1b30c1e4f86",
       "content": [
         {
-          "args": [
-            0
-          ],
+          "args": {},
           "args_delta": "string",
           "completed_at": "2019-08-24T14:15:22Z",
           "content": "string",
@@ -1725,16 +1713,12 @@ Experimental: this endpoint is subject to change.
             "json_schema": {
               "description": "string",
               "name": "string",
-              "schema": [
-                0
-              ],
+              "schema": {},
               "strict": true
             },
             "type": "text"
           },
-          "result": [
-            0
-          ],
+          "result": {},
           "result_delta": "string",
           "result_reset": true,
           "signature": "string",
@@ -1808,9 +1792,7 @@ Experimental: this endpoint is subject to change.
     "json_schema": {
       "description": "string",
       "name": "string",
-      "schema": [
-        0
-      ],
+      "schema": {},
       "strict": true
     },
     "type": "text"
@@ -1835,9 +1817,7 @@ Experimental: this endpoint is subject to change.
     "chat_id": "efc9fe20-a1e5-4a8c-9c48-f1b30c1e4f86",
     "content": [
       {
-        "args": [
-          0
-        ],
+        "args": {},
         "args_delta": "string",
         "completed_at": "2019-08-24T14:15:22Z",
         "content": "string",
@@ -1882,16 +1862,12 @@ Experimental: this endpoint is subject to change.
           "json_schema": {
             "description": "string",
             "name": "string",
-            "schema": [
-              0
-            ],
+            "schema": {},
             "strict": true
           },
           "type": "text"
         },
-        "result": [
-          0
-        ],
+        "result": {},
         "result_delta": "string",
         "result_reset": true,
         "signature": "string",
@@ -1928,9 +1904,7 @@ Experimental: this endpoint is subject to change.
     "chat_id": "efc9fe20-a1e5-4a8c-9c48-f1b30c1e4f86",
     "content": [
       {
-        "args": [
-          0
-        ],
+        "args": {},
         "args_delta": "string",
         "completed_at": "2019-08-24T14:15:22Z",
         "content": "string",
@@ -1975,16 +1949,12 @@ Experimental: this endpoint is subject to change.
           "json_schema": {
             "description": "string",
             "name": "string",
-            "schema": [
-              0
-            ],
+            "schema": {},
             "strict": true
           },
           "type": "text"
         },
-        "result": [
-          0
-        ],
+        "result": {},
         "result_delta": "string",
         "result_reset": true,
         "signature": "string",
@@ -2072,9 +2042,7 @@ Experimental: this endpoint is subject to change.
     "chat_id": "efc9fe20-a1e5-4a8c-9c48-f1b30c1e4f86",
     "content": [
       {
-        "args": [
-          0
-        ],
+        "args": {},
         "args_delta": "string",
         "completed_at": "2019-08-24T14:15:22Z",
         "content": "string",
@@ -2119,16 +2087,12 @@ Experimental: this endpoint is subject to change.
           "json_schema": {
             "description": "string",
             "name": "string",
-            "schema": [
-              0
-            ],
+            "schema": {},
             "strict": true
           },
           "type": "text"
         },
-        "result": [
-          0
-        ],
+        "result": {},
         "result_delta": "string",
         "result_reset": true,
         "signature": "string",
@@ -2503,9 +2467,7 @@ Experimental: this endpoint is subject to change.
     "chat_id": "efc9fe20-a1e5-4a8c-9c48-f1b30c1e4f86",
     "content": [
       {
-        "args": [
-          0
-        ],
+        "args": {},
         "args_delta": "string",
         "completed_at": "2019-08-24T14:15:22Z",
         "content": "string",
@@ -2550,16 +2512,12 @@ Experimental: this endpoint is subject to change.
           "json_schema": {
             "description": "string",
             "name": "string",
-            "schema": [
-              0
-            ],
+            "schema": {},
             "strict": true
           },
           "type": "text"
         },
-        "result": [
-          0
-        ],
+        "result": {},
         "result_delta": "string",
         "result_reset": true,
         "signature": "string",
@@ -2595,9 +2553,7 @@ Experimental: this endpoint is subject to change.
     "generation_attempt": 0,
     "history_version": 0,
     "part": {
-      "args": [
-        0
-      ],
+      "args": {},
       "args_delta": "string",
       "completed_at": "2019-08-24T14:15:22Z",
       "content": "string",
@@ -2642,16 +2598,12 @@ Experimental: this endpoint is subject to change.
         "json_schema": {
           "description": "string",
           "name": "string",
-          "schema": [
-            0
-          ],
+          "schema": {},
           "strict": true
         },
         "type": "text"
       },
-      "result": [
-        0
-      ],
+      "result": {},
       "result_delta": "string",
       "result_reset": true,
       "signature": "string",
@@ -2675,9 +2627,7 @@ Experimental: this endpoint is subject to change.
       "chat_id": "efc9fe20-a1e5-4a8c-9c48-f1b30c1e4f86",
       "content": [
         {
-          "args": [
-            0
-          ],
+          "args": {},
           "args_delta": "string",
           "completed_at": "2019-08-24T14:15:22Z",
           "content": "string",
@@ -2722,16 +2672,12 @@ Experimental: this endpoint is subject to change.
             "json_schema": {
               "description": "string",
               "name": "string",
-              "schema": [
-                0
-              ],
+              "schema": {},
               "strict": true
             },
             "type": "text"
           },
-          "result": [
-            0
-          ],
+          "result": {},
           "result_delta": "string",
           "result_reset": true,
           "signature": "string",

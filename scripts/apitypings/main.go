@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"reflect"
+	"slices"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -77,6 +78,9 @@ func TSMutations(ts *guts.Typescript) {
 		//   of referencing maps that are actually null.
 		config.NotNullMaps,
 		FixSerpentStruct,
+		// Must run before DiscriminatedChatMessagePart so the
+		// variant interfaces copy the corrected field types.
+		OverrideArbitraryJSONFields,
 		DiscriminatedChatMessagePart,
 		// Prefer enums as types
 		config.EnumAsTypes,
@@ -145,6 +149,56 @@ func TypeMappings(gen *guts.GoParser) error {
 
 	return nil
 }
+
+// OverrideArbitraryJSONFields corrects chat fields declared as
+// json.RawMessage in Go. The global mapping in TypeMappings renders
+// json.RawMessage as Record<string, string>, which misrepresents
+// fields that carry arbitrary JSON: schemas and tool-call arguments
+// are JSON objects with arbitrary value types, and tool
+// results/outputs can be any JSON value. This must run before
+// DiscriminatedChatMessagePart so the generated variant interfaces
+// inherit the corrected types.
+func OverrideArbitraryJSONFields(ts *guts.Typescript) {
+	jsonObject := func() bindings.ExpressionType {
+		return guts.RecordReference(ptr(bindings.KeywordString), ptr(bindings.KeywordUnknown))
+	}
+	jsonValue := func() bindings.ExpressionType {
+		return ptr(bindings.KeywordUnknown)
+	}
+	overrides := map[string]map[string]func() bindings.ExpressionType{
+		// JSON Schema documents; the server requires object roots.
+		"ChatResponseFormatJSONSchema": {"schema": jsonObject},
+		"DynamicTool":                  {"input_schema": jsonObject},
+		// Tool-call arguments are object-shaped by provider
+		// contract; results can be any JSON value (valid-JSON tool
+		// text passes through unwrapped).
+		"ChatMessagePart": {"args": jsonObject, "result": jsonValue},
+		// Dynamic tool output is an arbitrary JSON value chosen by
+		// the client.
+		"ToolResult": {"output": jsonValue},
+	}
+	for typeName, fields := range overrides {
+		node, ok := ts.Node(typeName)
+		if !ok {
+			panic(fmt.Sprintf("OverrideArbitraryJSONFields: type %q not found", typeName))
+		}
+		iface, ok := node.(*bindings.Interface)
+		if !ok {
+			panic(fmt.Sprintf("OverrideArbitraryJSONFields: type %q is not an interface", typeName))
+		}
+		for fieldName, override := range fields {
+			idx := slices.IndexFunc(iface.Fields, func(f *bindings.PropertySignature) bool {
+				return f.Name == fieldName
+			})
+			if idx == -1 {
+				panic(fmt.Sprintf("OverrideArbitraryJSONFields: field %q not found on %q", fieldName, typeName))
+			}
+			iface.Fields[idx].Type = override()
+		}
+	}
+}
+
+func ptr[T any](v T) *T { return &v }
 
 // DiscriminatedChatMessagePart splits the flat ChatMessagePart
 // interface into a discriminated union of per-type sub-interfaces.

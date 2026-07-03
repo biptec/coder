@@ -1,12 +1,17 @@
 package chatloop
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
+	"charm.land/fantasy"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"cdr.dev/slog/v3"
 )
 
 func TestToolResultByteBudget(t *testing.T) {
@@ -101,5 +106,79 @@ func TestTruncateToolResultText(t *testing.T) {
 		require.True(t, truncated)
 		assert.LessOrEqual(t, len(out), maxBytes)
 		assert.True(t, utf8.ValidString(out))
+	})
+}
+
+// exemptTool wraps a fantasy.AgentTool with a ResultTruncationExempter
+// implementation, mirroring how the structured output finalizer opts
+// out of result truncation.
+type exemptTool struct {
+	fantasy.AgentTool
+}
+
+func (exemptTool) ExemptFromResultTruncation() bool { return true }
+
+func TestExecuteSingleToolResultTruncationExemption(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.Make()
+	// Comfortably larger than the truncation budget used below.
+	bigPayload := strings.Repeat("x", minToolResultBytes*3)
+
+	newTool := func(name string, isError bool) fantasy.AgentTool {
+		return fantasy.NewAgentTool(
+			name,
+			"returns a large payload",
+			func(_ context.Context, _ struct{}, _ fantasy.ToolCall) (fantasy.ToolResponse, error) {
+				if isError {
+					return fantasy.NewTextErrorResponse(bigPayload), nil
+				}
+				return fantasy.NewTextResponse(bigPayload), nil
+			},
+		)
+	}
+
+	runTool := func(t *testing.T, tool fantasy.AgentTool, name string) fantasy.ToolResultContent {
+		t.Helper()
+		return executeSingleTool(
+			context.Background(),
+			map[string]fantasy.AgentTool{name: tool},
+			fantasy.ToolCallContent{ToolCallID: "call-1", ToolName: name, Input: "{}"},
+			NewMetrics(prometheus.NewRegistry()),
+			logger,
+			"fake", "fake-model",
+			map[string]bool{},
+			[]string{name},
+			map[string]struct{}{},
+			nil,
+			minToolResultBytes,
+			nil,
+		)
+	}
+
+	t.Run("ExemptSuccessNotTruncated", func(t *testing.T) {
+		t.Parallel()
+		result := runTool(t, exemptTool{newTool("finalize", false)}, "finalize")
+		text, ok := result.Result.(fantasy.ToolResultOutputContentText)
+		require.True(t, ok, "expected text result, got %T", result.Result)
+		require.Equal(t, bigPayload, text.Text, "exempt successful result must not be truncated")
+	})
+
+	t.Run("ExemptErrorStillTruncated", func(t *testing.T) {
+		t.Parallel()
+		result := runTool(t, exemptTool{newTool("finalize", true)}, "finalize")
+		errResult, ok := result.Result.(fantasy.ToolResultOutputContentError)
+		require.True(t, ok, "expected error result, got %T", result.Result)
+		require.Less(t, len(errResult.Error.Error()), len(bigPayload))
+		require.Contains(t, errResult.Error.Error(), "truncated")
+	})
+
+	t.Run("NonExemptSuccessTruncated", func(t *testing.T) {
+		t.Parallel()
+		result := runTool(t, newTool("fetch", false), "fetch")
+		text, ok := result.Result.(fantasy.ToolResultOutputContentText)
+		require.True(t, ok, "expected text result, got %T", result.Result)
+		require.Less(t, len(text.Text), len(bigPayload))
+		require.Contains(t, text.Text, "truncated")
 	})
 }

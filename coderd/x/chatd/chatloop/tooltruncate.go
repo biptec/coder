@@ -3,6 +3,8 @@ package chatloop
 import (
 	"fmt"
 	"strings"
+
+	"charm.land/fantasy"
 )
 
 const (
@@ -45,6 +47,30 @@ const (
 
 // maxIntValue is the largest value of the platform int type.
 const maxIntValue = int(^uint(0) >> 1)
+
+// ResultTruncationExempter is implemented by tools whose successful
+// results must never be truncated. Reserve this for tools whose
+// success payload is a validated contract, such as the structured
+// output finalizer's canonical JSON: inserting a truncation marker
+// would corrupt the payload while it still persists as a success.
+// Exemption is bounded in practice because the model itself produced
+// the same bytes as tool-call arguments, which chat history already
+// persists untruncated alongside the result.
+type ResultTruncationExempter interface {
+	ExemptFromResultTruncation() bool
+}
+
+// resultTruncationExempt reports whether a tool's response skips
+// result truncation. Error responses are never exempt: diagnostic
+// text tolerates truncation and keeps its error status, so bounding
+// it is strictly safer.
+func resultTruncationExempt(tool fantasy.AgentTool, resp fantasy.ToolResponse) bool {
+	if resp.IsError {
+		return false
+	}
+	exempter, ok := tool.(ResultTruncationExempter)
+	return ok && exempter.ExemptFromResultTruncation()
+}
 
 // toolResultByteBudget converts a model context-window size (in
 // tokens) into the maximum number of bytes a single tool result may

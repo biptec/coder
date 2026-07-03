@@ -276,6 +276,16 @@ func (t *finalizerTool) Run(_ context.Context, call fantasy.ToolCall) (fantasy.T
 	return fantasy.NewTextResponse(string(canonical)), nil
 }
 
+// ExemptFromResultTruncation implements chatloop's
+// ResultTruncationExempter: a successful finalizer result is the
+// canonical validated JSON of the output value, and truncating it
+// would corrupt the payload while still persisting it as a success,
+// breaking the recovery contract. The exposure is bounded because the
+// model already emitted the same bytes as tool-call arguments (which
+// history persists untruncated) and a successful result stops the
+// turn immediately. Error results are still truncated by chatloop.
+func (*finalizerTool) ExemptFromResultTruncation() bool { return true }
+
 func (t *finalizerTool) ProviderOptions() fantasy.ProviderOptions {
 	return t.opts
 }

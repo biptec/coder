@@ -1293,17 +1293,22 @@ func executeSingleTool(
 	// Cap tool output so a single oversized result (most often a large
 	// MCP response) cannot overflow the model's context window on the
 	// next request. Only the text payload is bounded; binary media data
-	// is passed through untouched.
+	// is passed through untouched. Successful results of exempt tools
+	// (see ResultTruncationExempter) skip the cap because truncation
+	// would corrupt a validated payload while persisting it as a
+	// success.
 	content := resp.Content
-	if truncated, didTruncate := truncateToolResultText(content, maxResultBytes); didTruncate {
-		metrics.RecordToolResultTruncated(provider, model, tc.ToolName)
-		logger.Warn(ctx, "tool result truncated to fit model context",
-			slog.F("tool_name", tc.ToolName),
-			slog.F("tool_call_id", tc.ToolCallID),
-			slog.F("original_bytes", len(content)),
-			slog.F("max_bytes", maxResultBytes),
-		)
-		content = truncated
+	if !resultTruncationExempt(tool, resp) {
+		if truncated, didTruncate := truncateToolResultText(content, maxResultBytes); didTruncate {
+			metrics.RecordToolResultTruncated(provider, model, tc.ToolName)
+			logger.Warn(ctx, "tool result truncated to fit model context",
+				slog.F("tool_name", tc.ToolName),
+				slog.F("tool_call_id", tc.ToolCallID),
+				slog.F("original_bytes", len(content)),
+				slog.F("max_bytes", maxResultBytes),
+			)
+			content = truncated
+		}
 	}
 
 	switch {

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/coder/coder/v2/coderd/util/ptr"
+	"github.com/coder/coder/v2/coderd/x/chatd/chatloop"
 	"github.com/coder/coder/v2/coderd/x/chatd/structuredoutput"
 	"github.com/coder/coder/v2/codersdk"
 )
@@ -242,6 +243,17 @@ func TestTool(t *testing.T) {
 		fresh, ok := tool.Info().Parameters["output"].(map[string]any)
 		require.True(t, ok)
 		require.Equal(t, "object", fresh["type"])
+	})
+
+	t.Run("ExemptFromResultTruncation", func(t *testing.T) {
+		t.Parallel()
+		// The successful result is canonical validated JSON; chatloop
+		// must never truncate it (truncation would corrupt the payload
+		// while persisting it as a success).
+		tool := structuredoutput.Tool(newRequest(t, validSchema))
+		exempter, ok := tool.(chatloop.ResultTruncationExempter)
+		require.True(t, ok, "finalizer must implement chatloop.ResultTruncationExempter")
+		require.True(t, exempter.ExemptFromResultTruncation())
 	})
 
 	t.Run("InfoIncludesDescription", func(t *testing.T) {

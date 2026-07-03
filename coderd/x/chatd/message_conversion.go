@@ -510,6 +510,36 @@ func historyHasStopAfterToolResult(messages []database.ChatMessage, stopAfterToo
 	return false, nil
 }
 
+// trailingTextOnlyAssistantCount counts consecutive assistant
+// messages at the tail of history that contain no tool-call parts
+// (text or reasoning only). Any tool call, including
+// provider-executed ones, or any other role breaks the streak. Each
+// such message represents a completion that ignored required tool
+// choice in a structured output turn and triggered a regeneration.
+func trailingTextOnlyAssistantCount(messages []database.ChatMessage) (int, error) {
+	count := 0
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg := messages[i]
+		if msg.Deleted || msg.Compressed {
+			continue
+		}
+		if msg.Role != database.ChatMessageRoleAssistant {
+			break
+		}
+		parts, err := chatprompt.ParseContent(msg)
+		if err != nil {
+			return 0, xerrors.Errorf("parse assistant message: %w", err)
+		}
+		if slices.ContainsFunc(parts, func(part codersdk.ChatMessagePart) bool {
+			return part.Type == codersdk.ChatMessagePartTypeToolCall
+		}) {
+			break
+		}
+		count++
+	}
+	return count, nil
+}
+
 func currentHistoryComplete(messages []database.ChatMessage) (bool, error) {
 	idx := lastMessageIndex(messages, func(database.ChatMessage) bool { return true })
 	if idx == -1 || messages[idx].Role != database.ChatMessageRoleAssistant {

@@ -347,7 +347,7 @@ type ChatResponseFormatJSONSchema struct {
 	// Schema is a JSON Schema object. The root must have
 	// "type":"object"; wrap arrays or primitives in an object
 	// property. Any $ref values must be fragment-local ("#...").
-	Schema json.RawMessage `json:"schema"`
+	Schema json.RawMessage `json:"schema" swaggertype:"object"`
 	// Strict is accepted for wire compatibility with common
 	// response_format shapes. Only true (or omitted, which
 	// defaults to true) is supported; false is rejected.
@@ -384,30 +384,35 @@ type ChatMessagePart struct {
 	ToolCallID        string              `json:"tool_call_id,omitempty" variants:"tool-call?,tool-result?"`
 	ToolName          string              `json:"tool_name,omitempty" variants:"tool-call?,tool-result?"`
 	MCPServerConfigID uuid.NullUUID       `json:"mcp_server_config_id,omitempty" format:"uuid" variants:"tool-call?,tool-result?"`
-	Args              json.RawMessage     `json:"args,omitempty" variants:"tool-call?"`
-	ArgsDelta         string              `json:"args_delta,omitempty" variants:"tool-call?"`
+	// Args holds the tool-call arguments as a JSON object.
+	Args      json.RawMessage `json:"args,omitempty" variants:"tool-call?" swaggertype:"object"`
+	ArgsDelta string          `json:"args_delta,omitempty" variants:"tool-call?"`
 	// ParsedCommands holds parsed programs from an execute tool call's
 	// shell command, one entry per simple command in source order. Each
 	// entry is [program] or [program, arg] where arg is the first non-flag
 	// positional argument. Program names are normalized to their base
 	// name (e.g. /usr/bin/go becomes go). Only populated when ToolName
 	// is "execute" and the command parses successfully; nil otherwise.
-	ParsedCommands [][]string      `json:"parsed_commands,omitempty" variants:"tool-call?"`
-	Result         json.RawMessage `json:"result,omitempty" variants:"tool-result?"`
-	ResultDelta    string          `json:"result_delta,omitempty" variants:"tool-result?"`
-	ResultReset    bool            `json:"result_reset,omitempty" variants:"tool-result?"`
-	IsError        bool            `json:"is_error,omitempty" variants:"tool-result?"`
-	IsMedia        bool            `json:"is_media,omitempty" variants:"tool-result?"`
-	SourceID       string          `json:"source_id,omitempty" variants:"source?"`
-	URL            string          `json:"url" variants:"source"`
-	Title          string          `json:"title,omitempty" variants:"source?"`
-	MediaType      string          `json:"media_type" variants:"file"`
-	Name           string          `json:"name,omitempty" variants:"file?"`
-	Data           []byte          `json:"data,omitempty" variants:"file?"`
-	FileID         uuid.NullUUID   `json:"file_id,omitempty" format:"uuid" variants:"file?"`
-	FileName       string          `json:"file_name" variants:"file-reference"`
-	StartLine      int             `json:"start_line" variants:"file-reference"`
-	EndLine        int             `json:"end_line" variants:"file-reference"`
+	ParsedCommands [][]string `json:"parsed_commands,omitempty" variants:"tool-call?"`
+	// Result holds the tool result as JSON. It is usually a JSON
+	// object (non-JSON tool text is wrapped as {"output": text}),
+	// but tool text that is already valid JSON passes through
+	// unwrapped, so scalars and arrays are possible.
+	Result      json.RawMessage `json:"result,omitempty" variants:"tool-result?" swaggertype:"object"`
+	ResultDelta string          `json:"result_delta,omitempty" variants:"tool-result?"`
+	ResultReset bool            `json:"result_reset,omitempty" variants:"tool-result?"`
+	IsError     bool            `json:"is_error,omitempty" variants:"tool-result?"`
+	IsMedia     bool            `json:"is_media,omitempty" variants:"tool-result?"`
+	SourceID    string          `json:"source_id,omitempty" variants:"source?"`
+	URL         string          `json:"url" variants:"source"`
+	Title       string          `json:"title,omitempty" variants:"source?"`
+	MediaType   string          `json:"media_type" variants:"file"`
+	Name        string          `json:"name,omitempty" variants:"file?"`
+	Data        []byte          `json:"data,omitempty" variants:"file?"`
+	FileID      uuid.NullUUID   `json:"file_id,omitempty" format:"uuid" variants:"file?"`
+	FileName    string          `json:"file_name" variants:"file-reference"`
+	StartLine   int             `json:"start_line" variants:"file-reference"`
+	EndLine     int             `json:"end_line" variants:"file-reference"`
 	// The code content from the diff that was commented on.
 	Content string `json:"content" variants:"file-reference"`
 	// ProviderMetadata holds provider-specific response metadata
@@ -603,9 +608,10 @@ type SubmitToolResultsRequest struct {
 
 // ToolResult is the client's response to a dynamic tool call.
 type ToolResult struct {
-	ToolCallID string          `json:"tool_call_id"`
-	Output     json.RawMessage `json:"output"`
-	IsError    bool            `json:"is_error"`
+	ToolCallID string `json:"tool_call_id"`
+	// Output is the tool's result as an arbitrary JSON value.
+	Output  json.RawMessage `json:"output" swaggertype:"object"`
+	IsError bool            `json:"is_error"`
 }
 
 // CreateChatRequest is the request to create a new chat.
@@ -1790,10 +1796,11 @@ type DynamicToolResponse struct {
 type DynamicTool struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
-	// InputSchema's JSON key "input_schema" uses snake_case for
+	// InputSchema is a JSON Schema object describing the tool's
+	// arguments. Its JSON key "input_schema" uses snake_case for
 	// SDK consistency, deviating from the camelCase "inputSchema"
 	// convention used by MCP.
-	InputSchema json.RawMessage `json:"input_schema"`
+	InputSchema json.RawMessage `json:"input_schema" swaggertype:"object"`
 
 	// Handler executes the tool when the LLM invokes it.
 	// Not serialized — this only exists on the client side.

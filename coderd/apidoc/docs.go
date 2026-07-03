@@ -17233,10 +17233,8 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "args": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
+                    "description": "Args holds the tool-call arguments as a JSON object.",
+                    "type": "object"
                 },
                 "args_delta": {
                     "type": "string"
@@ -17358,10 +17356,8 @@ const docTemplate = `{
                     ]
                 },
                 "result": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
+                    "description": "Result holds the tool result as JSON. It is usually a JSON\nobject (non-JSON tool text is wrapped as {\"output\": text}),\nbut tool text that is already valid JSON passes through\nunwrapped, so scalars and arrays are possible.",
+                    "type": "object"
                 },
                 "result_delta": {
                     "type": "string"
@@ -17655,10 +17651,7 @@ const docTemplate = `{
                 },
                 "schema": {
                     "description": "Schema is a JSON Schema object. The root must have\n\"type\":\"object\"; wrap arrays or primitives in an object\nproperty. Any $ref values must be fragment-local (\"#...\").",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
+                    "type": "object"
                 },
                 "strict": {
                     "description": "Strict is accepted for wire compatibility with common\nresponse_format shapes. Only true (or omitted, which\ndefaults to true) is supported; false is rejected.",
@@ -19609,11 +19602,8 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "input_schema": {
-                    "description": "InputSchema's JSON key \"input_schema\" uses snake_case for\nSDK consistency, deviating from the camelCase \"inputSchema\"\nconvention used by MCP.",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
+                    "description": "InputSchema is a JSON Schema object describing the tool's\narguments. Its JSON key \"input_schema\" uses snake_case for\nSDK consistency, deviating from the camelCase \"inputSchema\"\nconvention used by MCP.",
+                    "type": "object"
                 },
                 "name": {
                     "type": "string"

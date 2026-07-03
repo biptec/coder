@@ -182,10 +182,22 @@ type generationDecisionInput struct {
 	compactionContextLimit     int64
 }
 
+// maxStructuredOutputTextOnlySteps bounds consecutive assistant
+// completions that contain no tool call during a structured output
+// turn. Every step already demands a tool call via required tool
+// choice, so a text-only completion means the model (or an
+// intermediary that strips tool_choice) is ignoring it; each one
+// triggers a regeneration. Failing fast after a short streak turns a
+// potential storm of rapid provider calls across the full step
+// budget into a handful of attempts.
+const maxStructuredOutputTextOnlySteps = 5
+
 // errStructuredOutputNotProduced finishes a structured output turn
 // with a terminal error when no validated finalizer result exists
-// and the turn cannot continue: either the step budget ran out or
-// the model returned an empty response.
+// and the turn cannot continue: the step budget ran out, the model
+// returned an empty response, or the model kept answering in plain
+// text despite required tool choice
+// (maxStructuredOutputTextOnlySteps).
 var errStructuredOutputNotProduced = chaterror.WithClassification(
 	xerrors.New("structured_output_not_produced"),
 	chaterror.ClassifiedError{
@@ -229,11 +241,21 @@ func decideGenerationAction(input generationDecisionInput) (generationDecision, 
 	}
 	// A structured output turn only finishes via the finalizer's
 	// stop-after result above. Text-only completion regenerates
-	// under required tool choice until the step budget runs out,
-	// then the turn fails terminally instead of succeeding via
+	// under required tool choice, but only within a short
+	// consecutive streak; past that (or when the step budget runs
+	// out) the turn fails terminally instead of succeeding via
 	// max_steps.
 	if complete && !input.structuredOutputRequired {
 		return generationDecision{kind: generationActionFinishTurn, finishReason: generationFinishReasonComplete}, nil
+	}
+	if complete && input.structuredOutputRequired {
+		streak, err := trailingTextOnlyAssistantCount(input.messages)
+		if err != nil {
+			return generationDecision{}, err
+		}
+		if streak >= maxStructuredOutputTextOnlySteps {
+			return generationDecision{}, terminalGeneration(errStructuredOutputNotProduced)
+		}
 	}
 	if input.maxSteps > 0 && currentTurnStepCount(input.messages) >= input.maxSteps {
 		if input.structuredOutputRequired {

@@ -1277,7 +1277,11 @@ When a format is active, `prepareGeneration` injects the server-owned
   dynamic-tool collisions resolve in its favor; MCP tools shadowing
   the name are dropped), exclusive (must be called alone in a
   batch), and stop-after (a successful result finishes the turn via
-  the existing stop-after machinery).
+  the existing stop-after machinery);
+- exempts its successful results from chatloop's tool-result
+  truncation (`ResultTruncationExempter`): truncation would corrupt
+  the canonical JSON while persisting it as a success. Validation
+  error results are still truncated like any other tool error.
 
 The tool name is reserved: the HTTP layer rejects dynamic tools named
 `coder_structured_output` even when no `response_format` is present.
@@ -1292,8 +1296,12 @@ The tool name is reserved: the HTTP layer rejects dynamic tools named
 - All other tools (builtin, MCP, provider, dynamic) work normally.
   Dynamic tool calls still pause the turn in requires_action.
 - The turn only finishes successfully via the finalizer's stop-after
-  result. Plain-text steps regenerate; validation failures are
-  retryable tool errors within the step budget; exhausting
+  result. Plain-text steps regenerate, but only within a short
+  consecutive streak (`maxStructuredOutputTextOnlySteps`); a model
+  or proxy that keeps ignoring required tool choice fails fast
+  instead of storming the provider for the whole step budget.
+  Validation failures are retryable tool errors within the step
+  budget (any tool call resets the text-only streak); exhausting
   `MaxSteps` (or an empty model response) fails the turn terminally
   with `structured_output_not_produced` instead of succeeding.
 - The finalizer result is never sent back to the provider (the turn

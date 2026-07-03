@@ -2911,7 +2911,7 @@ export interface ChatResponseFormatJSONSchema {
 	 * "type":"object"; wrap arrays or primitives in an object
 	 * property. Any $ref values must be fragment-local ("#...").
 	 */
-	readonly schema: Record<string, string>;
+	readonly schema: Record<string, unknown>;
 	/**
 	 * Strict is accepted for wire compatibility with common
 	 * response_format shapes. Only true (or omitted, which
@@ -3146,7 +3146,10 @@ export interface ChatToolCallPart {
 	readonly tool_call_id?: string;
 	readonly tool_name?: string;
 	readonly mcp_server_config_id?: string;
-	readonly args?: Record<string, string>;
+	/**
+	 * Args holds the tool-call arguments as a JSON object.
+	 */
+	readonly args?: Record<string, unknown>;
 	readonly args_delta?: string;
 	/**
 	 * ParsedCommands holds parsed programs from an execute tool call's
@@ -3179,7 +3182,13 @@ export interface ChatToolResultPart {
 	readonly tool_call_id?: string;
 	readonly tool_name?: string;
 	readonly mcp_server_config_id?: string;
-	readonly result?: Record<string, string>;
+	/**
+	 * Result holds the tool result as JSON. It is usually a JSON
+	 * object (non-JSON tool text is wrapped as {"output": text}),
+	 * but tool text that is already valid JSON passes through
+	 * unwrapped, so scalars and arrays are possible.
+	 */
+	readonly result?: unknown;
 	readonly result_delta?: string;
 	readonly result_reset?: boolean;
 	readonly is_error?: boolean;
@@ -4565,11 +4574,12 @@ export interface DynamicTool {
 	readonly name: string;
 	readonly description?: string;
 	/**
-	 * InputSchema's JSON key "input_schema" uses snake_case for
+	 * InputSchema is a JSON Schema object describing the tool's
+	 * arguments. Its JSON key "input_schema" uses snake_case for
 	 * SDK consistency, deviating from the camelCase "inputSchema"
 	 * convention used by MCP.
 	 */
-	readonly input_schema: Record<string, string>;
+	readonly input_schema: Record<string, unknown>;
 }
 
 // From codersdk/chats.go
@@ -8849,7 +8859,10 @@ export interface TokensFilter {
  */
 export interface ToolResult {
 	readonly tool_call_id: string;
-	readonly output: Record<string, string>;
+	/**
+	 * Output is the tool's result as an arbitrary JSON value.
+	 */
+	readonly output: unknown;
 	readonly is_error: boolean;
 }
 
