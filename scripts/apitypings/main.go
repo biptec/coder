@@ -178,9 +178,12 @@ func OverrideArbitraryJSONFields(ts *guts.Typescript) {
 		"ToolResult": {"output": jsonValue},
 	}
 	for typeName, fields := range overrides {
+		// Skip missing types so the mutation also runs against the
+		// small testdata packages in main_test.go, which do not
+		// declare the chat types.
 		node, ok := ts.Node(typeName)
 		if !ok {
-			panic(fmt.Sprintf("OverrideArbitraryJSONFields: type %q not found", typeName))
+			continue
 		}
 		iface, ok := node.(*bindings.Interface)
 		if !ok {
