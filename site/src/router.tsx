@@ -20,7 +20,6 @@ import { HealthLayout } from "./pages/HealthPage/HealthLayout";
 import LoginOAuthDevicePage from "./pages/LoginOAuthDevicePage/LoginOAuthDevicePage";
 import LoginPage from "./pages/LoginPage/LoginPage";
 import { SetupPage } from "./pages/SetupPage/SetupPage";
-import { OnboardingPage } from "./pages/OnboardingPage/OnboardingPage";
 import { TemplateLayout } from "./pages/TemplatePage/TemplateLayout";
 import { TemplateRedirectController } from "./pages/TemplatePage/TemplateRedirectController";
 import { TemplateSettingsLayout } from "./pages/TemplateSettingsPage/TemplateSettingsLayout";
@@ -565,7 +564,6 @@ export const router = createBrowserRouter(
 			<Route path="login" element={<LoginPage />} />
 			<Route path="login/device" element={<LoginOAuthDevicePage />} />
 			<Route path="setup" element={<SetupPage />} />
-				<Route path="onboarding" element={<OnboardingPage />} />
 			<Route path="reset-password">
 				<Route index element={<RequestOTPPage />} />
 				<Route path="change" element={<ChangePasswordPage />} />

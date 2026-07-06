@@ -20,6 +20,7 @@ import {
 	SelectValue,
 } from "#/components/Select/Select";
 import { Spinner } from "#/components/Spinner/Spinner";
+import { Switch } from "#/components/Switch/Switch";
 import { cn } from "#/utils/cn";
 import {
 	type FormHelpers,
@@ -403,6 +404,39 @@ export const SetupPageView: FC<SetupPageViewProps> = ({
 							.
 						</p>
 					</div>
+
+					{/* Blink assistant */}
+					<label
+						htmlFor="blink-toggle"
+						className="flex cursor-pointer gap-3 items-start p-4 rounded-lg border border-border hover:border-border-hover transition-colors"
+					>
+						<Switch
+							id="blink-toggle"
+							defaultChecked={false}
+							onCheckedChange={(checked) => {
+								try {
+									localStorage.setItem(
+										"blink_enabled",
+										String(checked === true),
+									);
+								} catch {
+									// Storage may be unavailable.
+								}
+							}}
+							data-testid="blink-toggle"
+							className="mt-0.5"
+						/>
+						<div className="flex flex-col gap-0.5">
+							<span className="text-sm font-semibold">
+								Enable Blink assistant
+							</span>
+							<span className="text-xs text-content-secondary leading-relaxed">
+								Blink is an AI assistant that lives in your dashboard. It can
+								help manage templates, create workspaces, and answer questions
+								about your deployment. Requires an AI provider to be configured.
+							</span>
+						</div>
+					</label>
 
 					{/* Error alert */}
 					{isAxiosError(error) && error.response?.data?.message && (
