@@ -6407,6 +6407,8 @@ func (q *querier) InsertWorkspaceBuild(ctx context.Context, arg database.InsertW
 }
 
 func (q *querier) InsertWorkspaceBuildOrchestration(ctx context.Context, arg database.InsertWorkspaceBuildOrchestrationParams) (database.WorkspaceBuildOrchestration, error) {
+	// Read through the raw q.db to fetch the authz context; authorization
+	// happens via q.authorizeContext below, as in InsertWorkspaceBuild.
 	parentBuild, err := q.db.GetWorkspaceBuildByID(ctx, arg.ParentBuildID)
 	if err != nil {
 		return database.WorkspaceBuildOrchestration{}, xerrors.Errorf("get parent workspace build by id: %w", err)
