@@ -65,16 +65,6 @@ Path to a PEM-encoded TLS certificate. Enables TLS termination when set together
 
 Path to a PEM-encoded TLS private key. Enables TLS termination when set together with --tls-cert-file.
 
-### --verbose
-
-|             |                                        |
-|-------------|----------------------------------------|
-| Type        | <code>bool</code>                      |
-| Environment | <code>$CODER_AI_GATEWAY_VERBOSE</code> |
-| Default     | <code>false</code>                     |
-
-Output debug-level logs.
-
 ### --ai-gateway-max-concurrency
 
 |             |                                                |
@@ -139,3 +129,44 @@ Allow users to provide their own LLM API keys or subscriptions. When disabled, o
 | Default     | <code>false</code>                                     |
 
 Enable the circuit breaker to protect against cascading failures from upstream AI provider overload (503, 529).
+
+### -l, --log-filter
+
+|             |                                           |
+|-------------|-------------------------------------------|
+| Type        | <code>string-array</code>                 |
+| Environment | <code>$CODER_LOG_FILTER</code>            |
+| YAML        | <code>introspection.logging.filter</code> |
+
+Filter debug logs by matching against a given regex. Use .* to match all debug logs.
+
+### --log-human
+
+|             |                                              |
+|-------------|----------------------------------------------|
+| Type        | <code>string</code>                          |
+| Environment | <code>$CODER_LOGGING_HUMAN</code>            |
+| YAML        | <code>introspection.logging.humanPath</code> |
+| Default     | <code>/dev/stderr</code>                     |
+
+Output human-readable logs to a given file.
+
+### --log-json
+
+|             |                                             |
+|-------------|---------------------------------------------|
+| Type        | <code>string</code>                         |
+| Environment | <code>$CODER_LOGGING_JSON</code>            |
+| YAML        | <code>introspection.logging.jsonPath</code> |
+
+Output JSON logs to a given file.
+
+### --log-stackdriver
+
+|             |                                                    |
+|-------------|----------------------------------------------------|
+| Type        | <code>string</code>                                |
+| Environment | <code>$CODER_LOGGING_STACKDRIVER</code>            |
+| YAML        | <code>introspection.logging.stackdriverPath</code> |
+
+Output Stackdriver compatible logs to a given file.

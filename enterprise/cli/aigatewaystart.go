@@ -17,9 +17,9 @@ import (
 	"golang.org/x/xerrors"
 
 	"cdr.dev/slog/v3"
-	"cdr.dev/slog/v3/sloggers/sloghuman"
 	"github.com/coder/coder/v2/aibridge"
 	agpl "github.com/coder/coder/v2/cli"
+	"github.com/coder/coder/v2/cli/clilog"
 	"github.com/coder/coder/v2/coderd/aibridged"
 	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/enterprise/coderd"
@@ -42,7 +42,6 @@ func (r *RootCmd) aiGatewayStart() *serpent.Command {
 		httpAddress string
 		tlsCertFile string
 		tlsKeyFile  string
-		verbose     bool
 	)
 
 	vals := new(codersdk.DeploymentValues)
@@ -80,10 +79,14 @@ func (r *RootCmd) aiGatewayStart() *serpent.Command {
 				return xerrors.Errorf("configure Coder deployment connection: %w", err)
 			}
 
-			logger := slog.Make(sloghuman.Sink(inv.Stderr))
-			if verbose {
-				logger = logger.Leveled(slog.LevelDebug)
+			logger, closeLogger, err := clilog.New(clilog.FromDeploymentValues(vals)).Build(inv)
+			if err != nil {
+				return xerrors.Errorf("make logger: %w", err)
 			}
+			defer closeLogger()
+
+			logger.Debug(signalCtx, "started debug logging")
+			logger.Sync()
 
 			// Metrics and tracing are not exposed by standalone mode yet
 			// (TODO AIGOV-317), but the pool and the reloader require a metrics
@@ -248,13 +251,6 @@ func (r *RootCmd) aiGatewayStart() *serpent.Command {
 			Description: "Path to a PEM-encoded TLS private key. Enables TLS termination when set together with --tls-cert-file.",
 			Value:       serpent.StringOf(&tlsKeyFile),
 		},
-		{
-			Flag:        "verbose",
-			Env:         "CODER_AI_GATEWAY_VERBOSE",
-			Description: "Output debug-level logs.",
-			Value:       serpent.BoolOf(&verbose),
-			Default:     "false",
-		},
 	}
 
 	// Standalone Gateway only uses part of the options from "AI Gateway" group.
@@ -284,6 +280,20 @@ func (r *RootCmd) aiGatewayStart() *serpent.Command {
 	}
 
 	cmd.Options = append(cmd.Options, aiGatewayOpts...)
+
+	observabilityOpts := map[string]struct{}{
+		"CODER_LOGGING_HUMAN":       {},
+		"CODER_LOGGING_JSON":        {},
+		"CODER_LOGGING_STACKDRIVER": {},
+		"CODER_LOG_FILTER":          {},
+		"CODER_VERBOSE":             {},
+	}
+	for _, opt := range vals.Options() {
+		if _, ok := observabilityOpts[opt.Env]; !ok {
+			continue
+		}
+		cmd.Options = append(cmd.Options, opt)
+	}
 
 	return cmd
 }

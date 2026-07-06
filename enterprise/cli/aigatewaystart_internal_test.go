@@ -215,3 +215,24 @@ func TestAIGatewayStart_DeploymentOptions(t *testing.T) {
 	}
 	require.ElementsMatch(t, want, got)
 }
+
+func TestAIGatewayStart_LoggingOptions(t *testing.T) {
+	t.Parallel()
+
+	cmd := (&RootCmd{}).aiGatewayStart()
+
+	for _, tc := range []struct {
+		flag string
+		env  string
+	}{
+		{flag: "log-human", env: "CODER_LOGGING_HUMAN"},
+		{flag: "log-json", env: "CODER_LOGGING_JSON"},
+		{flag: "log-stackdriver", env: "CODER_LOGGING_STACKDRIVER"},
+		{flag: "log-filter", env: "CODER_LOG_FILTER"},
+		{flag: "verbose", env: "CODER_VERBOSE"},
+	} {
+		opt := cmd.Options.ByFlag(tc.flag)
+		require.NotNil(t, opt, "missing --%s", tc.flag)
+		require.Equal(t, tc.env, opt.Env)
+	}
+}
