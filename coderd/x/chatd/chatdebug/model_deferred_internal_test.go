@@ -318,6 +318,7 @@ func TestDeferred_StreamErrorCapturedUnderCanceledContext(t *testing.T) {
 
 	stream, err := model.Stream(ctx, fantasy.Call{})
 	require.NoError(t, err)
-	for range stream {
+	// Drain the stream; the AfterFunc safety net is what we're testing.
+	for range stream { //nolint:revive // intentional drain, no body needed
 	}
 }

@@ -6788,7 +6788,9 @@ func TestActiveServer_ChatTurnDebugRunCapturesGenericErrorWhenLoggingOff(t *test
 
 	// Note: AlwaysEnableDebugLogs is intentionally left unset, so the server
 	// runs in the errors-only default level.
-	server := newActiveTestServer(t, db, ps)
+	server := newActiveTestServer(t, db, ps, func(cfg *chatd.Config) {
+		cfg.AIBridgeTransportFactory = chatAIGatewayTransportFactoryPointer(chattest.NewMockAIBridgeTransport(t, anthropicURL, chattest.WithPreservePath()))
+	})
 	chat := createChatThroughServer(ctx, t, db, server, org.ID, user.ID, model.ID, "hello error")
 	waitForChatStatus(ctx, t, db, chat.ID, database.ChatStatusError)
 	require.NoError(t, server.Close())
