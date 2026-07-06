@@ -146,6 +146,70 @@ export const PullRequestAndWorkingChanges: Story = {
 		await expect(
 			canvas.getByLabelText("Copy branch name: feat/add-mcp-config"),
 		).toBeVisible();
+
+		// The view switcher trigger reads the PR state on the left
+		// and the PR number on the right; both are visible in the
+		// closed state.
+		const switcher = canvas.getByTestId("git-panel-view-switcher");
+		await expect(switcher).toHaveTextContent("Open");
+		await expect(switcher).toHaveTextContent("PR #23020");
+
+		// The PR title sits below the switcher (truncated in a
+		// span with a hover tooltip).
+		const title = canvas.getByTestId("git-panel-pr-title");
+		await expect(title).toHaveTextContent(
+			"feat(agents): add MCP server configuration to agents",
+		);
+	},
+};
+
+/**
+ * Opens the view switcher dropdown so both the PR entry and each
+ * dirty local repo appear in the menu. Exercises the click path
+ * that swaps views without touching the diff style/refresh controls.
+ */
+export const ViewSwitcherOpen: Story = {
+	args: {
+		prTab: { prNumber: 23020, chatId: "test-chat" },
+		remoteDiffStats: makePrStatus({
+			pull_request_title: "feat: multi-repo workspace support",
+			head_branch: "feat/multi-repo",
+		}),
+		repositories: new Map([
+			["/home/coder/coder", makeRepo()],
+			[
+				"/home/coder/other-project",
+				makeRepo({
+					repo_root: "/home/coder/other-project",
+					branch: "main",
+					remote_origin: "https://github.com/coder/other-project.git",
+					unified_diff: secondRepoDiff,
+				}),
+			],
+		]),
+	},
+	beforeEach: () => {
+		spyOn(API.experimental, "getChatDiffContents").mockResolvedValue({
+			...defaultDiffContents,
+			diff: sampleDiff,
+		});
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const switcher = canvas.getByTestId("git-panel-view-switcher");
+		await userEvent.click(switcher);
+
+		// The Radix menu portals to document.body, so query the full
+		// document instead of the story canvas.
+		const menu = await waitFor(() => {
+			const el = document.querySelector("[role='menu']");
+			if (!el) throw new Error("menu not found");
+			return el as HTMLElement;
+		});
+		await expect(menu).toHaveTextContent("PR #23020");
+		await expect(menu).toHaveTextContent("Working");
+		await expect(menu).toHaveTextContent("coder");
+		await expect(menu).toHaveTextContent("other-project");
 	},
 };
 
@@ -368,9 +432,10 @@ export const LargeDiff: Story = {
 
 /**
  * Regression: when a repo was dirty during this session and then went
- * clean (empty unified_diff), the tab must remain visible. Before the
- * ever-dirty fix, the tab vanished the moment the diff became empty,
- * which is what users saw as "diff disappears between edit_files".
+ * clean (empty unified_diff), the switcher must keep the entry visible.
+ * Before the ever-dirty fix, the entry vanished the moment the diff
+ * became empty, which is what users saw as "diff disappears between
+ * edit_files".
  */
 export const EverDirtyRepoGoneClean: Story = {
 	args: {
@@ -380,14 +445,15 @@ export const EverDirtyRepoGoneClean: Story = {
 		everDirty: new Set(["/home/coder/coder"]),
 	},
 	play: async ({ canvasElement }) => {
-		// The repo tab is still present (identified by the 'Working'
-		// prefix used by GitPanel's tab-strip button) even though the
-		// current diff is empty, because it was dirty earlier in the
-		// session.
-		const tabs = Array.from(canvasElement.querySelectorAll("button")).filter(
-			(b) => (b.textContent ?? "").startsWith("Working"),
+		// The switcher trigger is still rendered (identified by its
+		// stable test id) even though the current diff is empty,
+		// because the repo was dirty earlier in the session. It reads
+		// "Working coder" for the single available view.
+		const switcher = canvasElement.querySelector(
+			"[data-testid='git-panel-view-switcher']",
 		);
-		expect(tabs).toHaveLength(1);
+		expect(switcher).not.toBeNull();
+		expect(switcher?.textContent ?? "").toContain("Working");
 
 		// The content pane shows the diff viewer's empty-diff state.
 		expect(canvasElement.textContent ?? "").toContain("No file changes");
@@ -396,8 +462,8 @@ export const EverDirtyRepoGoneClean: Story = {
 
 /**
  * Baseline: a repo reported clean from the start (never dirty in
- * this session) has no tab. Ensures the ever-dirty fix did not
- * regress the "nothing to show" case.
+ * this session) has no switcher entry. Ensures the ever-dirty fix
+ * did not regress the "nothing to show" case.
  */
 export const CleanRepoFromStart: Story = {
 	args: {
@@ -407,11 +473,11 @@ export const CleanRepoFromStart: Story = {
 		everDirty: new Set(),
 	},
 	play: async ({ canvasElement }) => {
-		// No local repo tab should appear in the tab strip. The
-		// 'Working' prefix is GitPanel's tab-strip label contract.
-		const tabs = Array.from(canvasElement.querySelectorAll("button")).filter(
-			(b) => (b.textContent ?? "").startsWith("Working"),
+		// No "Working" state appears when no repo has ever been dirty.
+		// The switcher falls back to its empty placeholder text.
+		const switcher = canvasElement.querySelector(
+			"[data-testid='git-panel-view-switcher']",
 		);
-		expect(tabs).toHaveLength(0);
+		expect(switcher?.textContent ?? "").not.toContain("Working");
 	},
 };

@@ -43,7 +43,7 @@ import { ChatSharingPopoverContent } from "./components/ChatSharingPopover";
 import { getEffectiveTabId } from "./components/ChatsSidebar/tabs/getEffectiveTabId";
 import { SidebarTabView } from "./components/ChatsSidebar/tabs/SidebarTabView";
 import { ChatTopBar } from "./components/ChatTopBar";
-import { GitPanel } from "./components/GitPanel/GitPanel";
+import { countGitPanelViews, GitPanel } from "./components/GitPanel/GitPanel";
 import { DebugPanel } from "./components/RightPanel/DebugPanel/DebugPanel";
 import { DesktopPanel } from "./components/RightPanel/DesktopPanel";
 import { PortPreviewPanel } from "./components/RightPanel/PortPreviewPanel";
@@ -500,12 +500,20 @@ export const AgentChatPageView: FC<AgentChatPageViewProps> = ({
 	const hasBuiltInTerminal = Boolean(
 		workspace && workspaceAgent && !defaultTerminalHidden,
 	);
+	const gitViewCount = countGitPanelViews(
+		gitWatcher.repositories,
+		diffStatusData,
+		prNumber && agentId ? { prNumber } : undefined,
+		gitWatcher.everDirty,
+	);
+	const gitTabLabel = gitViewCount > 0 ? `Git (${gitViewCount})` : "Git";
+
 	// Single source of truth for available tabs and their order. The list
 	// of tab IDs used by `getEffectiveTabId` is derived from this so a
 	// new tab can never be added to one without the other going out of
 	// sync. Desktop is ordered before terminals so terminals are rightmost.
 	const builtInSidebarTabConfigs = [
-		{ id: "git", label: "Git" },
+		{ id: "git", label: gitTabLabel },
 		...(debugLoggingEnabled ? [{ id: "debug", label: "Debug" }] : []),
 		...(availableDesktopChatId ? [{ id: "desktop", label: "Desktop" }] : []),
 		...(hasBuiltInTerminal ? [{ id: "terminal", label: "Terminal" }] : []),

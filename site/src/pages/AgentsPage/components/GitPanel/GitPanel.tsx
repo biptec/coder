@@ -1,5 +1,6 @@
 import {
 	CheckIcon,
+	ChevronDownIcon,
 	CircleDotIcon,
 	ColumnsIcon,
 	GitBranchIcon,
@@ -18,7 +19,17 @@ import type {
 	WorkspaceAgentRepoChanges,
 } from "#/api/typesGenerated";
 import { Button } from "#/components/Button/Button";
-import { ScrollArea } from "#/components/ScrollArea/ScrollArea";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "#/components/DropdownMenu/DropdownMenu";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "#/components/Tooltip/Tooltip";
 import { cn } from "#/utils/cn";
 import type { ChatMessageInputRef } from "../AgentChatInput";
 import { DiffStatBadge } from "../DiffViewer/DiffStats";
@@ -76,6 +87,48 @@ interface GitPanelProps {
 function repoTabLabel(repoRoot: string): string {
 	const segments = repoRoot.split("/").filter(Boolean);
 	return segments[segments.length - 1] ?? repoRoot;
+}
+
+/**
+ * Total number of switchable views in the git panel. Used by callers to
+ * decorate the `Git` sidebar tab label with a count.
+ */
+export function countGitPanelViews(
+	repositories: ReadonlyMap<string, WorkspaceAgentRepoChanges>,
+	remoteDiffStats: ChatDiffStatus | undefined,
+	prTab: { prNumber: number } | undefined,
+	everDirty: ReadonlySet<string> | undefined,
+): number {
+	const hasRemoteDiff =
+		(remoteDiffStats?.changed_files ?? 0) > 0 ||
+		(remoteDiffStats?.additions ?? 0) > 0 ||
+		(remoteDiffStats?.deletions ?? 0) > 0;
+	const showRemote = Boolean(prTab) || hasRemoteDiff;
+
+	const localRoots = new Set<string>();
+	for (const [root, repo] of repositories.entries()) {
+		if (repoHasDiff(repo)) {
+			localRoots.add(root);
+		}
+	}
+	if (everDirty) {
+		for (const root of everDirty) {
+			if (repositories.has(root)) {
+				localRoots.add(root);
+			}
+		}
+	}
+
+	return (showRemote ? 1 : 0) + localRoots.size;
+}
+
+function repoHasDiff(repo: WorkspaceAgentRepoChanges): boolean {
+	if (!repo.unified_diff) return false;
+	for (const line of repo.unified_diff.split("\n")) {
+		if (line.startsWith("+") && !line.startsWith("+++")) return true;
+		if (line.startsWith("-") && !line.startsWith("---")) return true;
+	}
+	return false;
 }
 
 export const GitPanel: FC<GitPanelProps> = ({
@@ -191,81 +244,99 @@ export const GitPanel: FC<GitPanelProps> = ({
 		spinTimerRef.current = setTimeout(() => setSpinning(false), 1000);
 	};
 
+	// A single dropdown item for either the PR view or a Working repo.
+	// Rendered inside `ViewSwitcher` and used to compute the current
+	// trigger contents.
+	type ViewItem = {
+		id: string;
+		kind: "remote" | "local";
+		repoRoot?: string;
+		/** Left-pill label on the trigger (e.g. "Open", "Merged", "Working"). */
+		stateLabel: string;
+		/** Right-side label on the trigger (e.g. "PR #4847", "coder"). */
+		triggerIdentifier: string;
+		/** Primary text in the dropdown item (e.g. "PR #4847", "Working"). */
+		itemPrimary: string;
+		/** Secondary text in the dropdown item (e.g. PR title, repo name). */
+		itemSecondary?: string;
+		stateClasses: string;
+		icon: React.ReactNode;
+	};
+
+	const remoteItem: ViewItem | null = showRemoteTab
+		? prTab
+			? {
+					kind: "remote",
+					id: "remote",
+					stateLabel: prStateLabel(prState, prDraft),
+					triggerIdentifier: `PR #${prTab.prNumber}`,
+					itemPrimary: `PR #${prTab.prNumber}`,
+					itemSecondary: prTitle || undefined,
+					stateClasses: prStateClasses(prState, prDraft),
+					icon: (
+						<PrStateIcon
+							state={prState}
+							draft={prDraft}
+							className="!size-3.5 shrink-0"
+						/>
+					),
+				}
+			: {
+					kind: "remote",
+					id: "remote",
+					stateLabel: "Branch",
+					triggerIdentifier: "Branch",
+					itemPrimary: "Branch",
+					stateClasses: "text-content-secondary",
+					icon: <GitBranchIcon className="!size-3.5 shrink-0" />,
+				}
+		: null;
+
+	const localItems: ViewItem[] = localRepos.map((repoRoot) => ({
+		kind: "local" as const,
+		id: `local:${repoRoot}`,
+		repoRoot,
+		stateLabel: "Working",
+		triggerIdentifier: repoTabLabel(repoRoot),
+		itemPrimary: "Working",
+		itemSecondary: repoTabLabel(repoRoot),
+		stateClasses: "text-content-warning bg-surface-orange",
+		icon: <CircleDotIcon className="!size-3.5 shrink-0 text-content-warning" />,
+	}));
+
+	const items: ViewItem[] = [
+		...(remoteItem ? [remoteItem] : []),
+		...localItems,
+	];
+
+	const activeItem: ViewItem | undefined =
+		view.type === "remote"
+			? (remoteItem ?? undefined)
+			: items.find(
+					(item) => item.kind === "local" && item.repoRoot === view.repoRoot,
+				);
+
+	const handleSelectItem = (item: ViewItem) => {
+		if (item.kind === "remote") {
+			setView({ type: "remote" });
+		} else if (item.repoRoot) {
+			setView({ type: "local", repoRoot: item.repoRoot });
+		}
+	};
+
 	return (
 		<div className="flex h-full flex-col">
 			{/* Toolbar */}
-			<div className="flex shrink-0 items-center gap-2 border-0 border-b border-solid border-border-default px-3">
-				{/* Tabs — scrollable when they overflow */}
-				<ScrollArea
-					className="min-w-0 flex-1"
-					orientation="horizontal"
-					scrollBarClassName="h-1.5"
-				>
-					<div className="flex items-center gap-0.5 py-1.5 text-xs">
-						{showRemoteTab && (
-							<Button
-								variant="outline"
-								size="lg"
-								onClick={() => setView({ type: "remote" })}
-								className={cn(
-									"shrink-0 h-6 min-w-0 gap-1.5 px-2 py-0 bg-surface-primary",
-									view.type === "remote" &&
-										"bg-surface-quaternary/25 text-content-primary hover:bg-surface-quaternary/50",
-								)}
-							>
-								{prTab ? (
-									<>
-										<PrStateIcon
-											state={prState}
-											draft={prDraft}
-											className="!size-4 shrink-0"
-										/>
-										<span className="truncate">
-											{prTitle || `PR #${prTab.prNumber}`}
-										</span>
-									</>
-								) : (
-									<>
-										<GitBranchIcon className="!size-3.5 shrink-0" />
-										<span className="truncate">Branch</span>
-									</>
-								)}
-							</Button>
-						)}
-						{localRepos.map((repoRoot) => {
-							const isActive =
-								view.type === "local" && view.repoRoot === repoRoot;
-							return (
-								<Button
-									key={repoRoot}
-									variant="outline"
-									size="lg"
-									onClick={() => setView({ type: "local", repoRoot })}
-									className={cn(
-										"shrink-0 h-6 min-w-0 gap-1.5 px-2 py-0 bg-surface-primary",
-										isActive &&
-											"bg-surface-quaternary/25 text-content-primary hover:bg-surface-quaternary/50",
-									)}
-								>
-									<CircleDotIcon
-										className={cn(
-											"!size-3.5 shrink-0",
-											isActive
-												? "text-content-warning"
-												: "text-content-warning/60",
-										)}
-									/>
-									<span className="truncate">
-										Working{" "}
-										<span className="opacity-50">{repoTabLabel(repoRoot)}</span>
-									</span>
-								</Button>
-							);
-						})}
-					</div>
-				</ScrollArea>
+			<div className="flex shrink-0 items-center gap-2 border-0 border-b border-solid border-border-default px-3 py-1.5">
+				<div className="min-w-0 flex-1">
+					<ViewSwitcher
+						items={items}
+						activeItem={activeItem}
+						onSelect={handleSelectItem}
+					/>
+				</div>
 				{/* Controls */}
-				<div className="flex shrink-0 items-center gap-1 py-1.5">
+				<div className="flex shrink-0 items-center gap-1">
 					<div className="flex h-6 items-stretch overflow-hidden rounded-md border border-solid border-border-default">
 						<button
 							type="button"
@@ -323,6 +394,26 @@ export const GitPanel: FC<GitPanelProps> = ({
 					</span>
 				</div>
 			</div>
+			{/* PR title row: shown below the switcher when the chat has a PR
+			   with a known title. Truncated, with the full title in a
+			   hover tooltip. */}
+			{prTab && prTitle && (
+				<div className="flex shrink-0 items-center px-3 pt-1.5 pb-1">
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<span
+								className="min-w-0 truncate text-sm font-medium text-content-primary"
+								data-testid="git-panel-pr-title"
+							>
+								{prTitle}
+							</span>
+						</TooltipTrigger>
+						<TooltipContent side="bottom" align="start" className="max-w-sm">
+							{prTitle}
+						</TooltipContent>
+					</Tooltip>
+				</div>
+			)}
 			{/* Content */}
 			<div className="min-h-0 flex-1">
 				{view.type === "remote" ? (
@@ -352,6 +443,118 @@ export const GitPanel: FC<GitPanelProps> = ({
 		</div>
 	);
 };
+
+// ---------------------------------------------------------------
+// View switcher: dropdown replacing the old tab strip.
+// ---------------------------------------------------------------
+
+interface ViewSwitcherProps {
+	items: ReadonlyArray<{
+		id: string;
+		kind: "remote" | "local";
+		stateLabel: string;
+		triggerIdentifier: string;
+		itemPrimary: string;
+		itemSecondary?: string;
+		stateClasses: string;
+		icon: React.ReactNode;
+	}>;
+	activeItem?: {
+		id: string;
+		stateLabel: string;
+		triggerIdentifier: string;
+		stateClasses: string;
+		icon: React.ReactNode;
+	};
+	onSelect: (item: ViewSwitcherProps["items"][number]) => void;
+}
+
+const ViewSwitcher: FC<ViewSwitcherProps> = ({
+	items,
+	activeItem,
+	onSelect,
+}) => {
+	// When there is nothing to switch between, still render a
+	// placeholder so the toolbar keeps a stable height. It reads the
+	// same as the tab strip did in the empty state.
+	if (!activeItem) {
+		return (
+			<div className="inline-flex h-6 items-center gap-1.5 rounded-md border border-solid border-border-default px-2 text-xs text-content-secondary">
+				<GitBranchIcon className="!size-3.5 shrink-0" />
+				<span>No changes</span>
+			</div>
+		);
+	}
+
+	const triggerContent = (
+		<>
+			<span
+				className={cn(
+					"inline-flex h-full items-center gap-1 rounded-l-md border-0 border-r border-solid border-border-default px-1.5 font-medium leading-none",
+					activeItem.stateClasses,
+				)}
+			>
+				<span className="inline-flex size-3.5 shrink-0 items-center justify-center">
+					{activeItem.icon}
+				</span>
+				<span className="whitespace-nowrap">{activeItem.stateLabel}</span>
+			</span>
+			<span className="inline-flex min-w-0 items-center gap-1 px-1.5 text-content-primary">
+				<span className="truncate">{activeItem.triggerIdentifier}</span>
+				<ChevronDownIcon className="size-3 shrink-0 opacity-70" />
+			</span>
+		</>
+	);
+
+	const triggerClasses =
+		"inline-flex h-6 min-w-0 max-w-full cursor-pointer items-stretch overflow-hidden rounded-md border border-solid border-border-default bg-surface-primary text-xs transition-colors hover:bg-surface-secondary";
+
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<button
+					type="button"
+					className={triggerClasses}
+					data-testid="git-panel-view-switcher"
+					aria-label="Switch git view"
+				>
+					{triggerContent}
+				</button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent
+				align="start"
+				className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[240px] p-1"
+			>
+				{items.map((item) => {
+					const isActive = item.id === activeItem.id;
+					return (
+						<DropdownMenuItem
+							key={item.id}
+							onSelect={() => onSelect(item)}
+							className={cn(
+								"flex w-full items-center gap-2 px-2 py-1.5 text-xs",
+								isActive && "bg-surface-secondary text-content-primary",
+							)}
+						>
+							<span className="inline-flex size-3.5 shrink-0 items-center justify-center">
+								{item.icon}
+							</span>
+							<span className="whitespace-nowrap font-medium">
+								{item.itemPrimary}
+							</span>
+							{item.itemSecondary && (
+								<span className="min-w-0 flex-1 truncate text-content-secondary">
+									{item.itemSecondary}
+								</span>
+							)}
+						</DropdownMenuItem>
+					);
+				})}
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+};
+
 // ---------------------------------------------------------------
 // Remote view (branch/PR diff)
 // ---------------------------------------------------------------
@@ -492,6 +695,32 @@ const RepoHeader: FC<{
 		</div>
 	);
 };
+
+// ---------------------------------------------------------------
+// PR state helpers
+// ---------------------------------------------------------------
+
+/** Human-readable state label for the view-switcher trigger. */
+function prStateLabel(state: string | undefined, draft: boolean | undefined) {
+	if (state === "merged") return "Merged";
+	if (state === "closed") return "Closed";
+	if (draft) return "Draft";
+	return "Open";
+}
+
+/** Tailwind classes for the state pill on the view-switcher trigger. */
+function prStateClasses(state: string | undefined, draft: boolean | undefined) {
+	if (state === "merged") {
+		return "text-git-merged-bright bg-surface-git-merged";
+	}
+	if (state === "closed") {
+		return "text-git-deleted-bright bg-surface-git-deleted";
+	}
+	if (draft) {
+		return "text-content-secondary bg-surface-secondary";
+	}
+	return "text-git-added-bright bg-surface-git-added";
+}
 
 // ---------------------------------------------------------------
 // PR state icon (compact, for the tab bar)
