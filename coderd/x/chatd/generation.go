@@ -851,6 +851,11 @@ func (s *taskStarter) enterRequiresAction(
 	if err != nil {
 		return normalizeTaskTransitionError(err, "enter requires action")
 	}
+	if lease, ok := agentSlotLeaseFromContext(ctx); ok {
+		// External tool waits can last hours; free the agent slot as
+		// soon as the transition is committed.
+		lease.MarkTurnComplete()
+	}
 	if err := s.publishWatchAndRoute(ctx, committed, codersdk.ChatWatchEventKindActionRequired); err != nil {
 		return xerrors.Errorf("publish watch and route: %w", err)
 	}
@@ -936,6 +941,12 @@ func (s *taskStarter) finishGenerationTurn(
 		recordGenerationFinishFailure(input.DebugTurn, err)
 		return err
 	}
+	if lease, ok := agentSlotLeaseFromContext(ctx); ok {
+		// The turn is committed; queue the agent-slot release so a
+		// promoted queued message re-acquires at the back of the waiter
+		// queue instead of monopolizing the slot across turns.
+		lease.MarkTurnComplete()
+	}
 	input.DebugTurn.RecordOutcome(chatdebug.StatusCompleted)
 	watchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), postCommitWatchPublishTimeout)
 	defer cancel()
@@ -995,6 +1006,9 @@ func (s *taskStarter) finishGenerationError(
 		err := normalizeTaskTransitionError(err, "finish generation error")
 		recordGenerationFinishFailure(input.DebugTurn, err)
 		return err
+	}
+	if lease, ok := agentSlotLeaseFromContext(ctx); ok {
+		lease.MarkTurnComplete()
 	}
 	input.DebugTurn.RecordOutcome(chatdebug.StatusError)
 	if err := s.publishWatchAndRoute(ctx, committed, codersdk.ChatWatchEventKindStatusChange); err != nil {
