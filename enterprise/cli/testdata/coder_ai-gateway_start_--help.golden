@@ -77,5 +77,12 @@ INTROSPECTION / LOGGING OPTIONS:
       --log-stackdriver string, $CODER_LOGGING_STACKDRIVER
           Output Stackdriver compatible logs to a given file.
 
+INTROSPECTION / PROMETHEUS OPTIONS: 
+      --prometheus-address host:port, $CODER_PROMETHEUS_ADDRESS (default: 127.0.0.1:2112)
+          The bind address to serve prometheus metrics.
+
+      --prometheus-enable bool, $CODER_PROMETHEUS_ENABLE
+          Serve prometheus metrics on the address defined by prometheus address.
+
 ———
 Run `coder --help` for a list of global options.

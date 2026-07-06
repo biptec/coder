@@ -130,6 +130,27 @@ Allow users to provide their own LLM API keys or subscriptions. When disabled, o
 
 Enable the circuit breaker to protect against cascading failures from upstream AI provider overload (503, 529).
 
+### --prometheus-enable
+
+|             |                                              |
+|-------------|----------------------------------------------|
+| Type        | <code>bool</code>                            |
+| Environment | <code>$CODER_PROMETHEUS_ENABLE</code>        |
+| YAML        | <code>introspection.prometheus.enable</code> |
+
+Serve prometheus metrics on the address defined by prometheus address.
+
+### --prometheus-address
+
+|             |                                               |
+|-------------|-----------------------------------------------|
+| Type        | <code>host:port</code>                        |
+| Environment | <code>$CODER_PROMETHEUS_ADDRESS</code>        |
+| YAML        | <code>introspection.prometheus.address</code> |
+| Default     | <code>127.0.0.1:2112</code>                   |
+
+The bind address to serve prometheus metrics.
+
 ### -l, --log-filter
 
 |             |                                           |

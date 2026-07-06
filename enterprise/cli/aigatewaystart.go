@@ -13,11 +13,14 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 	"golang.org/x/xerrors"
 
 	"cdr.dev/slog/v3"
 	"github.com/coder/coder/v2/aibridge"
+	"github.com/coder/coder/v2/aibridge/keypool"
 	agpl "github.com/coder/coder/v2/cli"
 	"github.com/coder/coder/v2/cli/clilog"
 	"github.com/coder/coder/v2/coderd/aibridged"
@@ -88,10 +91,10 @@ func (r *RootCmd) aiGatewayStart() *serpent.Command {
 			logger.Debug(signalCtx, "started debug logging")
 			logger.Sync()
 
-			// Metrics and tracing are not exposed by standalone mode yet
-			// (TODO AIGOV-317), but the pool and the reloader require a metrics
-			// object and a tracer.
 			registry := prometheus.NewRegistry()
+			registry.MustRegister(collectors.NewGoCollector())
+			registry.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+
 			metrics := aibridge.NewMetrics(registry)
 			providerMetrics := aibridged.NewMetrics(registry)
 			tracer := tracenoop.NewTracerProvider().Tracer("aibridged")
@@ -101,6 +104,15 @@ func (r *RootCmd) aiGatewayStart() *serpent.Command {
 			pool, err := aibridged.NewCachedBridgePool(aibridged.DefaultPoolOptions, nil, logger.Named("pool"), metrics, tracer)
 			if err != nil {
 				return xerrors.Errorf("create request pool: %w", err)
+			}
+			registry.MustRegister(keypool.NewStateCollector(pool.KeyPools))
+
+			if vals.Prometheus.Enable.Value() {
+				logger.Info(signalCtx, "starting Prometheus endpoint", slog.F("address", vals.Prometheus.Address.String()))
+				closeFunc := agpl.ServeHandler(signalCtx, logger, promhttp.InstrumentMetricHandler(
+					registry, promhttp.HandlerFor(registry, promhttp.HandlerOpts{}),
+				), vals.Prometheus.Address.String(), "prometheus")
+				defer closeFunc()
 			}
 
 			dialer := aibridged.NewWebsocketDialer(serverURL, transport, resolvedKey)
@@ -287,6 +299,8 @@ func (r *RootCmd) aiGatewayStart() *serpent.Command {
 		"CODER_LOGGING_STACKDRIVER": {},
 		"CODER_LOG_FILTER":          {},
 		"CODER_VERBOSE":             {},
+		"CODER_PROMETHEUS_ENABLE":   {},
+		"CODER_PROMETHEUS_ADDRESS":  {},
 	}
 	for _, opt := range vals.Options() {
 		if _, ok := observabilityOpts[opt.Env]; !ok {

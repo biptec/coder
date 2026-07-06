@@ -236,3 +236,24 @@ func TestAIGatewayStart_LoggingOptions(t *testing.T) {
 		require.Equal(t, tc.env, opt.Env)
 	}
 }
+
+func TestAIGatewayStart_MetricsOptions(t *testing.T) {
+	t.Parallel()
+
+	cmd := (&RootCmd{}).aiGatewayStart()
+
+	for _, tc := range []struct {
+		flag string
+		env  string
+	}{
+		{flag: "prometheus-enable", env: "CODER_PROMETHEUS_ENABLE"},
+		{flag: "prometheus-address", env: "CODER_PROMETHEUS_ADDRESS"},
+	} {
+		opt := cmd.Options.ByFlag(tc.flag)
+		require.NotNil(t, opt, "missing --%s", tc.flag)
+		require.Equal(t, tc.env, opt.Env)
+	}
+
+	require.Nil(t, cmd.Options.ByFlag("prometheus-collect-agent-stats"))
+	require.Nil(t, cmd.Options.ByFlag("prometheus-collect-db-metrics"))
+}
