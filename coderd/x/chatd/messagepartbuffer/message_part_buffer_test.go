@@ -358,6 +358,30 @@ func TestBuffer_CloseClosesPendingSubscriptionAndRejectsOperations(t *testing.T)
 	require.ErrorIs(t, buffer.CreateEpisode(key), messagepartbuffer.ErrMessagePartBufferClosed)
 }
 
+func TestBuffer_InspectChatStableOrder(t *testing.T) {
+	t.Parallel()
+
+	buffer := messagepartbuffer.New(messagepartbuffer.Options{})
+	defer buffer.Close()
+
+	chatID := uuid.New()
+	keys := []messagepartbuffer.Key{
+		{ChatID: chatID, HistoryVersion: 3, GenerationAttempt: 1},
+		{ChatID: chatID, HistoryVersion: 1, GenerationAttempt: 2},
+		{ChatID: chatID, HistoryVersion: 1, GenerationAttempt: 1},
+		{ChatID: chatID, HistoryVersion: 2, GenerationAttempt: 1},
+	}
+	for _, key := range keys {
+		require.NoError(t, buffer.CreateEpisode(key))
+	}
+
+	first := buffer.InspectChat(chatID)
+	require.Len(t, first, len(keys))
+	for i := 0; i < 20; i++ {
+		require.Equal(t, first, buffer.InspectChat(chatID), "InspectChat order must be stable across repeated calls")
+	}
+}
+
 func testEpisodeKey() messagepartbuffer.Key {
 	return messagepartbuffer.Key{ChatID: uuid.New(), HistoryVersion: 1, GenerationAttempt: 1}
 }

@@ -387,13 +387,6 @@ func TestGetChatDebugSnapshot_MultiReplica_ProxiesToOwner_Golden(t *testing.T) {
 	t.Parallel()
 	ctx := testutil.Context(t, testutil.WaitLong)
 
-	// Fixed, deterministic IDs (rather than uuid.New()) so the mocked
-	// response can be compared directly against a golden fixture, matching
-	// the fixture convention used elsewhere (e.g. coderd/insights_test.go).
-	mockRunnerID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
-	mockWorkerID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
-	mockKind := string(chatd.TaskKindGeneration)
-
 	var capturedReplicaID uuid.UUID
 	proxyCalled := make(chan struct{}, 1)
 	client, _, api := newChatClientWithAPIAndDatabase(t,
@@ -410,15 +403,7 @@ func TestGetChatDebugSnapshot_MultiReplica_ProxiesToOwner_Golden(t *testing.T) {
 				_ = json.NewEncoder(rw).Encode(debugSnapshot{
 					ExecutionState: "R0",
 					Runtime: debugSnapshotRuntime{
-						LocalWorkerID:        mockWorkerID,
 						WorkerIDMatchesLocal: true,
-						Runners: []chatd.RunnerSnapshot{
-							{
-								RunnerID:       mockRunnerID,
-								WorkerID:       mockWorkerID,
-								ActiveTaskKind: (*chatd.TaskKind)(&mockKind),
-							},
-						},
 					},
 				})
 			}

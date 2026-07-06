@@ -3128,8 +3128,11 @@ func (p *Server) Snapshot(chatID uuid.UUID) RuntimeSnapshot {
 		LocalWorkerID: p.workerID,
 		Episodes:      p.messagePartBuffer.InspectChat(chatID),
 	}
-	// chatWorker.manager is only populated after Start(). Guard for tests that
-	// run with ChatWorkerDisabled=true.
+	// p.chatWorker is always set here (New panics if worker construction
+	// fails); ChatWorkerDisabled only skips Start(). This guards against a
+	// nil receiver in code paths that build a snapshot without calling New.
+	// The "worker not started yet" case is handled inside
+	// chatWorker.InspectChat's own manager-nil check.
 	if p.chatWorker != nil {
 		snap.Runners = p.chatWorker.InspectChat(chatID)
 	}

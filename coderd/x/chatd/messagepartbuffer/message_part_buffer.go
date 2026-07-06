@@ -561,7 +561,9 @@ func serializedPartBytes(part Part) (int64, error) {
 }
 
 // It holds the buffer lock only briefly, so the returned data may be
-// slightly stale; it is intended for debugging only.
+// slightly stale; it is intended for debugging only. Results are sorted by
+// (HistoryVersion, GenerationAttempt) so repeated calls are stable (map
+// iteration order is not).
 func (b *Buffer) InspectChat(chatID uuid.UUID) []EpisodeInfo {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -579,5 +581,11 @@ func (b *Buffer) InspectChat(chatID uuid.UUID) []EpisodeInfo {
 			IsClosed:          ep.closed,
 		})
 	}
+	slices.SortFunc(infos, func(a, b EpisodeInfo) int {
+		if a.HistoryVersion != b.HistoryVersion {
+			return int(a.HistoryVersion - b.HistoryVersion)
+		}
+		return int(a.GenerationAttempt - b.GenerationAttempt)
+	})
 	return infos
 }

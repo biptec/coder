@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -100,7 +102,8 @@ type RunnerSnapshot struct {
 }
 
 // It holds the manager lock only briefly and is safe to call from any
-// goroutine.
+// goroutine. Results are sorted by RunnerID so repeated calls are stable
+// (map iteration order is not).
 func (m *runnerManager) InspectChat(chatID uuid.UUID) []RunnerSnapshot {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -116,6 +119,9 @@ func (m *runnerManager) InspectChat(chatID uuid.UUID) []RunnerSnapshot {
 			ActiveTaskKind: rec.activeTaskKind.Load(),
 		})
 	}
+	slices.SortFunc(snaps, func(a, b RunnerSnapshot) int {
+		return strings.Compare(a.RunnerID.String(), b.RunnerID.String())
+	})
 	return snaps
 }
 
