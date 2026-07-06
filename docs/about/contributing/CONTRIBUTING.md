@@ -211,62 +211,48 @@ be applied selectively or to discourage anyone from contributing.
 
 ## Releases
 
-Coder releases are managed entirely through the
-[`release.yaml`](../../../.github/workflows/release.yaml)
-GitHub Actions workflow, triggered manually via "Run workflow" in the Actions
-tab. Release notes are automatically generated from commit titles and PR
-metadata.
+Coder releases are cut and published with
+[`scripts/release.sh`](../../../scripts/release.sh), a thin wrapper around the
+`scripts/releaser` Go tool. It detects the current branch, infers the next
+version, tags the commit, and triggers the
+[`release.yaml`](../../../.github/workflows/release.yaml) GitHub Actions
+workflow, which builds and publishes the release. Release notes are generated
+automatically from commit titles and PR metadata.
 
-### Release types
+### Cutting a release branch
 
-| Type                   | Tag           | Source           | Purpose                               |
-|------------------------|---------------|------------------|---------------------------------------|
-| RC (release candidate) | `vX.Y.0-rc.W` | `main` or branch | Pre-release for testing               |
-| Create release branch  | `vX.Y.0-rc.W` | `main`           | Cut `release/X.Y` + tag RC atomically |
-| Release                | `vX.Y.0`      | `release/X.Y`    | First release of a minor version      |
-| Patch                  | `vX.Y.Z`      | `release/X.Y`    | Bug fixes and security patches        |
+Release branches are created manually from the chosen commit on `main`:
 
-### Workflow
-
-RC tags can be created from `main` or from a release branch. The
-`create-release-branch` type creates `release/X.Y` and tags the next RC in one
-step, continuing the RC numbering sequence.
-
-```text
-main:  --*--*--*--*--*--*--*--*--*--
-              |  rc.0   rc.1  |
-              |               +--- create-release-branch ---+
-              |                                             |
-              |            release/2.34:  --*-- rc.2 -- rc.3 -- v2.34.0
-              |
-              +-- (more RCs on main for next cycle)
+```bash
+git checkout <sha>
+git checkout -b release/X.Y
+git push origin release/X.Y
 ```
 
-1. **RC:** Go to [Actions > Release](https://github.com/coder/coder/actions/workflows/release.yaml),
-   click "Run workflow", select `main` (or a release branch) from the "Use
-   workflow from" dropdown, choose `rc`, and optionally provide a commit SHA
-   (defaults to HEAD). The workflow calculates the next RC version
-   automatically.
-2. **Create release branch:** Select `main` in the dropdown, choose
-   `create-release-branch`, and optionally provide a commit SHA. This creates
-   `release/X.Y` and tags the next RC atomically.
-3. **Release:** Select the release branch (e.g. `release/2.34`) from the
-   dropdown and choose `release`. No other inputs needed.
-4. **Patch:** Cherry-pick fixes onto `release/X.Y`, select that branch from
-   the dropdown, and choose `release`.
+### Tagging and publishing
 
-The workflow validates that commits are on the expected branch for each release
-type.
+Run `./scripts/release.sh` and follow the prompts. The tool selects its mode
+from the current branch:
+
+- **RC (release candidate):** run from `main`. Tags `vX.Y.0-rc.N` and publishes
+  on the `rc` channel.
+- **Release:** run from `release/X.Y`. Tags `vX.Y.0` (or the next patch) and
+  publishes on the `mainline` or `stable` channel.
+- **Patch:** cherry-pick fixes onto `release/X.Y`, then run the script from that
+  branch.
+
+The tool tags and pushes the version, then triggers `release.yaml` with the
+selected channel and generated notes. The workflow can also be started manually
+from **Actions > Release**, which takes `release_channel`, `release_notes`, and
+`dry_run` inputs.
 
 ### Retrying a failed release
 
-If the
-[`release.yaml`](https://github.com/coder/coder/actions/workflows/release.yaml)
-workflow fails after the tag has been pushed, re-run the failed jobs from the
-GitHub Actions UI. The `prepare-release` job is idempotent and will detect
-the existing tag.
+If `release.yaml` fails after the tag has been pushed, re-run the failed jobs
+from the GitHub Actions UI. Re-running against an existing tag is safe.
 
-To test the workflow without publishing, select dry-run.
+To test without publishing, run a dry-run (pass `--dry-run` to
+`scripts/release.sh` or set the `dry_run` input on the workflow).
 
 ### Commit messages
 
