@@ -255,7 +255,7 @@ func TestMetrics(t *testing.T) {
 		mDB.EXPECT().DeleteOldTelemetryLocks(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		mDB.EXPECT().DeleteOldWorkspaceBuildOrchestrations(gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
 		mDB.EXPECT().DeleteOldAuditLogConnectionEvents(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-		mDB.EXPECT().SweepChatMessagesSearchTsv(gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
+		mDB.EXPECT().BackfillChatMessagesSearchTsv(gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
 		mDB.EXPECT().DeleteOldChatDebugRuns(gomock.Any(), gomock.AssignableToTypeOf(database.DeleteOldChatDebugRunsParams{})).Return(int64(0), nil).MinTimes(1)
 		mDB.EXPECT().InTx(gomock.Any(), database.DefaultTXOptions().WithID("db_purge")).
 			DoAndReturn(func(f func(database.Store) error, _ *database.TxOptions) error {
@@ -307,7 +307,7 @@ func TestMetrics(t *testing.T) {
 		mDB.EXPECT().DeleteOldTelemetryLocks(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		mDB.EXPECT().DeleteOldWorkspaceBuildOrchestrations(gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
 		mDB.EXPECT().DeleteOldAuditLogConnectionEvents(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-		mDB.EXPECT().SweepChatMessagesSearchTsv(gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
+		mDB.EXPECT().BackfillChatMessagesSearchTsv(gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
 		mDB.EXPECT().DeleteOldChats(gomock.Any(), gomock.AssignableToTypeOf(database.DeleteOldChatsParams{})).Return(int64(0), nil).MinTimes(1)
 		mDB.EXPECT().DeleteOldChatFiles(gomock.Any(), gomock.AssignableToTypeOf(database.DeleteOldChatFilesParams{})).Return(int64(0), nil).MinTimes(1)
 		mDB.EXPECT().InTx(gomock.Any(), database.DefaultTXOptions().WithID("db_purge")).
@@ -2925,7 +2925,7 @@ func awaitDoTicks(ctx context.Context, t *testing.T, clk *quartz.Mock, n int) fu
 }
 
 //nolint:paralleltest // It uses LockIDDBPurge.
-func TestSweepChatMessagesSearchTsv(t *testing.T) {
+func TestBackfillChatMessagesSearchTsv(t *testing.T) {
 	now := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
 
 	type chatSearchDeps struct {
@@ -2953,7 +2953,7 @@ func TestSweepChatMessagesSearchTsv(t *testing.T) {
 			OrganizationID:    org.ID,
 			OwnerID:           user.ID,
 			LastModelConfigID: modelConfig.ID,
-			Title:             "search-sweep-test-chat",
+			Title:             "search-backfill-test-chat",
 		})
 		return chatSearchDeps{user: user, modelConfig: modelConfig, chat: chat}
 	}
@@ -2980,8 +2980,8 @@ func TestSweepChatMessagesSearchTsv(t *testing.T) {
 		require.NoError(t, err)
 	}
 	// countPending repeats the predicate of
-	// idx_chat_messages_search_tsv_pending: what the sweep considers
-	// eligible-but-unswept.
+	// idx_chat_messages_search_tsv_pending: what the backfill considers
+	// eligible but not yet backfilled.
 	countPending := func(ctx context.Context, t *testing.T, rawDB *sql.DB) int {
 		t.Helper()
 		var count int
@@ -3002,12 +3002,12 @@ func TestSweepChatMessagesSearchTsv(t *testing.T) {
 		require.NoError(t, err)
 		return isNull, text
 	}
-	requireSwept := func(ctx context.Context, t *testing.T, rawDB *sql.DB, id int64, msg string) {
+	requireBackfilled := func(ctx context.Context, t *testing.T, rawDB *sql.DB, id int64, msg string) {
 		t.Helper()
 		isNull, _ := searchTsv(ctx, t, rawDB, id)
 		require.False(t, isNull, msg)
 	}
-	requireUnswept := func(ctx context.Context, t *testing.T, rawDB *sql.DB, id int64, msg string) {
+	requireNotBackfilled := func(ctx context.Context, t *testing.T, rawDB *sql.DB, id int64, msg string) {
 		t.Helper()
 		isNull, _ := searchTsv(ctx, t, rawDB, id)
 		require.True(t, isNull, msg)
@@ -3036,16 +3036,16 @@ func TestSweepChatMessagesSearchTsv(t *testing.T) {
 		tick()
 
 		require.Zero(t, countPending(ctx, t, rawDB), "queue should be drained")
-		requireSwept(ctx, t, rawDB, eligibleBoth.ID, "eligible message with visibility=both should be swept")
-		requireSwept(ctx, t, rawDB, eligibleUserVis.ID, "eligible assistant message with visibility=user should be swept")
-		requireSwept(ctx, t, rawDB, eligibleNoText.ID, "eligible message with no text should be swept (sentinel)")
-		requireUnswept(ctx, t, rawDB, toolMsg.ID, "tool message should never be swept")
-		requireUnswept(ctx, t, rawDB, modelOnlyMsg.ID, "model-only message should never be swept")
-		requireUnswept(ctx, t, rawDB, deletedMsg.ID, "deleted message should never be swept")
+		requireBackfilled(ctx, t, rawDB, eligibleBoth.ID, "eligible message with visibility=both should be backfilled")
+		requireBackfilled(ctx, t, rawDB, eligibleUserVis.ID, "eligible assistant message with visibility=user should be backfilled")
+		requireBackfilled(ctx, t, rawDB, eligibleNoText.ID, "eligible message with no text should be backfilled (sentinel)")
+		requireNotBackfilled(ctx, t, rawDB, toolMsg.ID, "tool message should never be backfilled")
+		requireNotBackfilled(ctx, t, rawDB, modelOnlyMsg.ID, "model-only message should never be backfilled")
+		requireNotBackfilled(ctx, t, rawDB, deletedMsg.ID, "deleted message should never be backfilled")
 	})
 
 	//nolint:paralleltest // It uses LockIDDBPurge.
-	t.Run("SweepsNewestFirst", func(t *testing.T) {
+	t.Run("BackfillsNewestFirst", func(t *testing.T) {
 		ctx := testutil.Context(t, testutil.WaitLong)
 		clk := quartz.NewMock(t)
 		clk.Set(now).MustWait(ctx)
@@ -3061,16 +3061,16 @@ func TestSweepChatMessagesSearchTsv(t *testing.T) {
 
 		tick := awaitDoTicks(ctx, t, clk, 1)
 		closer := dbpurge.New(ctx, logger, db, &codersdk.DeploymentValues{}, prometheus.NewRegistry(),
-			dbpurge.WithClock(clk), dbpurge.WithChatSearchSweepLimits(2, 1))
+			dbpurge.WithClock(clk), dbpurge.WithChatSearchBackfillLimits(2, 1))
 		defer closer.Close()
 		tick()
 
-		// One batch of 2: only the two highest ids are swept.
+		// One batch of 2: only the two highest ids are backfilled.
 		slices.Sort(ids)
-		requireSwept(ctx, t, rawDB, ids[4], "newest message should be swept first")
-		requireSwept(ctx, t, rawDB, ids[3], "second-newest message should be swept first")
+		requireBackfilled(ctx, t, rawDB, ids[4], "newest message should be backfilled first")
+		requireBackfilled(ctx, t, rawDB, ids[3], "second-newest message should be backfilled first")
 		for _, id := range ids[:3] {
-			requireUnswept(ctx, t, rawDB, id, "older messages should remain pending after one batch")
+			requireNotBackfilled(ctx, t, rawDB, id, "older messages should remain pending after one batch")
 		}
 	})
 
@@ -3114,11 +3114,11 @@ func TestSweepChatMessagesSearchTsv(t *testing.T) {
 
 		tick := awaitDoTicks(ctx, t, clk, 2)
 		closer := dbpurge.New(ctx, logger, db, &codersdk.DeploymentValues{}, prometheus.NewRegistry(),
-			dbpurge.WithClock(clk), dbpurge.WithChatSearchSweepLimits(2, 2))
+			dbpurge.WithClock(clk), dbpurge.WithChatSearchBackfillLimits(2, 2))
 		defer closer.Close()
 
 		tick()
-		require.Equal(t, 2, countPending(ctx, t, rawDB), "one tick sweeps at most maxBatches*batchSize rows")
+		require.Equal(t, 2, countPending(ctx, t, rawDB), "one tick backfills at most maxBatches*batchSize rows")
 
 		tick()
 		require.Zero(t, countPending(ctx, t, rawDB), "next tick continues draining")
@@ -3133,7 +3133,7 @@ func TestSweepChatMessagesSearchTsv(t *testing.T) {
 		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true})
 		deps := setupDeps(t, db)
 
-		msg := createMessage(t, db, deps, database.ChatMessageRoleUser, database.ChatMessageVisibilityBoth, textContent("soft deleted before sweep"))
+		msg := createMessage(t, db, deps, database.ChatMessageRoleUser, database.ChatMessageVisibilityBoth, textContent("soft deleted before backfill"))
 		softDelete(ctx, t, rawDB, msg.ID)
 		require.Zero(t, countPending(ctx, t, rawDB), "deleted rows should not appear as pending")
 
@@ -3142,11 +3142,11 @@ func TestSweepChatMessagesSearchTsv(t *testing.T) {
 		defer closer.Close()
 		tick()
 
-		requireUnswept(ctx, t, rawDB, msg.ID, "deleted row should never be swept")
+		requireNotBackfilled(ctx, t, rawDB, msg.ID, "deleted row should never be backfilled")
 	})
 
 	//nolint:paralleltest // It uses LockIDDBPurge.
-	t.Run("SweepsNewMessagesAfterDrain", func(t *testing.T) {
+	t.Run("BackfillsNewMessagesAfterDrain", func(t *testing.T) {
 		ctx := testutil.Context(t, testutil.WaitLong)
 		clk := quartz.NewMock(t)
 		clk.Set(now).MustWait(ctx)
@@ -3161,12 +3161,12 @@ func TestSweepChatMessagesSearchTsv(t *testing.T) {
 		defer closer.Close()
 
 		tick()
-		requireSwept(ctx, t, rawDB, initial.ID, "initial message should be swept")
+		requireBackfilled(ctx, t, rawDB, initial.ID, "initial message should be backfilled")
 		require.Zero(t, countPending(ctx, t, rawDB))
 
 		fresh := createMessage(t, db, deps, database.ChatMessageRoleUser, database.ChatMessageVisibilityBoth, textContent("post drain message"))
 		tick()
-		requireSwept(ctx, t, rawDB, fresh.ID, "message inserted after drain should be swept on the next tick")
+		requireBackfilled(ctx, t, rawDB, fresh.ID, "message inserted after drain should be backfilled on the next tick")
 	})
 
 	//nolint:paralleltest // It uses LockIDDBPurge.
@@ -3185,12 +3185,12 @@ func TestSweepChatMessagesSearchTsv(t *testing.T) {
 		tick()
 
 		require.Zero(t, countPending(ctx, t, rawDB))
-		swept := promhelp.CounterValue(t, reg, "coderd_dbpurge_chat_search_rows_swept_total", nil)
-		require.Zero(t, swept, "empty queue should sweep zero rows")
+		backfilled := promhelp.CounterValue(t, reg, "coderd_dbpurge_chat_search_rows_backfilled_total", nil)
+		require.Zero(t, backfilled, "empty queue should backfill zero rows")
 	})
 
 	//nolint:paralleltest // It uses LockIDDBPurge.
-	t.Run("MetricsCountsSweptRows", func(t *testing.T) {
+	t.Run("MetricsCountsBackfilledRows", func(t *testing.T) {
 		ctx := testutil.Context(t, testutil.WaitLong)
 		clk := quartz.NewMock(t)
 		clk.Set(now).MustWait(ctx)
@@ -3209,8 +3209,8 @@ func TestSweepChatMessagesSearchTsv(t *testing.T) {
 		defer closer.Close()
 		tick()
 
-		swept := promhelp.CounterValue(t, reg, "coderd_dbpurge_chat_search_rows_swept_total", nil)
-		require.Equal(t, 3, swept, "counter should count exactly the eligible swept rows")
+		backfilled := promhelp.CounterValue(t, reg, "coderd_dbpurge_chat_search_rows_backfilled_total", nil)
+		require.Equal(t, 3, backfilled, "counter should count exactly the eligible backfilled rows")
 	})
 
 	//nolint:paralleltest // It uses LockIDDBPurge.
@@ -3225,7 +3225,7 @@ func TestSweepChatMessagesSearchTsv(t *testing.T) {
 		mDB.EXPECT().GetChatDebugRetentionDays(gomock.Any(), codersdk.DefaultChatDebugRetentionDays).
 			Return(int32(0), nil).AnyTimes()
 		mDB.EXPECT().TryAcquireLock(gomock.Any(), int64(database.LockIDDBPurge)).Return(false, nil).AnyTimes()
-		mDB.EXPECT().SweepChatMessagesSearchTsv(gomock.Any(), gomock.Any()).Times(0)
+		mDB.EXPECT().BackfillChatMessagesSearchTsv(gomock.Any(), gomock.Any()).Times(0)
 		mDB.EXPECT().InTx(gomock.Any(), database.DefaultTXOptions().WithID("db_purge")).
 			DoAndReturn(func(f func(database.Store) error, _ *database.TxOptions) error {
 				return f(mDB)
