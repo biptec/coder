@@ -670,6 +670,50 @@ WHERE
         )
         ELSE true
     END
+    -- Free-text search across chat title, PR title, message bodies, and
+    -- PR number. websearch_to_tsquery gives AND-of-terms semantics and
+    -- case-insensitive matching.
+    AND CASE
+        WHEN @search::text != '' THEN (
+            -- Chat title FTS (served by idx_chats_title_fts).
+            to_tsvector('simple', chats_expanded.title) @@ websearch_to_tsquery('simple', @search)
+            -- PR title FTS (served by idx_chat_diff_statuses_pr_title_fts).
+            OR EXISTS (
+                SELECT 1
+                FROM chat_diff_statuses cds
+                WHERE cds.chat_id = chats_expanded.id
+                    AND to_tsvector('simple', cds.pull_request_title) @@ websearch_to_tsquery('simple', @search)
+            )
+            -- Message body FTS. The WHERE clause must repeat the partial
+            -- predicate of idx_chat_messages_search_tsv exactly so the
+            -- planner can use it. Rows pending backfill
+            -- (search_tsv IS NULL) match nothing by design.
+            OR EXISTS (
+                SELECT 1
+                FROM chat_messages cm
+                WHERE cm.chat_id = chats_expanded.id
+                    AND cm.search_tsv IS NOT NULL
+                    AND cm.deleted = false
+                    AND cm.visibility IN ('user', 'both')
+                    AND cm.role IN ('user', 'assistant')
+                    AND cm.search_tsv @@ websearch_to_tsquery('simple', @search)
+            )
+            -- PR number exact match for all-digit searches. The length
+            -- cap keeps the ::bigint cast from overflowing on absurd
+            -- digit strings; such searches simply match nothing.
+            OR (
+                @search ~ '^[0-9]{1,18}$'
+                AND EXISTS (
+                    SELECT 1
+                    FROM chat_diff_statuses cds
+                    WHERE cds.chat_id = chats_expanded.id
+                        AND cds.pr_number IS NOT NULL
+                        AND cds.pr_number::bigint = @search::bigint
+                )
+            )
+        )
+        ELSE true
+    END
     -- Paginate over root chats only. Children are fetched
     -- separately via GetChildChatsByParentIDs and embedded under
     -- each parent. Other callers that need the full set should

@@ -8689,6 +8689,50 @@ WHERE
         )
         ELSE true
     END
+    -- Free-text search across chat title, PR title, message bodies, and
+    -- PR number. websearch_to_tsquery gives AND-of-terms semantics and
+    -- case-insensitive matching.
+    AND CASE
+        WHEN $16::text != '' THEN (
+            -- Chat title FTS (served by idx_chats_title_fts).
+            to_tsvector('simple', chats_expanded.title) @@ websearch_to_tsquery('simple', $16)
+            -- PR title FTS (served by idx_chat_diff_statuses_pr_title_fts).
+            OR EXISTS (
+                SELECT 1
+                FROM chat_diff_statuses cds
+                WHERE cds.chat_id = chats_expanded.id
+                    AND to_tsvector('simple', cds.pull_request_title) @@ websearch_to_tsquery('simple', $16)
+            )
+            -- Message body FTS. The WHERE clause must repeat the partial
+            -- predicate of idx_chat_messages_search_tsv exactly so the
+            -- planner can use it. Rows pending backfill
+            -- (search_tsv IS NULL) match nothing by design.
+            OR EXISTS (
+                SELECT 1
+                FROM chat_messages cm
+                WHERE cm.chat_id = chats_expanded.id
+                    AND cm.search_tsv IS NOT NULL
+                    AND cm.deleted = false
+                    AND cm.visibility IN ('user', 'both')
+                    AND cm.role IN ('user', 'assistant')
+                    AND cm.search_tsv @@ websearch_to_tsquery('simple', $16)
+            )
+            -- PR number exact match for all-digit searches. The length
+            -- cap keeps the ::bigint cast from overflowing on absurd
+            -- digit strings; such searches simply match nothing.
+            OR (
+                $16 ~ '^[0-9]{1,18}$'
+                AND EXISTS (
+                    SELECT 1
+                    FROM chat_diff_statuses cds
+                    WHERE cds.chat_id = chats_expanded.id
+                        AND cds.pr_number IS NOT NULL
+                        AND cds.pr_number::bigint = $16::bigint
+                )
+            )
+        )
+        ELSE true
+    END
     -- Paginate over root chats only. Children are fetched
     -- separately via GetChildChatsByParentIDs and embedded under
     -- each parent. Other callers that need the full set should
@@ -8705,11 +8749,11 @@ ORDER BY
     -chats_expanded.pin_order DESC,
     chats_expanded.updated_at DESC,
     chats_expanded.id DESC
-OFFSET $16
+OFFSET $17
 LIMIT
     -- The chat list is unbounded and expected to grow large.
     -- Default to 50 to prevent accidental excessively large queries.
-    COALESCE(NULLIF($17 :: int, 0), 50)
+    COALESCE(NULLIF($18 :: int, 0), 50)
 `
 
 type GetChatsParams struct {
@@ -8728,6 +8772,7 @@ type GetChatsParams struct {
 	PrNumber            int32                 `db:"pr_number" json:"pr_number"`
 	RepoQuery           string                `db:"repo_query" json:"repo_query"`
 	PrTitleQuery        string                `db:"pr_title_query" json:"pr_title_query"`
+	Search              string                `db:"search" json:"search"`
 	OffsetOpt           int32                 `db:"offset_opt" json:"offset_opt"`
 	LimitOpt            int32                 `db:"limit_opt" json:"limit_opt"`
 }
@@ -8754,6 +8799,7 @@ func (q *sqlQuerier) GetChats(ctx context.Context, arg GetChatsParams) ([]GetCha
 		arg.PrNumber,
 		arg.RepoQuery,
 		arg.PrTitleQuery,
+		arg.Search,
 		arg.OffsetOpt,
 		arg.LimitOpt,
 	)
