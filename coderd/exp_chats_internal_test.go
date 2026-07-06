@@ -117,6 +117,29 @@ func TestEnrichChatAgentIDs(t *testing.T) {
 		require.Nil(t, chats[1].AgentID)
 	})
 
+	t.Run("LeavesNullOnSelectionError", func(t *testing.T) {
+		t.Parallel()
+
+		var (
+			ctx         = testutil.Context(t, testutil.WaitShort)
+			workspaceID = uuid.New()
+		)
+		api, mDB := newAPI(t)
+
+		// Return only a sub-agent so FindChatAgent errors.
+		mDB.EXPECT().GetWorkspaceAgentsInLatestBuildByWorkspaceID(gomock.Any(), workspaceID).
+			Return([]database.WorkspaceAgent{{
+				ID:       uuid.New(),
+				ParentID: uuid.NullUUID{UUID: uuid.New(), Valid: true},
+				Name:     "sub",
+			}}, nil)
+
+		chats := []codersdk.Chat{{WorkspaceID: &workspaceID}}
+		api.enrichChatAgentIDs(ctx, chats)
+
+		require.Nil(t, chats[0].AgentID)
+	})
+
 	t.Run("SkipsChatsWithoutWorkspaceOrWithAgent", func(t *testing.T) {
 		t.Parallel()
 
