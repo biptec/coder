@@ -1434,10 +1434,7 @@ const docTemplate = `{
                     {
                         "CoderSessionToken": []
                     }
-                ],
-                "x-apidocgen": {
-                    "skip": true
-                }
+                ]
             },
             "post": {
                 "consumes": [
@@ -1474,10 +1471,7 @@ const docTemplate = `{
                     {
                         "CoderSessionToken": []
                     }
-                ],
-                "x-apidocgen": {
-                    "skip": true
-                }
+                ]
             }
         },
         "/api/v2/ai-gateway/keys/{key}": {
@@ -1506,10 +1500,7 @@ const docTemplate = `{
                     {
                         "CoderSessionToken": []
                     }
-                ],
-                "x-apidocgen": {
-                    "skip": true
-                }
+                ]
             }
         },
         "/api/v2/ai-gateway/models": {
@@ -1557,10 +1548,7 @@ const docTemplate = `{
                     {
                         "AIGatewayKey": []
                     }
-                ],
-                "x-apidocgen": {
-                    "skip": true
-                }
+                ]
             }
         },
         "/api/v2/ai-gateway/sessions": {
@@ -21394,6 +21382,13 @@ const docTemplate = `{
                 },
                 "organization_mapping": {
                     "type": "object"
+                },
+                "redirect_allowed_hosts": {
+                    "description": "RedirectAllowedHosts is an allowlist of hostnames that may be used as\nthe host of the OIDC redirect_uri. When non-empty, the redirect_uri is\nconstructed from the incoming request's Host header (validated against\nthis list) instead of from AccessURL. Every listed host must also be\nregistered as a valid redirect URI in the OIDC provider. This setting\nis mutually exclusive with RedirectURL: if RedirectURL is set, this\nallowlist is ignored.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "redirect_url": {
                     "description": "RedirectURL is optional, defaulting to 'ACCESS_URL'. Only useful in niche\nsituations where the OIDC callback domain is different from the ACCESS_URL\ndomain.",
