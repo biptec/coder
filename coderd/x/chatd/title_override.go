@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"charm.land/fantasy"
+	"github.com/google/uuid"
 	"golang.org/x/xerrors"
 
 	"github.com/coder/coder/v2/coderd/database"
@@ -36,11 +37,50 @@ func readTitleGenerationModelOverride(
 func (p *Server) resolveTitleGenerationModelOverride(
 	ctx context.Context,
 	chat database.Chat,
-	keys chatprovider.ProviderAPIKeys,
 	modelOpts modelBuildOptions,
-) (database.ChatModelConfig, fantasy.LanguageModel, chatprovider.ProviderAPIKeys, resolvedModelRoute, bool, error) {
-	return p.resolveGenerationModelOverride(
-		ctx, chat, keys, modelOpts,
-		titleGenerationOverrideContext, readTitleGenerationModelOverride,
+) (database.ChatModelConfig, fantasy.LanguageModel, aiGatewayModelRoute, bool, error) {
+	raw, err := readTitleGenerationModelOverride(ctx, p.db)
+	if err != nil {
+		return database.ChatModelConfig{}, nil, aiGatewayModelRoute{}, false, xerrors.Errorf(
+			"read title generation model override: %w",
+			err,
+		)
+	}
+
+	modelConfig, overrideSet, err := p.resolveConfiguredModelOverride(
+		ctx,
+		titleGenerationOverrideContext,
+		raw,
+		chat.OwnerID,
+		p.resolveModelConfigAndNormalizedProvider,
+		func(ctx context.Context, ownerID uuid.UUID, aiProviderID uuid.UUID) (chatprovider.ProviderAPIKeys, error) {
+			return p.resolveUserProviderAPIKeys(ctx, ownerID, aiProviderID)
+		},
+		modelOverrideFailureModeHard,
 	)
+	if err != nil {
+		return database.ChatModelConfig{}, nil, aiGatewayModelRoute{}, overrideSet, err
+	}
+	if !overrideSet {
+		return database.ChatModelConfig{}, nil, aiGatewayModelRoute{}, false, nil
+	}
+
+	//nolint:gocritic // Title overrides need chatd-scoped provider reads for user-owned chats.
+	route, err := p.resolveModelRouteForConfig(dbauthz.AsChatd(ctx), chat.OwnerID, modelConfig)
+	if err != nil {
+		return database.ChatModelConfig{}, nil, aiGatewayModelRoute{}, true, err
+	}
+	model, err := p.newModel(ctx, modelClientRequest{
+		Chat:         chat,
+		ModelName:    modelConfig.Model,
+		UserAgent:    chatprovider.UserAgent(),
+		ExtraHeaders: chatprovider.CoderHeaders(chat),
+	}, route, modelOpts)
+	if err != nil {
+		return database.ChatModelConfig{}, nil, aiGatewayModelRoute{}, true, xerrors.Errorf(
+			"create title generation model override: %w",
+			err,
+		)
+	}
+	return modelConfig, model, route, true, nil
 }

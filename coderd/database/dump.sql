@@ -1517,6 +1517,24 @@ CREATE TABLE ai_seat_state (
     updated_at timestamp with time zone NOT NULL
 );
 
+CREATE TABLE ai_user_daily_spend (
+    user_id uuid NOT NULL,
+    effective_group_id uuid NOT NULL,
+    day date NOT NULL,
+    spend_micros bigint NOT NULL,
+    CONSTRAINT ai_user_daily_spend_spend_micros_check CHECK ((spend_micros >= 0))
+);
+
+COMMENT ON TABLE ai_user_daily_spend IS 'Daily AI spend per user and effective group.';
+
+COMMENT ON COLUMN ai_user_daily_spend.user_id IS 'The user who incurred the spend.';
+
+COMMENT ON COLUMN ai_user_daily_spend.effective_group_id IS 'The group this spend is attributed to for budget purposes.';
+
+COMMENT ON COLUMN ai_user_daily_spend.day IS 'UTC calendar day the spend was incurred.';
+
+COMMENT ON COLUMN ai_user_daily_spend.spend_micros IS 'Accumulated spend in micro-units (1 unit = 1,000,000).';
+
 CREATE TABLE aibridge_interceptions (
     id uuid NOT NULL,
     initiator_id uuid NOT NULL,
@@ -1607,7 +1625,8 @@ CREATE TABLE aibridge_tool_usages (
     invocation_error text,
     metadata jsonb,
     created_at timestamp with time zone NOT NULL,
-    provider_tool_call_id text
+    provider_tool_call_id text,
+    provider_item_id text
 );
 
 COMMENT ON TABLE aibridge_tool_usages IS 'Audit log of tool calls in intercepted requests in AI Bridge';
@@ -1619,6 +1638,8 @@ COMMENT ON COLUMN aibridge_tool_usages.server_url IS 'The name of the MCP server
 COMMENT ON COLUMN aibridge_tool_usages.injected IS 'Whether this tool was injected; i.e. Bridge injected these tools into the request from an MCP server. If false it means a tool was defined by the client and already existed in the request (MCP or built-in).';
 
 COMMENT ON COLUMN aibridge_tool_usages.invocation_error IS 'Only injected tools are invoked.';
+
+COMMENT ON COLUMN aibridge_tool_usages.provider_item_id IS 'Specific to the OpenAI Responses API: the unique id of the output item that carried the tool call. Distinct from provider_tool_call_id (the call_id correlation key), which is empty for hosted tools. Empty for the chat completions and Anthropic messages APIs, which have no separate item id.';
 
 CREATE TABLE aibridge_user_prompts (
     id uuid NOT NULL,
@@ -4124,6 +4145,9 @@ ALTER TABLE ONLY ai_providers
 ALTER TABLE ONLY ai_seat_state
     ADD CONSTRAINT ai_seat_state_pkey PRIMARY KEY (user_id);
 
+ALTER TABLE ONLY ai_user_daily_spend
+    ADD CONSTRAINT ai_user_daily_spend_pkey PRIMARY KEY (user_id, effective_group_id, day);
+
 ALTER TABLE ONLY aibridge_interceptions
     ADD CONSTRAINT aibridge_interceptions_pkey PRIMARY KEY (id);
 
@@ -4529,6 +4553,8 @@ CREATE INDEX idx_agent_stats_user_id ON workspace_agent_stats USING btree (user_
 CREATE INDEX idx_ai_provider_keys_provider_id ON ai_provider_keys USING btree (provider_id);
 
 CREATE INDEX idx_ai_providers_enabled ON ai_providers USING btree (enabled) WHERE (deleted = false);
+
+CREATE INDEX idx_ai_user_daily_spend_effective_group_id_day ON ai_user_daily_spend USING btree (effective_group_id, day);
 
 CREATE INDEX idx_aibridge_interceptions_agent_firewall_session_id ON aibridge_interceptions USING btree (agent_firewall_session_id) WHERE (agent_firewall_session_id IS NOT NULL);
 

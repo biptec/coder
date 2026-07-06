@@ -141,6 +141,7 @@ interface AgentChatPageViewProps {
 	providerCount?: number;
 	modelCount?: number;
 	unsupportedProviderNames?: readonly string[];
+	aiGatewayDisabled?: boolean;
 	hasModelOptions: boolean;
 	isModelCatalogLoading?: boolean;
 	planModeEnabled?: boolean;
@@ -197,7 +198,6 @@ interface AgentChatPageViewProps {
 	isPinned?: boolean;
 	isChildChat?: boolean;
 	isArchivingThisChat?: boolean;
-	isRegeneratingTitle?: boolean;
 
 	// Scroll container ref.
 	scrollContainerRef: RefObject<HTMLDivElement | null>;
@@ -333,6 +333,7 @@ export const AgentChatPageView: FC<AgentChatPageViewProps> = ({
 	providerCount,
 	modelCount,
 	unsupportedProviderNames,
+	aiGatewayDisabled,
 	hasModelOptions,
 	isModelCatalogLoading = false,
 	planModeEnabled,
@@ -369,7 +370,6 @@ export const AgentChatPageView: FC<AgentChatPageViewProps> = ({
 	isPinned,
 	isChildChat,
 	isArchivingThisChat,
-	isRegeneratingTitle,
 	scrollContainerRef,
 	scrollToBottomRef,
 	hasMoreMessages,
@@ -850,7 +850,6 @@ export const AgentChatPageView: FC<AgentChatPageViewProps> = ({
 								isPinned={isPinned}
 								isChildChat={isChildChat}
 								isArchiving={isArchivingThisChat}
-								isRegeneratingTitle={isRegeneratingTitle}
 								hasWorkspace={Boolean(workspace)}
 								isArchived={isArchived}
 								diffStatusData={diffStatusData}
@@ -946,6 +945,7 @@ export const AgentChatPageView: FC<AgentChatPageViewProps> = ({
 								providerCount={providerCount}
 								modelCount={modelCount}
 								unsupportedProviderNames={unsupportedProviderNames}
+								aiGatewayDisabled={aiGatewayDisabled}
 								selectedModel={effectiveSelectedModel}
 								onModelChange={setSelectedModel}
 								modelOptions={modelOptions}
