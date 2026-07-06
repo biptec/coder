@@ -783,7 +783,7 @@ func TestAIBridgeComputerUseModelUsesRoute(t *testing.T) {
 	require.True(t, ok)
 
 	ctx := aibridge.WithDelegatedAPIKeyID(t.Context(), "context-key-must-be-ignored")
-	model, debugEnabled, resolvedProvider, resolvedModel, err := server.resolveComputerUseModel(
+	model, fullRecording, resolvedProvider, resolvedModel, err := server.resolveComputerUseModel(
 		ctx,
 		chat,
 		aibridgeTestRoute(aibridgeTestAIProvider(providerID, "primary-openai", database.AIProviderTypeOpenai)),
@@ -794,7 +794,7 @@ func TestAIBridgeComputerUseModelUsesRoute(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.NotNil(t, model)
-	require.False(t, debugEnabled)
+	require.False(t, fullRecording)
 	require.Equal(t, chattool.ComputerUseProviderOpenAI, resolvedProvider)
 	require.Equal(t, modelName, resolvedModel)
 	require.Equal(t, "primary-openai", factory.providerName)
@@ -817,7 +817,7 @@ func TestResolveComputerUseModel_AIGatewayMissingAPIKeyID(t *testing.T) {
 	modelProvider, modelName, ok := chattool.DefaultComputerUseModel(provider)
 	require.True(t, ok)
 
-	model, debugEnabled, resolvedProvider, resolvedModel, err := server.resolveComputerUseModel(
+	model, fullRecording, resolvedProvider, resolvedModel, err := server.resolveComputerUseModel(
 		t.Context(),
 		chat,
 		aibridgeTestRoute(aibridgeTestAIProvider(providerID, "primary-openai", database.AIProviderTypeOpenai)),
@@ -828,7 +828,7 @@ func TestResolveComputerUseModel_AIGatewayMissingAPIKeyID(t *testing.T) {
 	)
 	require.Error(t, err)
 	require.Nil(t, model)
-	require.False(t, debugEnabled)
+	require.False(t, fullRecording)
 	require.Empty(t, resolvedProvider)
 	require.Empty(t, resolvedModel)
 	require.Contains(t, err.Error(), `resolve computer use model for provider "openai" model "gpt-5.5"`)

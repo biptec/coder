@@ -4133,7 +4133,7 @@ func (p *Server) resolveChatModel(
 	model fantasy.LanguageModel,
 	dbConfig database.ChatModelConfig,
 	route aiGatewayModelRoute,
-	debugEnabled bool,
+	fullRecording bool,
 	resolvedProvider string,
 	resolvedModel string,
 	err error,
@@ -4163,7 +4163,7 @@ func (p *Server) resolveChatModel(
 		)
 	}
 
-	model, debugEnabled, err = p.newDebugAwareModel(ctx, modelClientRequest{
+	model, fullRecording, err = p.newDebugAwareModel(ctx, modelClientRequest{
 		Chat:         chat,
 		ModelName:    dbConfig.Model,
 		UserAgent:    chatprovider.UserAgent(),
@@ -4174,7 +4174,7 @@ func (p *Server) resolveChatModel(
 			"create model: %w", err,
 		)
 	}
-	return model, dbConfig, route, debugEnabled, resolvedProvider, resolvedModel, nil
+	return model, dbConfig, route, fullRecording, resolvedProvider, resolvedModel, nil
 }
 
 func (p *Server) aiProviderConfig(ctx context.Context, provider database.AIProvider) (chatprovider.ConfiguredProvider, error) {

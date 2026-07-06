@@ -67,7 +67,7 @@ func (p *Server) resolveComputerUseModel(
 	modelOpts modelBuildOptions,
 ) (
 	model fantasy.LanguageModel,
-	debugEnabled bool,
+	fullRecording bool,
 	resolvedProvider string,
 	resolvedModel string,
 	err error,
@@ -85,7 +85,7 @@ func (p *Server) resolveComputerUseModel(
 		)
 	}
 
-	model, debugEnabled, err = p.newDebugAwareModel(ctx, modelClientRequest{
+	model, fullRecording, err = p.newDebugAwareModel(ctx, modelClientRequest{
 		Chat:         chat,
 		ModelName:    computerUseModelName,
 		UserAgent:    chatprovider.UserAgent(),
@@ -100,7 +100,7 @@ func (p *Server) resolveComputerUseModel(
 		)
 	}
 
-	return model, debugEnabled, resolvedProvider, resolvedModel, nil
+	return model, fullRecording, resolvedProvider, resolvedModel, nil
 }
 
 type computerUseProviderToolOptions struct {

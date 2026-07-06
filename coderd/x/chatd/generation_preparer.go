@@ -45,7 +45,7 @@ func (server *Server) prepareGeneration(
 		promptRows       []database.ChatMessage
 		mcpConfigs       []database.MCPServerConfig
 		mcpTokens        []database.MCPServerUserToken
-		debugEnabled     bool
+		fullRecording    bool
 		resolvedProvider string
 		debugModel       string
 	)
@@ -85,7 +85,7 @@ func (server *Server) prepareGeneration(
 	ctx = withActiveTurnAPIKeyID(ctx, modelOpts)
 
 	var err error
-	model, modelConfig, modelRoute, debugEnabled, resolvedProvider, debugModel, err = server.resolveChatModel(ctx, chat, modelOpts)
+	model, modelConfig, modelRoute, fullRecording, resolvedProvider, debugModel, err = server.resolveChatModel(ctx, chat, modelOpts)
 	if err != nil {
 		return generationPrepared{}, err
 	}
@@ -492,7 +492,7 @@ func (server *Server) prepareGeneration(
 			return generationPrepared{}, xerrors.Errorf("resolve computer use provider route: %w", keyErr)
 		}
 		modelRoute = computerUseRoute
-		cuModel, cuDebugEnabled, cuResolvedProvider, cuResolvedModel, cuErr := server.resolveComputerUseModel(
+		cuModel, cuFullRecording, cuResolvedProvider, cuResolvedModel, cuErr := server.resolveComputerUseModel(
 			ctx,
 			chat,
 			computerUseRoute,
@@ -506,7 +506,7 @@ func (server *Server) prepareGeneration(
 			return generationPrepared{}, cuErr
 		}
 		model = cuModel
-		debugEnabled = cuDebugEnabled
+		fullRecording = cuFullRecording
 		resolvedProvider = cuResolvedProvider
 		debugModel = cuResolvedModel
 		providerTools, err = appendComputerUseProviderTool(providerTools, computerUseProviderToolOptions{
@@ -565,7 +565,7 @@ func (server *Server) prepareGeneration(
 		// capture unexpected failures. FullRecording gates eager run/step
 		// creation and full payload capture.
 		debug = &generationDebug{
-			FullRecording:       debugEnabled,
+			FullRecording:       fullRecording,
 			Service:             debugSvc,
 			Provider:            resolvedProvider,
 			Model:               debugModel,
