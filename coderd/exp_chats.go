@@ -2411,12 +2411,6 @@ func (api *API) watchChatGit(rw http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if len(agents) == 0 {
-		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
-			Message: codersdk.ChatGitWatchWorkspaceNoAgentsMessage,
-		})
-		return
-	}
 	agent, err := agentselect.FindChatAgent(agents)
 	if err != nil {
 		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
@@ -2574,16 +2568,10 @@ func (api *API) watchChatDesktop(rw http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if len(agents) == 0 {
-		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
-			Message: "Chat workspace has no agents.",
-		})
-		return
-	}
 	agent, err := agentselect.FindChatAgent(agents)
 	if err != nil {
 		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
-			Message: "Chat workspace has no eligible agents.",
+			Message: "Chat workspace has no agents.",
 			Detail:  err.Error(),
 		})
 		return
