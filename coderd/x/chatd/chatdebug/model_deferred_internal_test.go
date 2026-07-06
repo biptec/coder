@@ -179,10 +179,10 @@ func TestDeferred_NoEnsurerPersistsNothing(t *testing.T) {
 }
 
 // TestDeferred_CapturesUnderCanceledParentContext guards that the
-// errors-only step writes run on a context detached from the request
-// context. A generic provider error often coincides with the request
-// context being canceled (e.g. the client disconnects); the capture
-// must still persist instead of failing on a canceled context.
+// errors-only step persists on a context detached from the request
+// context. A generic provider error often coincides with a canceled
+// request context (e.g. the client disconnects); the capture must
+// persist despite the cancellation.
 func TestDeferred_CapturesUnderCanceledParentContext(t *testing.T) {
 	t.Parallel()
 
@@ -271,9 +271,9 @@ func TestDeferred_RunCreatedAtMostOnce(t *testing.T) {
 }
 
 // TestDeferred_StreamErrorCapturedUnderCanceledContext guards that a generic
-// stream error is still captured when the context is canceled before the
+// stream error is captured even when the context is canceled before the
 // stream completes. The AfterFunc safety net must not suppress the
-// deferred capture by setting finalized=true before the normal finalize
+// deferred capture by setting finalized=true before the finalize
 // closure runs captureDeferredError.
 func TestDeferred_StreamErrorCapturedUnderCanceledContext(t *testing.T) {
 	t.Parallel()

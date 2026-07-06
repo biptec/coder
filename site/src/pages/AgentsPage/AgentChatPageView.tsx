@@ -508,9 +508,8 @@ export const AgentChatPageView: FC<AgentChatPageViewProps> = ({
 	// sync. Desktop is ordered before terminals so terminals are rightmost.
 	const builtInSidebarTabConfigs = [
 		{ id: "git", label: "Git" },
-		// Show the Debug tab when the user enabled full debug logging or
-		// whenever the chat already has captured debug runs (errors are
-		// captured even with logging off).
+		// Show the Debug tab when full debug logging is enabled or the chat
+		// has debug runs (errors are captured even with logging off).
 		...(debugLoggingEnabled || hasDebugRuns
 			? [{ id: "debug", label: "Debug" }]
 			: []),

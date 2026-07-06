@@ -396,8 +396,8 @@ index abc1234..def5678 100644
 };
 
 /**
- * The Debug tab is shown when the chat has captured debug runs even if the
- * user has not enabled full debug logging (errors are captured by default).
+ * The Debug tab appears when the chat has debug runs, even without full
+ * debug logging (errors are captured by default).
  */
 export const DebugTabVisibleWithRuns: Story = {
 	render: () => (
@@ -416,8 +416,8 @@ export const DebugTabVisibleWithRuns: Story = {
 };
 
 /**
- * The Debug tab is shown when full debug logging is enabled, regardless of
- * whether any runs exist yet.
+ * The Debug tab appears when full debug logging is enabled, regardless of
+ * whether any runs exist.
  */
 export const DebugTabVisibleWithLogging: Story = {
 	render: () => (

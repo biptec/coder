@@ -199,12 +199,12 @@ func (p *Server) maybeGenerateChatTitle(
 	if !ok {
 		return
 	}
-	// TODO(chatd-debug): extend the errors-only default to internal
-	// title/quickgen runs so a generic StatusError is captured with
+	// TODO(chatd-debug): extend the errors-only default to title/quickgen
+	// runs so a generic StatusError is captured with
 	// KindTitleGeneration/KindQuickgen even when full logging is off.
-	// Today these only record when full debug logging is enabled; a
-	// failing chat turn already surfaces the Debug tab via the chat_turn
-	// run, so this is follow-up trace-taxonomy work.
+	// Currently these record only with full debug logging enabled; a
+	// failing chat turn surfaces the Debug tab via the chat_turn run.
+	// This is follow-up trace-taxonomy work.
 	debugEnabled := debugSvc != nil && debugSvc.IsEnabled(ctx, chat.ID, chat.OwnerID)
 
 	titleCtx, cancel := context.WithTimeout(ctx, 30*time.Second)

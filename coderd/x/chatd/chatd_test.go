@@ -6766,9 +6766,9 @@ func TestActiveServer_ChatTurnDebugRunRecordsStreamStep(t *testing.T) {
 	require.EqualValues(t, 150, summary["total_cache_read_tokens"])
 }
 
-// TestActiveServer_ChatTurnDebugRunCapturesGenericErrorWhenLoggingOff is the
-// happy path for the errors-only default: with debug logging disabled, an
-// unexpected (generic) model failure still produces a minimal error run that
+// TestActiveServer_ChatTurnDebugRunCapturesGenericErrorWhenLoggingOff tests
+// the errors-only default happy path: with debug logging disabled, an
+// unexpected (generic) model failure still produces a minimal error run
 // the debug-runs API surfaces.
 func TestActiveServer_ChatTurnDebugRunCapturesGenericErrorWhenLoggingOff(t *testing.T) {
 	t.Parallel()
@@ -6786,8 +6786,7 @@ func TestActiveServer_ChatTurnDebugRunCapturesGenericErrorWhenLoggingOff(t *test
 	})
 	user, org, model := seedAnthropicChatDependencies(t, db, anthropicURL)
 
-	// Note: AlwaysEnableDebugLogs is intentionally left unset, so the server
-	// runs in the errors-only default level.
+	// AlwaysEnableDebugLogs is left unset; the server runs in the errors-only default.
 	server := newActiveTestServer(t, db, ps, func(cfg *chatd.Config) {
 		cfg.AIBridgeTransportFactory = chatAIGatewayTransportFactoryPointer(chattest.NewMockAIBridgeTransport(t, anthropicURL, chattest.WithPreservePath()))
 	})

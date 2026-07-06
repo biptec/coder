@@ -20,7 +20,7 @@ type RecorderOptions struct {
 	Model    string
 	// FullRecording enables eager run/step creation and full payload
 	// capture. When false, the recorder runs in the errors-only default:
-	// it persists a minimal run+step only when a qualifying error occurs,
+	// it persists a minimal run+step only on a qualifying error,
 	// lazily materializing the run via the context error-run ensurer.
 	FullRecording bool
 }
@@ -202,9 +202,8 @@ type stepHandle struct {
 	err      any
 	metadata any
 	// deferred marks an errors-only handle that has not created a step.
-	// A deferred handle persists nothing unless captureDeferredError is
-	// called with a qualifying error, which lazily materializes the run
-	// and the failing step.
+	// A deferred handle persists nothing; calling captureDeferredError
+	// with a qualifying error lazily materializes the run and failing step.
 	deferred bool
 	// hadError tracks whether a prior finalization wrote an error
 	// payload. Used to decide whether a successful retry needs to
@@ -226,10 +225,10 @@ func beginStep(
 		return nil, ctx
 	}
 
-	// Errors-only default: do not create a step up front. Return a
-	// deferred handle that persists a minimal run+step only if a
-	// qualifying error is later reported via captureDeferredError. A
-	// run ensurer must be present to own the lazily-created run.
+	// Errors-only default: create no step up front. Return a deferred
+	// handle that persists a minimal run+step only on a qualifying error
+	// reported via captureDeferredError. A run ensurer must be present
+	// to own the lazily-created run.
 	if !opts.FullRecording {
 		if !hasErrorRunEnsurer(ctx) {
 			return nil, ctx
@@ -387,9 +386,9 @@ func (h *stepHandle) finish(
 }
 
 // finishTerminalError finalizes a step that ended in a terminal error
-// before any stream wrapping. For full handles it records the error
-// payload; for deferred handles it lazily persists a minimal error step
-// only when the error qualifies for capture.
+// before any stream wrapping. Full handles record the error payload;
+// deferred handles lazily persist a minimal error step when the error
+// qualifies for capture.
 func (h *stepHandle) finishTerminalError(
 	ctx context.Context,
 	op Operation,
@@ -410,11 +409,11 @@ func (h *stepHandle) finishTerminalError(
 }
 
 // captureDeferredError lazily materializes the error run and persists a
-// single minimal error step. It is the only persistence path for the
-// errors-only default level. Callers must invoke it only for terminal
-// errors that qualify for capture; non-qualifying outcomes persist
-// nothing. metadata is optional and carries small structured hints
-// (e.g. structured_output) without storing request/response payloads.
+// single minimal error step. It is the sole persistence path for the
+// errors-only default. Call it only for qualifying terminal errors;
+// non-qualifying outcomes persist nothing. metadata is optional and
+// carries small structured hints (e.g. structured_output) without
+// request/response payloads.
 func (h *stepHandle) captureDeferredError(
 	ctx context.Context,
 	op Operation,
@@ -437,9 +436,9 @@ func (h *stepHandle) captureDeferredError(
 
 	// Detach from the request context with a bounded timeout so the
 	// capture survives parent cancellation. A qualifying generic error
-	// frequently coincides with the request context being canceled
-	// (e.g. the client disconnects), and the minimal error step must
-	// still persist. This mirrors finish's use of stepFinalizeContext.
+	// often coincides with a canceled request context (e.g. the client
+	// disconnects), and the minimal error step must persist. This mirrors
+	// finish's use of stepFinalizeContext.
 	stepCtx, cancel := stepFinalizeContext(ctx)
 	defer cancel()
 

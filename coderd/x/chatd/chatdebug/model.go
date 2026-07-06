@@ -37,13 +37,13 @@ const (
 	targetNone recordTarget = iota
 	// targetFull eagerly records the step with full payloads.
 	targetFull
-	// targetDeferred records only a minimal step if a qualifying error
-	// occurs, lazily materializing the run.
+	// targetDeferred records a minimal step on a qualifying error,
+	// lazily materializing the run.
 	targetDeferred
 )
 
-// target reports how the current call should be recorded based on the
-// recording level and the debug context present in ctx.
+// target reports how the current call should be recorded, based on the
+// recording level and the debug context in ctx.
 func (d *debugModel) target(ctx context.Context) recordTarget {
 	if d.svc == nil {
 		return targetNone
@@ -60,11 +60,10 @@ func (d *debugModel) target(ctx context.Context) recordTarget {
 	return targetNone
 }
 
-// shouldCaptureError reports whether an error qualifies for default
-// (errors-only) capture: only unclassified/unexpected errors
-// (ChatErrorKindGeneric) are persisted. Expected operational conditions
-// (auth, config, usage_limit, rate_limit, etc.) carry no debugging value
-// and are skipped.
+// shouldCaptureError reports whether an error qualifies for errors-only
+// capture: only ChatErrorKindGeneric (unclassified/unexpected) errors are
+// persisted. Expected operational errors (auth, config, usage_limit,
+// rate_limit, etc.) carry no debugging value and are skipped.
 func shouldCaptureError(err error) bool {
 	return chaterror.Classify(err).Kind == codersdk.ChatErrorKindGeneric
 }
@@ -406,9 +405,8 @@ func (d *debugModel) StreamObject(
 	return wrapObjectStreamSeq(ctx, handle, seq), nil
 }
 
-// captureDeferred persists a minimal error step for the errors-only
-// default level when err is a genuine error (not a cancellation or
-// timeout) that qualifies for capture.
+// captureDeferred persists a minimal error step under the errors-only
+// default when err qualifies for capture (not a cancellation or timeout).
 func (d *debugModel) captureDeferred(ctx context.Context, op Operation, err error, metadata any) {
 	if stepStatusForError(err) != StatusError || !shouldCaptureError(err) {
 		return
@@ -510,11 +508,10 @@ func wrapStreamSeq(
 		// If the stream already received a finish chunk, let
 		// finalize handle it; it has the real response payload
 		// and usage data that we would otherwise clobber.
-		// Deferred handles have no step to interrupt and no
-		// heartbeat to stop; the normal finalize path calls
-		// captureDeferredError, which uses stepFinalizeContext
-		// to survive cancellation. Letting the safety net set
-		// finalized=true here would suppress that capture.
+		// Deferred handles have no step to interrupt and no heartbeat to
+		// stop; the finalize path calls captureDeferredError, which uses
+		// stepFinalizeContext to survive cancellation. Setting finalized=true
+		// here would suppress that capture.
 		if finalized || streamComplete.Load() || handle.deferred {
 			return
 		}

@@ -561,9 +561,9 @@ func (server *Server) prepareGeneration(
 	debugSvc := server.existingDebugService()
 	var debug *generationDebug
 	if debugSvc != nil {
-		// Always attach the debug service so the errors-only default can
-		// lazily capture unexpected failures. FullRecording gates eager
-		// run/step creation and full payload capture.
+		// Attach the debug service to let the errors-only default lazily
+		// capture unexpected failures. FullRecording gates eager run/step
+		// creation and full payload capture.
 		debug = &generationDebug{
 			FullRecording:       debugEnabled,
 			Service:             debugSvc,

@@ -21,9 +21,8 @@ type runnerDebugTurn struct {
 	seedSummary map[string]any
 	service     *chatdebug.Service
 
-	// errorsOnly marks a turn running under the default (errors-only)
-	// recording level, where the run is lazily created on the first
-	// qualifying error via lazyCreateRun.
+	// errorsOnly marks a turn at the errors-only default level;
+	// lazyCreateRun creates the run on the first qualifying error.
 	errorsOnly bool
 	// pendingChat holds the chat for deferred CreateRun (RootChatID, ParentChatID).
 	pendingChat database.Chat
@@ -65,9 +64,9 @@ func (d *runnerDebugTurn) Ensure(
 	}
 	if d.created {
 		// Errors-only turns keep installing a fresh ensurer so later
-		// model calls can each reach lazyCreateRun. lazyCreateRun itself
-		// dedups via d.created under the mutex, so only one run is ever
-		// created per turn.
+		// model calls can each reach lazyCreateRun. lazyCreateRun
+		// deduplicates via d.created under the mutex, so only one run
+		// is created per turn.
 		if d.errorsOnly {
 			return chatdebug.WithErrorRunEnsurer(ctx, d.lazyCreateRun)
 		}
@@ -84,7 +83,7 @@ func (d *runnerDebugTurn) Ensure(
 	)
 
 	// Errors-only default: defer run creation until a qualifying error
-	// occurs. Install a lazy ensurer; lazyCreateRun dedups via the
+	// occurs. Install a lazy ensurer; lazyCreateRun deduplicates via
 	// runnerDebugTurn state so multiple model calls share one run.
 	if !debug.FullRecording {
 		d.errorsOnly = true
@@ -147,10 +146,10 @@ func (d *runnerDebugTurn) Ensure(
 	return d.contextLocked(ctx)
 }
 
-// lazyCreateRun creates the chat-turn debug run on first use for the
-// errors-only default level. It is invoked by the context error-run
-// ensurer when a qualifying error is recorded, and dedups so repeated
-// calls within a turn return the single shared run.
+// lazyCreateRun creates the chat-turn debug run on first use under the
+// errors-only default. The context error-run ensurer invokes it when a
+// qualifying error is recorded; repeated calls within a turn return the
+// single shared run.
 func (d *runnerDebugTurn) lazyCreateRun() (*chatdebug.RunContext, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()

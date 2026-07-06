@@ -108,8 +108,8 @@ export const RIGHT_PANEL_OPEN_KEY = "agents.right-panel-open";
 
 const lastModelConfigIDStorageKey = "agents.last-model-config-id";
 
-// Cadence for the lightweight Debug-tab existence check while a turn is in
-// flight. Idle chats fetch once on mount and do not poll.
+// Poll interval for the lightweight Debug-tab existence check during an
+// in-flight turn. Idle chats fetch once on mount and do not poll.
 const DEBUG_RUNS_EXISTENCE_POLL_MS = 5_000;
 /** @internal Exported for testing. */
 export const draftInputStorageKeyPrefix = "agents.draft-input.";
@@ -1074,14 +1074,14 @@ const AgentChatPage: FC = () => {
 	});
 	const liveChatStatus =
 		useChatSelector(store, selectChatStatus) ?? chatRecord?.status ?? null;
-	// Surface the Debug tab whenever a chat has captured debug runs, even
-	// when full debug logging is off (errors are captured by default). This
-	// existence check shares the Debug panel's query key, so react-query
-	// dedupes them. To avoid polling idle chats, it fetches once on mount
-	// and only polls while a turn is in flight and no run has been found.
-	// Terminal states (error/completed/interrupted) do not poll: a
-	// non-generic error never creates a run, and polling it would loop
-	// indefinitely. The Debug panel keeps its own polling while open.
+	// Show the Debug tab whenever a chat has debug runs, even with full
+	// logging off (errors are captured by default). This check shares the
+	// Debug panel's query key, so react-query deduplicates requests. To
+	// avoid polling idle chats, it fetches once on mount and polls only
+	// while a turn is in flight and no run exists. Terminal states
+	// (error/completed/interrupted) do not poll: a non-generic error never
+	// creates a run, and polling would loop indefinitely. The Debug panel
+	// keeps its own polling while open.
 	const chatTurnInFlight =
 		liveChatStatus === "pending" ||
 		liveChatStatus === "running" ||

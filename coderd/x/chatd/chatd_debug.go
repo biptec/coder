@@ -134,8 +134,8 @@ func (p *Server) newDebugAwareModel(
 	if err != nil {
 		return nil, fullRecording, err
 	}
-	// Wrap whenever a debug service exists. With full recording off the
-	// wrapper runs in the errors-only default, persisting only minimal
+	// Wrap whenever a debug service exists. When full recording is off,
+	// the wrapper runs in the errors-only default, persisting minimal
 	// error data via the context error-run ensurer.
 	if debugSvc == nil {
 		return model, false, nil
