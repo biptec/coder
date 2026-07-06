@@ -39,8 +39,8 @@ export const SelectionSummary: React.FC<SelectionSummaryProps> = ({
 	};
 	return (
 		<div>
-			<h2 className="font-semibold">Selection</h2>
-			<div>
+			<h2 className="text-xl font-semibold">Selection</h2>
+			<div className="text-sm">
 				<VariantContext.Provider value={variant(1)}>
 					<StepIndicator step={1}>Base Template</StepIndicator>
 					{selectedTemplate ? (
@@ -69,13 +69,13 @@ export const SelectionSummary: React.FC<SelectionSummaryProps> = ({
 };
 
 const stepCircleVariants = cva(
-	"rounded-full w-8 h-8 border border-solid flex items-center justify-center",
+	"rounded-full size-6 border border-solid flex items-center justify-center text-xs",
 	{
 		variants: {
 			variant: {
 				complete: "border-border-success bg-surface-green",
 				current: "border-border-success",
-				upcoming: "border-border text-content-secondary",
+				upcoming: "border-border text-content-disabled",
 			},
 		},
 	},
@@ -86,7 +86,7 @@ const stepLabelVariants = cva("font-normal mr-2", {
 		variant: {
 			complete: "text-content-primary",
 			current: "text-content-primary",
-			upcoming: "text-content-secondary",
+			upcoming: "text-content-disabled",
 		},
 	},
 });
@@ -107,7 +107,7 @@ const StepIndicator: React.FC<StepIndicatorProps> = ({ step, children }) => {
 };
 
 const stepDividerVariants = cva(
-	"border-0 border-l border-solid mx-4 -translate-x-px",
+	"border-0 border-l border-solid mx-3 -translate-x-px",
 	{
 		variants: {
 			variant: {
@@ -154,7 +154,7 @@ const BaseTemplateSelection: React.FC<BaseTemplateSelectionProps> = ({
 					alt={`${template.name} icon`}
 					className="w-6 h-6 p-1 rounded-sm border border-border border-solid bg-surface-secondary"
 				/>
-				<span className="ml-2">{template.name}</span>
+				<span className="ml-2 text-content-secondary">{template.name}</span>
 			</div>
 		</StepDivider>
 	);
@@ -174,24 +174,29 @@ const ModuleSelection: React.FC<ModuleSelectionProps> = ({
 			{modules.map((module) => (
 				<div
 					key={module.id}
-					className="group flex items-center justify-between p-1 mb-1 hover:bg-surface-secondary"
+					className="group flex items-start justify-between p-1 mb-1 rounded-sm hover:bg-surface-secondary"
 				>
-					<div className="flex items-center">
+					<div className="h-[1lh] content-center">
 						<img
 							src={module.iconUrl}
 							alt={`${module.name} icon`}
-							className="w-6 h-6 p-1 rounded-sm border border-border border-solid bg-surface-secondary"
+							className="block w-6 h-6 p-1 rounded-sm border border-border border-solid bg-surface-secondary"
 						/>
-						<span className="ml-2">{module.name}</span>
 					</div>
-					<Button
-						size="xs"
-						variant="subtle"
-						className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-						onClick={() => onDeselectModule(module.id)}
-					>
-						<XIcon className="w-4 h-4" />
-					</Button>
+					<span className="flex-1 ml-2 text-content-secondary">
+						{module.name}
+					</span>
+					<div className="h-[1lh] content-center">
+						<Button
+							size="xs"
+							variant="subtle"
+							className="flex opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+							onClick={() => onDeselectModule(module.id)}
+							aria-label="Deselect module"
+						>
+							<XIcon className="w-4 h-4" />
+						</Button>
+					</div>
 				</div>
 			))}
 		</StepDivider>

@@ -14,6 +14,7 @@ const (
 	CheckAIModelPricesInputPriceCheck                        CheckConstraint = "ai_model_prices_input_price_check"                         // ai_model_prices
 	CheckAIModelPricesOutputPriceCheck                       CheckConstraint = "ai_model_prices_output_price_check"                        // ai_model_prices
 	CheckAIProvidersNameCheck                                CheckConstraint = "ai_providers_name_check"                                   // ai_providers
+	CheckAIUserDailySpendSpendMicrosCheck                    CheckConstraint = "ai_user_daily_spend_spend_micros_check"                    // ai_user_daily_spend
 	CheckAibridgeTokenUsagesCacheReadPriceMicrosCheck        CheckConstraint = "aibridge_token_usages_cache_read_price_micros_check"       // aibridge_token_usages
 	CheckAibridgeTokenUsagesCacheWritePriceMicrosCheck       CheckConstraint = "aibridge_token_usages_cache_write_price_micros_check"      // aibridge_token_usages
 	CheckAibridgeTokenUsagesCostMicrosCheck                  CheckConstraint = "aibridge_token_usages_cost_micros_check"                   // aibridge_token_usages
@@ -44,6 +45,7 @@ const (
 	CheckMcpServerConfigsAvailabilityCheck                   CheckConstraint = "mcp_server_configs_availability_check"                     // mcp_server_configs
 	CheckMcpServerConfigsTransportCheck                      CheckConstraint = "mcp_server_configs_transport_check"                        // mcp_server_configs
 	CheckMaxProvisionerLogsLength                            CheckConstraint = "max_provisioner_logs_length"                               // provisioner_jobs
+	CheckNatsPortValidTcp                                    CheckConstraint = "nats_port_valid_tcp"                                       // replicas
 	CheckMaxLogsLength                                       CheckConstraint = "max_logs_length"                                           // workspace_agents
 	CheckSubsystemsNotNone                                   CheckConstraint = "subsystems_not_none"                                       // workspace_agents
 	CheckWorkspaceBuildsDeadlineBelowMaxDeadline             CheckConstraint = "workspace_builds_deadline_below_max_deadline"              // workspace_builds

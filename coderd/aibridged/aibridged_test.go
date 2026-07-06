@@ -17,14 +17,26 @@ import (
 
 	"cdr.dev/slog/v3/sloggers/slogtest"
 	"github.com/coder/coder/v2/aibridge"
+	"github.com/coder/coder/v2/aibridge/aibridgetest"
 	"github.com/coder/coder/v2/aibridge/intercept"
+	"github.com/coder/coder/v2/aibridge/keypool"
 	agplaibridge "github.com/coder/coder/v2/coderd/aibridge"
 	"github.com/coder/coder/v2/coderd/aibridged"
 	mock "github.com/coder/coder/v2/coderd/aibridged/aibridgedmock"
 	"github.com/coder/coder/v2/coderd/aibridged/proto"
+	"github.com/coder/coder/v2/coderd/util/ptr"
 	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/testutil"
+	"github.com/coder/quartz"
 )
+
+// singleKeyPool builds a centralized key pool containing a single key.
+func singleKeyPool(t *testing.T, name, key string) *keypool.Pool {
+	t.Helper()
+	pool, err := keypool.New(name, []string{key}, quartz.NewReal(), nil)
+	require.NoError(t, err)
+	return pool
+}
 
 func newTestServer(t *testing.T) (*aibridged.Server, *mock.MockDRPCClient, *mock.MockPooler) {
 	t.Helper()
@@ -117,12 +129,38 @@ func TestServeHTTP_FailureModes(t *testing.T) {
 
 		// TODO: coderd connection-related failures.
 
+		// Budget-related failures.
+		{
+			name: "budget exceeded",
+			applyMocksFn: func(client *mock.MockDRPCClient, _ *mock.MockPooler) {
+				// Authorization passes.
+				client.EXPECT().IsAuthorized(gomock.Any(), gomock.Any()).AnyTimes().Return(&proto.IsAuthorizedResponse{OwnerId: uuid.NewString()}, nil)
+				client.EXPECT().IsBudgetExceeded(gomock.Any(), gomock.Any()).AnyTimes().Return(&proto.IsBudgetExceededResponse{
+					Exceeded:         true,
+					SpendLimitMicros: ptr.Ref(int64(1_000)),
+				}, nil)
+			},
+			expectedErr:    xerrors.New("AI budget of"),
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name: "budget check failed",
+			applyMocksFn: func(client *mock.MockDRPCClient, _ *mock.MockPooler) {
+				// Authorization passes.
+				client.EXPECT().IsAuthorized(gomock.Any(), gomock.Any()).AnyTimes().Return(&proto.IsAuthorizedResponse{OwnerId: uuid.NewString()}, nil)
+				client.EXPECT().IsBudgetExceeded(gomock.Any(), gomock.Any()).AnyTimes().Return(nil, xerrors.New("oops"))
+			},
+			expectedErr:    aibridged.ErrBudgetCheck,
+			expectedStatus: http.StatusInternalServerError,
+		},
+
 		// Pool-related failures.
 		{
 			name: "pool instance",
 			applyMocksFn: func(client *mock.MockDRPCClient, pool *mock.MockPooler) {
-				// Should pass authorization.
+				// Should pass authorization and budget check.
 				client.EXPECT().IsAuthorized(gomock.Any(), gomock.Any()).AnyTimes().Return(&proto.IsAuthorizedResponse{OwnerId: uuid.NewString()}, nil)
+				client.EXPECT().IsBudgetExceeded(gomock.Any(), gomock.Any()).AnyTimes().Return(&proto.IsBudgetExceededResponse{}, nil)
 				// But fail when acquiring a pool instance.
 				pool.EXPECT().Acquire(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(nil, xerrors.New("oops"))
 			},
@@ -212,6 +250,7 @@ func TestServeHTTP_DelegatedAPIKey(t *testing.T) {
 							Username: "u",
 						}, nil
 					})
+				client.EXPECT().IsBudgetExceeded(gomock.Any(), gomock.Any()).Return(&proto.IsBudgetExceededResponse{}, nil)
 				pool.EXPECT().Acquire(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 					func(_ context.Context, req aibridged.Request, _ aibridged.ClientFunc, _ aibridged.MCPProxyBuilder) (http.Handler, error) {
 						assert.Empty(t, req.SessionKey,
@@ -244,6 +283,7 @@ func TestServeHTTP_DelegatedAPIKey(t *testing.T) {
 					ApiKeyId: testKeyID,
 					Username: "u",
 				}, nil)
+				client.EXPECT().IsBudgetExceeded(gomock.Any(), gomock.Any()).Return(&proto.IsBudgetExceededResponse{}, nil)
 				pool.EXPECT().Acquire(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 					func(_ context.Context, req aibridged.Request, _ aibridged.ClientFunc, _ aibridged.MCPProxyBuilder) (http.Handler, error) {
 						assert.Equal(t, "coder-token-byok", req.SessionKey,
@@ -334,6 +374,7 @@ func TestServeHTTP_DelegatedAPIKey_BYOK_Integration(t *testing.T) {
 				Username: "u",
 			}, nil
 		})
+	client.EXPECT().IsBudgetExceeded(gomock.Any(), gomock.Any()).Return(&proto.IsBudgetExceededResponse{}, nil)
 	pool.EXPECT().Acquire(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(mockH, nil)
 
 	factory := aibridged.NewTransportFactory(srv)
@@ -386,6 +427,7 @@ func TestServeHTTP_DelegatedAPIKey_Integration(t *testing.T) {
 				Username: "u",
 			}, nil
 		})
+	client.EXPECT().IsBudgetExceeded(gomock.Any(), gomock.Any()).Return(&proto.IsBudgetExceededResponse{}, nil)
 	pool.EXPECT().Acquire(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(mockH, nil)
 
 	factory := aibridged.NewTransportFactory(srv)
@@ -472,6 +514,7 @@ func TestServeHTTP_StripCoderToken(t *testing.T) {
 			conn := &mockDRPCConn{}
 			client.EXPECT().DRPCConn().AnyTimes().Return(conn)
 			client.EXPECT().IsAuthorized(gomock.Any(), gomock.Any()).AnyTimes().Return(&proto.IsAuthorizedResponse{OwnerId: uuid.NewString()}, nil)
+			client.EXPECT().IsBudgetExceeded(gomock.Any(), gomock.Any()).AnyTimes().Return(&proto.IsBudgetExceededResponse{}, nil)
 			pool.EXPECT().Acquire(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(mockH, nil)
 
 			httpSrv := httptest.NewServer(srv)
@@ -646,10 +689,12 @@ func TestServeHTTP_ActorHeaders(t *testing.T) {
 			providers := []aibridge.Provider{
 				aibridge.NewOpenAIProvider(aibridge.OpenAIConfig{
 					BaseURL:          upstreamSrv.URL,
+					KeyPool:          singleKeyPool(t, "openai", "test-key"),
 					SendActorHeaders: true,
 				}),
-				aibridge.NewAnthropicProvider(aibridge.AnthropicConfig{
+				aibridgetest.NewAnthropicProvider(t, aibridge.AnthropicConfig{
 					BaseURL:          upstreamSrv.URL,
+					KeyPool:          singleKeyPool(t, "anthropic", "test-key"),
 					SendActorHeaders: true,
 				}, nil),
 			}
@@ -664,6 +709,7 @@ func TestServeHTTP_ActorHeaders(t *testing.T) {
 				OwnerId:  testUserID.String(),
 				Username: testUsername,
 			}, nil)
+			client.EXPECT().IsBudgetExceeded(gomock.Any(), gomock.Any()).AnyTimes().Return(&proto.IsBudgetExceededResponse{}, nil)
 			client.EXPECT().GetMCPServerConfigs(gomock.Any(), gomock.Any()).AnyTimes().Return(&proto.GetMCPServerConfigsResponse{}, nil)
 			client.EXPECT().RecordInterception(gomock.Any(), gomock.Any()).AnyTimes().Return(&proto.RecordInterceptionResponse{}, nil)
 			client.EXPECT().RecordInterceptionEnded(gomock.Any(), gomock.Any()).AnyTimes()
@@ -753,8 +799,8 @@ func TestRouting(t *testing.T) {
 			client := mock.NewMockDRPCClient(ctrl)
 
 			providers := []aibridge.Provider{
-				aibridge.NewOpenAIProvider(aibridge.OpenAIConfig{BaseURL: openaiSrv.URL}),
-				aibridge.NewAnthropicProvider(aibridge.AnthropicConfig{BaseURL: antSrv.URL}, nil),
+				aibridge.NewOpenAIProvider(aibridge.OpenAIConfig{BaseURL: openaiSrv.URL, KeyPool: singleKeyPool(t, "openai", "test-key")}),
+				aibridgetest.NewAnthropicProvider(t, aibridge.AnthropicConfig{BaseURL: antSrv.URL, KeyPool: singleKeyPool(t, "anthropic", "test-key")}, nil),
 			}
 			pool, err := aibridged.NewCachedBridgePool(aibridged.DefaultPoolOptions, providers, logger, nil, testTracer)
 			require.NoError(t, err)
@@ -762,6 +808,7 @@ func TestRouting(t *testing.T) {
 			client.EXPECT().DRPCConn().AnyTimes().Return(conn)
 
 			client.EXPECT().IsAuthorized(gomock.Any(), gomock.Any()).AnyTimes().Return(&proto.IsAuthorizedResponse{OwnerId: uuid.NewString()}, nil)
+			client.EXPECT().IsBudgetExceeded(gomock.Any(), gomock.Any()).AnyTimes().Return(&proto.IsBudgetExceededResponse{}, nil)
 			client.EXPECT().GetMCPServerConfigs(gomock.Any(), gomock.Any()).AnyTimes().Return(&proto.GetMCPServerConfigsResponse{}, nil)
 			// This is the only recording we really care about in this test. This is called before the provider-specific logic processes
 			// the incoming request, and anything beyond that is the responsibility of coder/aibridge to test.
@@ -837,6 +884,7 @@ func TestServeHTTP_StripInternalHeaders(t *testing.T) {
 			conn := &mockDRPCConn{}
 			client.EXPECT().DRPCConn().AnyTimes().Return(conn)
 			client.EXPECT().IsAuthorized(gomock.Any(), gomock.Any()).AnyTimes().Return(&proto.IsAuthorizedResponse{OwnerId: uuid.NewString()}, nil)
+			client.EXPECT().IsBudgetExceeded(gomock.Any(), gomock.Any()).AnyTimes().Return(&proto.IsBudgetExceededResponse{}, nil)
 			pool.EXPECT().Acquire(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(mockH, nil)
 
 			httpSrv := httptest.NewServer(srv)

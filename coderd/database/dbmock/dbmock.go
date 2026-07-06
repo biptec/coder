@@ -11,7 +11,6 @@ package dbmock
 
 import (
 	context "context"
-	sql "database/sql"
 	json "encoding/json"
 	reflect "reflect"
 	time "time"
@@ -192,21 +191,6 @@ func (m *MockStore) AutoArchiveInactiveChats(ctx context.Context, arg database.A
 func (mr *MockStoreMockRecorder) AutoArchiveInactiveChats(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AutoArchiveInactiveChats", reflect.TypeOf((*MockStore)(nil).AutoArchiveInactiveChats), ctx, arg)
-}
-
-// BackfillChatModelConfigProvider mocks base method.
-func (m *MockStore) BackfillChatModelConfigProvider(ctx context.Context, arg database.BackfillChatModelConfigProviderParams) (sql.Result, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "BackfillChatModelConfigProvider", ctx, arg)
-	ret0, _ := ret[0].(sql.Result)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// BackfillChatModelConfigProvider indicates an expected call of BackfillChatModelConfigProvider.
-func (mr *MockStoreMockRecorder) BackfillChatModelConfigProvider(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BackfillChatModelConfigProvider", reflect.TypeOf((*MockStore)(nil).BackfillChatModelConfigProvider), ctx, arg)
 }
 
 // BackoffChatDiffStatus mocks base method.
@@ -422,20 +406,6 @@ func (m *MockStore) CleanupDeletedMCPServerIDsFromChats(ctx context.Context) err
 func (mr *MockStoreMockRecorder) CleanupDeletedMCPServerIDsFromChats(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupDeletedMCPServerIDsFromChats", reflect.TypeOf((*MockStore)(nil).CleanupDeletedMCPServerIDsFromChats), ctx)
-}
-
-// ClearChatMessageProviderResponseIDsByChatID mocks base method.
-func (m *MockStore) ClearChatMessageProviderResponseIDsByChatID(ctx context.Context, chatID uuid.UUID) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ClearChatMessageProviderResponseIDsByChatID", ctx, chatID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// ClearChatMessageProviderResponseIDsByChatID indicates an expected call of ClearChatMessageProviderResponseIDsByChatID.
-func (mr *MockStoreMockRecorder) ClearChatMessageProviderResponseIDsByChatID(ctx, chatID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearChatMessageProviderResponseIDsByChatID", reflect.TypeOf((*MockStore)(nil).ClearChatMessageProviderResponseIDsByChatID), ctx, chatID)
 }
 
 // CountAIBridgeSessions mocks base method.
@@ -875,20 +845,6 @@ func (m *MockStore) DeleteChatModelConfigsByAIProviderID(ctx context.Context, ai
 func (mr *MockStoreMockRecorder) DeleteChatModelConfigsByAIProviderID(ctx, aiProviderID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteChatModelConfigsByAIProviderID", reflect.TypeOf((*MockStore)(nil).DeleteChatModelConfigsByAIProviderID), ctx, aiProviderID)
-}
-
-// DeleteChatModelConfigsByProvider mocks base method.
-func (m *MockStore) DeleteChatModelConfigsByProvider(ctx context.Context, provider string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteChatModelConfigsByProvider", ctx, provider)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DeleteChatModelConfigsByProvider indicates an expected call of DeleteChatModelConfigsByProvider.
-func (mr *MockStoreMockRecorder) DeleteChatModelConfigsByProvider(ctx, provider any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteChatModelConfigsByProvider", reflect.TypeOf((*MockStore)(nil).DeleteChatModelConfigsByProvider), ctx, provider)
 }
 
 // DeleteChatQueuedMessage mocks base method.
@@ -1962,6 +1918,21 @@ func (mr *MockStoreMockRecorder) GetAIBridgeUserPromptsByInterceptionID(ctx, int
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAIBridgeUserPromptsByInterceptionID", reflect.TypeOf((*MockStore)(nil).GetAIBridgeUserPromptsByInterceptionID), ctx, interceptionID)
 }
 
+// GetAIGatewayKeyByHashedSecret mocks base method.
+func (m *MockStore) GetAIGatewayKeyByHashedSecret(ctx context.Context, hashedSecret []byte) (database.AIGatewayKey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAIGatewayKeyByHashedSecret", ctx, hashedSecret)
+	ret0, _ := ret[0].(database.AIGatewayKey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAIGatewayKeyByHashedSecret indicates an expected call of GetAIGatewayKeyByHashedSecret.
+func (mr *MockStoreMockRecorder) GetAIGatewayKeyByHashedSecret(ctx, hashedSecret any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAIGatewayKeyByHashedSecret", reflect.TypeOf((*MockStore)(nil).GetAIGatewayKeyByHashedSecret), ctx, hashedSecret)
+}
+
 // GetAIModelPriceByProviderModel mocks base method.
 func (m *MockStore) GetAIModelPriceByProviderModel(ctx context.Context, arg database.GetAIModelPriceByProviderModelParams) (database.AIModelPrice, error) {
 	m.ctrl.T.Helper()
@@ -2548,10 +2519,10 @@ func (mr *MockStoreMockRecorder) GetBoundaryLogByID(ctx, id any) *gomock.Call {
 }
 
 // GetBoundarySessionByID mocks base method.
-func (m *MockStore) GetBoundarySessionByID(ctx context.Context, id uuid.UUID) (database.BoundarySession, error) {
+func (m *MockStore) GetBoundarySessionByID(ctx context.Context, id uuid.UUID) (database.GetBoundarySessionByIDRow, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetBoundarySessionByID", ctx, id)
-	ret0, _ := ret[0].(database.BoundarySession)
+	ret0, _ := ret[0].(database.GetBoundarySessionByIDRow)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -3733,10 +3704,10 @@ func (mr *MockStoreMockRecorder) GetEnabledChatModelConfigByID(ctx, id any) *gom
 }
 
 // GetEnabledChatModelConfigs mocks base method.
-func (m *MockStore) GetEnabledChatModelConfigs(ctx context.Context) ([]database.ChatModelConfig, error) {
+func (m *MockStore) GetEnabledChatModelConfigs(ctx context.Context) ([]database.GetEnabledChatModelConfigsRow, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetEnabledChatModelConfigs", ctx)
-	ret0, _ := ret[0].([]database.ChatModelConfig)
+	ret0, _ := ret[0].([]database.GetEnabledChatModelConfigsRow)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -5577,6 +5548,21 @@ func (mr *MockStoreMockRecorder) GetTemplatePresetsWithPrebuilds(ctx, templateID
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTemplatePresetsWithPrebuilds", reflect.TypeOf((*MockStore)(nil).GetTemplatePresetsWithPrebuilds), ctx, templateID)
 }
 
+// GetTemplateRankingSignalsByOwnerID mocks base method.
+func (m *MockStore) GetTemplateRankingSignalsByOwnerID(ctx context.Context, arg database.GetTemplateRankingSignalsByOwnerIDParams) ([]database.GetTemplateRankingSignalsByOwnerIDRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetTemplateRankingSignalsByOwnerID", ctx, arg)
+	ret0, _ := ret[0].([]database.GetTemplateRankingSignalsByOwnerIDRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetTemplateRankingSignalsByOwnerID indicates an expected call of GetTemplateRankingSignalsByOwnerID.
+func (mr *MockStoreMockRecorder) GetTemplateRankingSignalsByOwnerID(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTemplateRankingSignalsByOwnerID", reflect.TypeOf((*MockStore)(nil).GetTemplateRankingSignalsByOwnerID), ctx, arg)
+}
+
 // GetTemplateUsageStats mocks base method.
 func (m *MockStore) GetTemplateUsageStats(ctx context.Context, arg database.GetTemplateUsageStatsParams) ([]database.TemplateUsageStat, error) {
 	m.ctrl.T.Helper()
@@ -5890,6 +5876,21 @@ func (m *MockStore) GetUserAISeatStates(ctx context.Context, userIds []uuid.UUID
 func (mr *MockStoreMockRecorder) GetUserAISeatStates(ctx, userIds any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserAISeatStates", reflect.TypeOf((*MockStore)(nil).GetUserAISeatStates), ctx, userIds)
+}
+
+// GetUserAISpendSince mocks base method.
+func (m *MockStore) GetUserAISpendSince(ctx context.Context, arg database.GetUserAISpendSinceParams) (database.GetUserAISpendSinceRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUserAISpendSince", ctx, arg)
+	ret0, _ := ret[0].(database.GetUserAISpendSinceRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUserAISpendSince indicates an expected call of GetUserAISpendSince.
+func (mr *MockStoreMockRecorder) GetUserAISpendSince(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserAISpendSince", reflect.TypeOf((*MockStore)(nil).GetUserAISpendSince), ctx, arg)
 }
 
 // GetUserActivityInsights mocks base method.
@@ -7227,19 +7228,19 @@ func (mr *MockStoreMockRecorder) GetWorkspacesByTemplateID(ctx, templateID any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspacesByTemplateID", reflect.TypeOf((*MockStore)(nil).GetWorkspacesByTemplateID), ctx, templateID)
 }
 
-// GetWorkspacesEligibleForTransition mocks base method.
-func (m *MockStore) GetWorkspacesEligibleForTransition(ctx context.Context, now time.Time) ([]database.GetWorkspacesEligibleForTransitionRow, error) {
+// GetWorkspacesEligibleForLifecycleAction mocks base method.
+func (m *MockStore) GetWorkspacesEligibleForLifecycleAction(ctx context.Context, now time.Time) ([]database.GetWorkspacesEligibleForLifecycleActionRow, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetWorkspacesEligibleForTransition", ctx, now)
-	ret0, _ := ret[0].([]database.GetWorkspacesEligibleForTransitionRow)
+	ret := m.ctrl.Call(m, "GetWorkspacesEligibleForLifecycleAction", ctx, now)
+	ret0, _ := ret[0].([]database.GetWorkspacesEligibleForLifecycleActionRow)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetWorkspacesEligibleForTransition indicates an expected call of GetWorkspacesEligibleForTransition.
-func (mr *MockStoreMockRecorder) GetWorkspacesEligibleForTransition(ctx, now any) *gomock.Call {
+// GetWorkspacesEligibleForLifecycleAction indicates an expected call of GetWorkspacesEligibleForLifecycleAction.
+func (mr *MockStoreMockRecorder) GetWorkspacesEligibleForLifecycleAction(ctx, now any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspacesEligibleForTransition", reflect.TypeOf((*MockStore)(nil).GetWorkspacesEligibleForTransition), ctx, now)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspacesEligibleForLifecycleAction", reflect.TypeOf((*MockStore)(nil).GetWorkspacesEligibleForLifecycleAction), ctx, now)
 }
 
 // GetWorkspacesForWorkspaceMetrics mocks base method.
@@ -7255,6 +7256,21 @@ func (m *MockStore) GetWorkspacesForWorkspaceMetrics(ctx context.Context) ([]dat
 func (mr *MockStoreMockRecorder) GetWorkspacesForWorkspaceMetrics(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspacesForWorkspaceMetrics", reflect.TypeOf((*MockStore)(nil).GetWorkspacesForWorkspaceMetrics), ctx)
+}
+
+// HasTemplateVersionsUsingCachedModuleFileInOrg mocks base method.
+func (m *MockStore) HasTemplateVersionsUsingCachedModuleFileInOrg(ctx context.Context, arg database.HasTemplateVersionsUsingCachedModuleFileInOrgParams) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HasTemplateVersionsUsingCachedModuleFileInOrg", ctx, arg)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HasTemplateVersionsUsingCachedModuleFileInOrg indicates an expected call of HasTemplateVersionsUsingCachedModuleFileInOrg.
+func (mr *MockStoreMockRecorder) HasTemplateVersionsUsingCachedModuleFileInOrg(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasTemplateVersionsUsingCachedModuleFileInOrg", reflect.TypeOf((*MockStore)(nil).HasTemplateVersionsUsingCachedModuleFileInOrg), ctx, arg)
 }
 
 // HydrateAgentChatsContext mocks base method.
@@ -7298,6 +7314,21 @@ func (m *MockStore) IncrementChatGenerationAttempt(ctx context.Context, id uuid.
 func (mr *MockStoreMockRecorder) IncrementChatGenerationAttempt(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementChatGenerationAttempt", reflect.TypeOf((*MockStore)(nil).IncrementChatGenerationAttempt), ctx, id)
+}
+
+// IncrementUserAIDailySpend mocks base method.
+func (m *MockStore) IncrementUserAIDailySpend(ctx context.Context, arg database.IncrementUserAIDailySpendParams) (database.AIUserDailySpend, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IncrementUserAIDailySpend", ctx, arg)
+	ret0, _ := ret[0].(database.AIUserDailySpend)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IncrementUserAIDailySpend indicates an expected call of IncrementUserAIDailySpend.
+func (mr *MockStoreMockRecorder) IncrementUserAIDailySpend(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementUserAIDailySpend", reflect.TypeOf((*MockStore)(nil).IncrementUserAIDailySpend), ctx, arg)
 }
 
 // InsertAIBridgeInterception mocks base method.
@@ -9518,6 +9549,21 @@ func (mr *MockStoreMockRecorder) UpdateAIBridgeInterceptionEnded(ctx, arg any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAIBridgeInterceptionEnded", reflect.TypeOf((*MockStore)(nil).UpdateAIBridgeInterceptionEnded), ctx, arg)
 }
 
+// UpdateAIGatewayKeyLastHeartbeatAt mocks base method.
+func (m *MockStore) UpdateAIGatewayKeyLastHeartbeatAt(ctx context.Context, id uuid.UUID) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateAIGatewayKeyLastHeartbeatAt", ctx, id)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateAIGatewayKeyLastHeartbeatAt indicates an expected call of UpdateAIGatewayKeyLastHeartbeatAt.
+func (mr *MockStoreMockRecorder) UpdateAIGatewayKeyLastHeartbeatAt(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAIGatewayKeyLastHeartbeatAt", reflect.TypeOf((*MockStore)(nil).UpdateAIGatewayKeyLastHeartbeatAt), ctx, id)
+}
+
 // UpdateAIProvider mocks base method.
 func (m *MockStore) UpdateAIProvider(ctx context.Context, arg database.UpdateAIProviderParams) (database.AIProvider, error) {
 	m.ctrl.T.Helper()
@@ -9664,21 +9710,6 @@ func (m *MockStore) UpdateChatLabelsByID(ctx context.Context, arg database.Updat
 func (mr *MockStoreMockRecorder) UpdateChatLabelsByID(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateChatLabelsByID", reflect.TypeOf((*MockStore)(nil).UpdateChatLabelsByID), ctx, arg)
-}
-
-// UpdateChatLastInjectedContext mocks base method.
-func (m *MockStore) UpdateChatLastInjectedContext(ctx context.Context, arg database.UpdateChatLastInjectedContextParams) (database.Chat, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateChatLastInjectedContext", ctx, arg)
-	ret0, _ := ret[0].(database.Chat)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UpdateChatLastInjectedContext indicates an expected call of UpdateChatLastInjectedContext.
-func (mr *MockStoreMockRecorder) UpdateChatLastInjectedContext(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateChatLastInjectedContext", reflect.TypeOf((*MockStore)(nil).UpdateChatLastInjectedContext), ctx, arg)
 }
 
 // UpdateChatLastModelConfigByID mocks base method.
@@ -11179,6 +11210,20 @@ func (m *MockStore) UpdateWorkspaceBuildFlagsByID(ctx context.Context, arg datab
 func (mr *MockStoreMockRecorder) UpdateWorkspaceBuildFlagsByID(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWorkspaceBuildFlagsByID", reflect.TypeOf((*MockStore)(nil).UpdateWorkspaceBuildFlagsByID), ctx, arg)
+}
+
+// UpdateWorkspaceBuildNotifiedAutostopDeadline mocks base method.
+func (m *MockStore) UpdateWorkspaceBuildNotifiedAutostopDeadline(ctx context.Context, arg database.UpdateWorkspaceBuildNotifiedAutostopDeadlineParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateWorkspaceBuildNotifiedAutostopDeadline", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateWorkspaceBuildNotifiedAutostopDeadline indicates an expected call of UpdateWorkspaceBuildNotifiedAutostopDeadline.
+func (mr *MockStoreMockRecorder) UpdateWorkspaceBuildNotifiedAutostopDeadline(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWorkspaceBuildNotifiedAutostopDeadline", reflect.TypeOf((*MockStore)(nil).UpdateWorkspaceBuildNotifiedAutostopDeadline), ctx, arg)
 }
 
 // UpdateWorkspaceBuildOrchestrationCanceledByID mocks base method.

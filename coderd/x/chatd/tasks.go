@@ -61,6 +61,12 @@ type retryWrapperOptions struct {
 	maxDelay     time.Duration
 }
 
+type retryWrapperTaskInfo struct {
+	ChatID   uuid.UUID
+	WorkerID uuid.UUID
+	RunnerID uuid.UUID
+}
+
 // runTaskWithRetry ensures that a task doesn't exit until it completes
 // successfully or gets canceled. It retries the task in case of any ephemeral errors.
 // It's critical for the correct operation of the chat runner:
@@ -69,6 +75,7 @@ func runTaskWithRetry(
 	ctx context.Context,
 	opts retryWrapperOptions,
 	kind taskKind,
+	info retryWrapperTaskInfo,
 	fn func(context.Context) error,
 ) error {
 	if opts.clock == nil {
@@ -113,6 +120,9 @@ func runTaskWithRetry(
 			opts.logger.Debug(ctx, "chatworker task exited",
 				slog.F("task_kind", kind),
 				slog.F("reason", exitReason),
+				slog.F("chat_id", info.ChatID),
+				slog.F("worker_id", info.WorkerID),
+				slog.F("runner_id", info.RunnerID),
 				slogError(err),
 			)
 			return nil
@@ -121,6 +131,9 @@ func runTaskWithRetry(
 		opts.logger.Warn(ctx, "chatworker task retrying",
 			slog.F("task_kind", kind),
 			slog.F("delay", delay),
+			slog.F("chat_id", info.ChatID),
+			slog.F("worker_id", info.WorkerID),
+			slog.F("runner_id", info.RunnerID),
 			slogError(err),
 		)
 		timer := opts.clock.NewTimer(delay, "chatworker", "task-retry-"+string(kind))
@@ -180,6 +193,9 @@ func newTaskStarter(
 	routeStateHint func(context.Context, runnerStateUpdate),
 	requestCleanup func(context.Context, runnerKey),
 ) (*taskStarter, error) {
+	if server == nil {
+		return nil, xerrors.New("chatworker: server is required")
+	}
 	if opts.Store == nil {
 		return nil, xerrors.New("chatworker: task store is required")
 	}
@@ -228,17 +244,11 @@ func (s *taskStarter) StartInterrupt(ctx context.Context, input chatWorkerTaskSt
 	machine := chatstate.NewChatMachine(s.opts.Store, s.opts.Pubsub, input.ChatID)
 	var chat database.Chat
 	err := machine.ReadLock(ctx, func(store database.Store) error {
-		locked, err := store.GetChatByID(ctx, input.ChatID)
-		if errors.Is(err, sql.ErrNoRows) {
-			return errTaskExpectedExit
-		}
+		loadedChat, err := loadChatForTask(ctx, store, input, database.ChatStatusInterrupting, taskFenceOptions{requireHistory: true})
 		if err != nil {
-			return xerrors.Errorf("load locked chat: %w", err)
+			return xerrors.Errorf("load chat for task: %w", err)
 		}
-		if err := verifyTaskFence(locked, input, database.ChatStatusInterrupting, taskFenceOptions{requireHistory: true}); err != nil {
-			return err
-		}
-		chat = locked
+		chat = loadedChat
 		return nil
 	})
 	if err != nil {
@@ -280,26 +290,20 @@ func (s *taskStarter) StartInterrupt(ctx context.Context, input chatWorkerTaskSt
 
 	var committed database.Chat
 	err = machine.Update(ctx, func(tx *chatstate.Tx, store database.Store) error {
-		locked, err := store.GetChatByID(ctx, input.ChatID)
-		if errors.Is(err, sql.ErrNoRows) {
-			return errTaskExpectedExit
-		}
+		chat, err := loadChatForTask(ctx, store, input, database.ChatStatusInterrupting, taskFenceOptions{requireHistory: true})
 		if err != nil {
-			return xerrors.Errorf("load chat: %w", err)
-		}
-		if err := verifyTaskFence(locked, input, database.ChatStatusInterrupting, taskFenceOptions{requireHistory: true}); err != nil {
-			return err
+			return xerrors.Errorf("load chat for task: %w", err)
 		}
 		messages := partialMessages
-		committedCancels, err := committedPendingLocalToolCancellationMessages(ctx, store, locked, s.opts.Clock.Now("chatworker", "interrupt"))
+		committedCancels, err := committedPendingLocalToolCancellationMessages(ctx, store, chat, s.opts.Clock.Now("chatworker", "interrupt"))
 		if err != nil {
-			return err
+			return xerrors.Errorf("committed pending local tool cancellation messages: %w", err)
 		}
 		if len(committedCancels) > 0 {
 			messages = append(append([]chatstate.Message{}, partialMessages...), committedCancels...)
 		}
 		if _, err := tx.FinishInterruption(chatstate.FinishInterruptionInput{PartialMessages: messages}); err != nil {
-			return err
+			return xerrors.Errorf("finish interruption: %w", err)
 		}
 		committed, err = store.GetChatByID(ctx, input.ChatID)
 		if err != nil {
@@ -315,7 +319,7 @@ func (s *taskStarter) StartInterrupt(ctx context.Context, input chatWorkerTaskSt
 	}
 	input.DebugTurn.RecordOutcome(chatdebug.StatusInterrupted)
 	if err := s.publishWatchAndRoute(ctx, committed, codersdk.ChatWatchEventKindStatusChange); err != nil {
-		return err
+		return xerrors.Errorf("publish watch and route: %w", err)
 	}
 	return s.runAfterInterruptionOutcome(ctx, interruptionOutcome{
 		Chat:           committed,
@@ -326,7 +330,7 @@ func (s *taskStarter) StartInterrupt(ctx context.Context, input chatWorkerTaskSt
 
 func (s *taskStarter) runAfterInterruptionOutcome(ctx context.Context, outcome interruptionOutcome) error {
 	afterOutcome := s.afterInterruptionOutcome
-	if afterOutcome == nil && s.server != nil {
+	if afterOutcome == nil {
 		afterOutcome = s.server.afterInterruptionOutcome
 	}
 	if afterOutcome == nil {
@@ -343,16 +347,16 @@ func (s *taskStarter) StartRequiresActionTimeout(ctx context.Context, input chat
 	for {
 		decision, err := decideRequiresActionTimeout(ctx, machine, input)
 		if err != nil {
-			return err
+			return xerrors.Errorf("decide requires action timeout: %w", err)
 		}
 		if decision.cancel {
 			return s.cancelRequiresAction(ctx, machine, input, decision.reason)
 		}
 		if !decision.waitUntil.Valid {
-			return errTaskExpectedExit
+			return errors.Join(errTaskExpectedExit, xerrors.Errorf("requires action deadline is missing"))
 		}
 		if err := s.waitUntil(ctx, decision.waitUntil.Time); err != nil {
-			return err
+			return xerrors.Errorf("wait until: %w", err)
 		}
 	}
 }
@@ -370,17 +374,11 @@ func decideRequiresActionTimeout(
 ) (requiresActionTimeoutDecision, error) {
 	var decision requiresActionTimeoutDecision
 	err := machine.ReadLock(ctx, func(store database.Store) error {
-		locked, err := store.GetChatByID(ctx, input.ChatID)
-		if errors.Is(err, sql.ErrNoRows) {
-			return errTaskExpectedExit
-		}
+		chat, err := loadChatForTask(ctx, store, input, database.ChatStatusRequiresAction, taskFenceOptions{requireHistory: true})
 		if err != nil {
-			return xerrors.Errorf("load locked chat: %w", err)
+			return xerrors.Errorf("load chat for task: %w", err)
 		}
-		if err := verifyTaskFence(locked, input, database.ChatStatusRequiresAction, taskFenceOptions{requireHistory: true}); err != nil {
-			return err
-		}
-		if !locked.RequiresActionDeadlineAt.Valid {
+		if !chat.RequiresActionDeadlineAt.Valid {
 			decision.cancel = true
 			decision.reason = "Tool execution canceled because the action deadline was missing"
 			return nil
@@ -389,8 +387,8 @@ func decideRequiresActionTimeout(
 		if err != nil {
 			return xerrors.Errorf("get database time: %w", err)
 		}
-		if now.Before(locked.RequiresActionDeadlineAt.Time) {
-			decision.waitUntil = locked.RequiresActionDeadlineAt
+		if now.Before(chat.RequiresActionDeadlineAt.Time) {
+			decision.waitUntil = chat.RequiresActionDeadlineAt
 			return nil
 		}
 		decision.cancel = true
@@ -426,27 +424,21 @@ func (s *taskStarter) cancelRequiresAction(
 ) error {
 	var committed database.Chat
 	err := machine.Update(ctx, func(tx *chatstate.Tx, store database.Store) error {
-		locked, err := store.GetChatByID(ctx, input.ChatID)
-		if errors.Is(err, sql.ErrNoRows) {
-			return errTaskExpectedExit
-		}
+		chat, err := loadChatForTask(ctx, store, input, database.ChatStatusRequiresAction, taskFenceOptions{requireHistory: true})
 		if err != nil {
-			return xerrors.Errorf("load chat: %w", err)
+			return xerrors.Errorf("load chat for task: %w", err)
 		}
-		if err := verifyTaskFence(locked, input, database.ChatStatusRequiresAction, taskFenceOptions{requireHistory: true}); err != nil {
-			return err
-		}
-		if locked.RequiresActionDeadlineAt.Valid {
+		if chat.RequiresActionDeadlineAt.Valid {
 			now, err := store.GetDatabaseNow(ctx)
 			if err != nil {
 				return xerrors.Errorf("get database time: %w", err)
 			}
-			if now.Before(locked.RequiresActionDeadlineAt.Time) {
-				return errTaskExpectedExit
+			if now.Before(chat.RequiresActionDeadlineAt.Time) {
+				return errors.Join(errTaskExpectedExit, xerrors.Errorf("requires action deadline is in the future"))
 			}
 		}
 		if _, err := tx.CancelRequiresAction(chatstate.CancelRequiresActionInput{Reason: reason}); err != nil {
-			return err
+			return xerrors.Errorf("cancel requires action: %w", err)
 		}
 		committed, err = store.GetChatByID(ctx, input.ChatID)
 		if err != nil {
@@ -467,23 +459,23 @@ func (s *taskStarter) StartAbandon(ctx context.Context, input chatWorkerTaskStar
 	machine := chatstate.NewChatMachine(s.opts.Store, s.opts.Pubsub, input.ChatID)
 	mismatch := false
 	err := machine.Update(ctx, func(tx *chatstate.Tx, store database.Store) error {
-		locked, err := store.GetChatByID(ctx, input.ChatID)
-		if errors.Is(err, sql.ErrNoRows) {
-			mismatch = true
-			return errTaskExpectedExit
-		}
+		chat, err := store.GetChatByID(ctx, input.ChatID)
 		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				mismatch = true
+				return errors.Join(errTaskExpectedExit, xerrors.Errorf("load chat: %w", err))
+			}
 			return xerrors.Errorf("load chat: %w", err)
 		}
-		if !ownedByTask(locked, input) {
+		if !ownedByTask(chat, input) {
 			mismatch = true
-			return errTaskExpectedExit
+			return errors.Join(errTaskExpectedExit, xerrors.Errorf("chat not owned by task"))
 		}
-		if err := verifyTaskFence(locked, input, input.Status, taskFenceOptions{requireHistory: true, allowArchived: true}); err != nil {
-			return err
+		if err := verifyTaskFence(chat, input, input.Status, taskFenceOptions{requireHistory: true, allowArchived: true}); err != nil {
+			return xerrors.Errorf("task fence mismatch: %w", err)
 		}
 		if _, err := tx.Abandon(chatstate.AbandonInput{}); err != nil {
-			return err
+			return xerrors.Errorf("abandon chat: %w", err)
 		}
 		return nil
 	})
@@ -527,7 +519,7 @@ func (s *taskStarter) publishWatchAndRoute(
 	watchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), postCommitWatchPublishTimeout)
 	defer cancel()
 	if err := s.publishWatchWithRetry(watchCtx, chat, kind); err != nil {
-		return err
+		return xerrors.Errorf("publish watch with retry: %w", err)
 	}
 	s.routeStateHint(ctx, stateUpdateFromChat(chat))
 	return nil
@@ -582,6 +574,30 @@ type taskFenceOptions struct {
 	allowArchived  bool
 }
 
+// loadChatForTask loads the chat row and verifies the task fence in one
+// step so call sites cannot skip the fence check. It returns an error
+// wrapping errTaskExpectedExit when the chat no longer exists or the fence
+// no longer matches.
+func loadChatForTask(
+	ctx context.Context,
+	store database.Store,
+	input chatWorkerTaskStartInput,
+	status database.ChatStatus,
+	opts taskFenceOptions,
+) (database.Chat, error) {
+	chat, err := store.GetChatByID(ctx, input.ChatID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return database.Chat{}, errors.Join(errTaskExpectedExit, xerrors.Errorf("load chat: %w", err))
+		}
+		return database.Chat{}, xerrors.Errorf("load chat: %w", err)
+	}
+	if err := verifyTaskFence(chat, input, status, opts); err != nil {
+		return database.Chat{}, xerrors.Errorf("verifyTaskFence: %w", err)
+	}
+	return chat, nil
+}
+
 func verifyTaskFence(
 	chat database.Chat,
 	input chatWorkerTaskStartInput,
@@ -589,16 +605,16 @@ func verifyTaskFence(
 	opts taskFenceOptions,
 ) error {
 	if !ownedByTask(chat, input) {
-		return errTaskExpectedExit
+		return errors.Join(errTaskExpectedExit, xerrors.Errorf("chat not owned by task"))
 	}
 	if chat.Status != status {
-		return errTaskExpectedExit
+		return errors.Join(errTaskExpectedExit, xerrors.Errorf("chat status mismatch: %s != %s", chat.Status, status))
 	}
 	if !opts.allowArchived && chat.Archived {
-		return errTaskExpectedExit
+		return errors.Join(errTaskExpectedExit, xerrors.Errorf("chat archived"))
 	}
 	if opts.requireHistory && chat.HistoryVersion != input.HistoryVersion {
-		return errTaskExpectedExit
+		return errors.Join(errTaskExpectedExit, xerrors.Errorf("chat history version mismatch: %d != %d", chat.HistoryVersion, input.HistoryVersion))
 	}
 	return nil
 }

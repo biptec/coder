@@ -42,7 +42,7 @@ func TestRetryWrapper_ExpectedExitsDoNotRetry(t *testing.T) {
 		logger:       sink.Logger(),
 		initialDelay: time.Second,
 		maxDelay:     time.Second,
-	}, taskKindInterrupt, func(context.Context) error {
+	}, taskKindInterrupt, retryWrapperTaskInfo{}, func(context.Context) error {
 		calls++
 		return errTaskExpectedExit
 	})
@@ -67,7 +67,7 @@ func TestRetryWrapper_UnexpectedErrorsRetry(t *testing.T) {
 			logger:       sink.Logger(),
 			initialDelay: time.Minute,
 			maxDelay:     time.Minute,
-		}, taskKindRequiresActionTimeout, func(context.Context) error {
+		}, taskKindRequiresActionTimeout, retryWrapperTaskInfo{}, func(context.Context) error {
 			calls++
 			if calls == 1 {
 				return xerrors.New("database unavailable")
@@ -103,7 +103,7 @@ func TestRetryWrapper_PanicsRetry(t *testing.T) {
 			logger:       sink.Logger(),
 			initialDelay: time.Minute,
 			maxDelay:     time.Minute,
-		}, taskKindGeneration, func(context.Context) error {
+		}, taskKindGeneration, retryWrapperTaskInfo{}, func(context.Context) error {
 			calls++
 			if calls == 1 {
 				panic("database unavailable")
@@ -146,7 +146,7 @@ func TestRetryWrapper_TaskTimeoutDBQueryCancellationRetries(t *testing.T) {
 			logger:       sink.Logger(),
 			initialDelay: time.Minute,
 			maxDelay:     time.Minute,
-		}, taskKindGeneration, func(ctx context.Context) error {
+		}, taskKindGeneration, retryWrapperTaskInfo{}, func(ctx context.Context) error {
 			calls++
 			if calls == 1 {
 				close(firstCallStarted)
@@ -190,7 +190,7 @@ func TestRetryWrapper_ContextCancellationDoesNotRetryOrLog(t *testing.T) {
 		logger:       sink.Logger(),
 		initialDelay: time.Second,
 		maxDelay:     time.Second,
-	}, taskKindGeneration, func(context.Context) error {
+	}, taskKindGeneration, retryWrapperTaskInfo{}, func(context.Context) error {
 		calls++
 		return original
 	})
@@ -578,7 +578,7 @@ func TestGenerationTask_RecordRetryState(t *testing.T) {
 	recorder := newTaskSideEffectRecorder()
 	starter := newTestTaskStarter(t, f, recorder)
 
-	attempt, _, _, closeEpisode, err := starter.beginGenerationAttempt(
+	attempt, err := starter.beginGenerationAttempt(
 		testutil.Context(t, testutil.WaitLong),
 		chatstate.NewChatMachine(f.db, f.pubsub, chat.ID),
 		chatWorkerTaskStartInput{
@@ -590,8 +590,8 @@ func TestGenerationTask_RecordRetryState(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
-	closeEpisode()
-	require.Equal(t, int64(1), attempt)
+	attempt.closeEpisode()
+	require.Equal(t, int64(1), attempt.number)
 	before, err := f.db.GetChatByID(testutil.Context(t, testutil.WaitShort), chat.ID)
 	require.NoError(t, err)
 	require.False(t, before.RetryState.Valid)
@@ -650,7 +650,7 @@ func TestGenerationTask_RecordRetryStateUsesDurableGenerationAttempt(t *testing.
 	machine := chatstate.NewChatMachine(f.db, f.pubsub, chat.ID)
 
 	for range 3 {
-		attempt, _, _, closeEpisode, err := starter.beginGenerationAttempt(
+		attempt, err := starter.beginGenerationAttempt(
 			testutil.Context(t, testutil.WaitLong),
 			machine,
 			chatWorkerTaskStartInput{
@@ -662,8 +662,8 @@ func TestGenerationTask_RecordRetryStateUsesDurableGenerationAttempt(t *testing.
 			},
 		)
 		require.NoError(t, err)
-		closeEpisode()
-		require.Positive(t, attempt)
+		attempt.closeEpisode()
+		require.Positive(t, attempt.number)
 	}
 
 	decision, err := starter.recordGenerationRetry(
@@ -714,10 +714,10 @@ func TestGenerationTask_RecordRetryStateClearedByNextAttempt(t *testing.T) {
 		Status:         database.ChatStatusRunning,
 	}
 
-	attempt, _, _, closeEpisode, err := starter.beginGenerationAttempt(testutil.Context(t, testutil.WaitLong), machine, input)
+	attempt, err := starter.beginGenerationAttempt(testutil.Context(t, testutil.WaitLong), machine, input)
 	require.NoError(t, err)
-	closeEpisode()
-	require.Equal(t, int64(1), attempt)
+	attempt.closeEpisode()
+	require.Equal(t, int64(1), attempt.number)
 	_, err = starter.recordGenerationRetry(
 		testutil.Context(t, testutil.WaitLong),
 		machine,
@@ -734,10 +734,10 @@ func TestGenerationTask_RecordRetryStateClearedByNextAttempt(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, withRetry.RetryState.Valid)
 
-	attempt, _, _, closeEpisode, err = starter.beginGenerationAttempt(testutil.Context(t, testutil.WaitLong), machine, input)
+	attempt, err = starter.beginGenerationAttempt(testutil.Context(t, testutil.WaitLong), machine, input)
 	require.NoError(t, err)
-	closeEpisode()
-	require.Equal(t, int64(2), attempt)
+	attempt.closeEpisode()
+	require.Equal(t, int64(2), attempt.number)
 	after, err := f.db.GetChatByID(testutil.Context(t, testutil.WaitShort), chat.ID)
 	require.NoError(t, err)
 	require.False(t, after.RetryState.Valid)
@@ -755,7 +755,7 @@ func TestGenerationTask_RecordRetryStateStaleFenceExits(t *testing.T) {
 	acquired := f.acquireChat(t, chat.ID, workerID, runnerID)
 	starter := newTestTaskStarter(t, f, newTaskSideEffectRecorder())
 	machine := chatstate.NewChatMachine(f.db, f.pubsub, chat.ID)
-	attempt, _, _, closeEpisode, err := starter.beginGenerationAttempt(
+	attempt, err := starter.beginGenerationAttempt(
 		testutil.Context(t, testutil.WaitLong),
 		machine,
 		chatWorkerTaskStartInput{
@@ -767,8 +767,8 @@ func TestGenerationTask_RecordRetryStateStaleFenceExits(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
-	closeEpisode()
-	require.Equal(t, int64(1), attempt)
+	attempt.closeEpisode()
+	require.Equal(t, int64(1), attempt.number)
 
 	otherWorkerID := uuid.New()
 	otherRunnerID := uuid.New()
@@ -855,6 +855,7 @@ func TestRunner_StartsRealAbandonTask(t *testing.T) {
 type taskTestFixture struct {
 	db     database.Store
 	pubsub *taskRecordingPubsub
+	rawPS  dbpubsub.Pubsub
 	sqlDB  *sql.DB
 	user   database.User
 	org    database.Organization
@@ -873,9 +874,9 @@ func newTaskTestFixture(t *testing.T) *taskTestFixture {
 		DisplayName: "openai",
 		BaseUrl:     "http://example.invalid",
 	})
-	model := dbgen.ChatModelConfig(t, db, database.ChatModelConfig{Provider: "openai", IsDefault: true})
+	model := dbgen.ChatModelConfig(t, db, database.ChatModelConfig{IsDefault: true})
 	apiKey, _ := dbgen.APIKey(t, db, database.APIKey{UserID: user.ID})
-	return &taskTestFixture{db: db, pubsub: newTaskRecordingPubsub(ps), sqlDB: sqlDB, user: user, org: org, model: model, apiKey: apiKey}
+	return &taskTestFixture{db: db, pubsub: newTaskRecordingPubsub(ps), rawPS: ps, sqlDB: sqlDB, user: user, org: org, model: model, apiKey: apiKey}
 }
 
 func (f *taskTestFixture) createRunningChat(t *testing.T) database.Chat {
@@ -1124,7 +1125,7 @@ func startRealTaskWorker(t *testing.T, f *taskTestFixture) *chatWorker {
 	t.Helper()
 	buffer := messagepartbuffer.New(messagepartbuffer.Options{})
 	t.Cleanup(buffer.Close)
-	worker, err := newChatWorker(nil, chatWorkerOptions{
+	worker, err := newChatWorker(newUnstartedServer(t, f.rawPS, f.db), chatWorkerOptions{
 		WorkerID:                   uuid.New(),
 		Store:                      f.db,
 		Pubsub:                     f.pubsub,
@@ -1246,7 +1247,7 @@ func newTestTaskStarter(t *testing.T, f *taskTestFixture, recorder *taskSideEffe
 	t.Helper()
 	buffer := messagepartbuffer.New(messagepartbuffer.Options{})
 	t.Cleanup(buffer.Close)
-	starter, err := newTaskStarter(nil, chatWorkerOptions{
+	starter, err := newTaskStarter(newUnstartedServer(t, f.rawPS, f.db), chatWorkerOptions{
 		Store:                   f.db,
 		Pubsub:                  f.pubsub,
 		Logger:                  slog.Make(),

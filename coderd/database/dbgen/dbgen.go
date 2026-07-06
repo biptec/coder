@@ -145,7 +145,6 @@ func ChatMessage(t testing.TB, db database.Store, seed database.ChatMessage) dat
 		Compressed:          []bool{seed.Compressed},
 		TotalCostMicros:     []int64{seed.TotalCostMicros.Int64},
 		RuntimeMs:           []int64{seed.RuntimeMs.Int64},
-		ProviderResponseID:  []string{seed.ProviderResponseID.String},
 	})
 	require.NoError(t, err, "insert chat message")
 	require.Len(t, msgs, 1)
@@ -160,14 +159,15 @@ const (
 
 func ChatModelConfig(t testing.TB, db database.Store, seed database.ChatModelConfig, munge ...func(*database.InsertChatModelConfigParams)) database.ChatModelConfig {
 	t.Helper()
-	providerName := takeFirst(seed.Provider, "openai")
 	aiProviderID := seed.AIProviderID
 	if !aiProviderID.Valid {
+		// No AIProviderID supplied: reuse or create a default openai provider.
+		// Tests needing a specific provider type should pass seed.AIProviderID.
 		providers, err := db.GetAIProviders(genCtx, database.GetAIProvidersParams{IncludeDisabled: true})
 		require.NoError(t, err, "get ai providers")
 		var provider database.AIProvider
 		for _, candidate := range providers {
-			if candidate.Type != database.AIProviderType(providerName) {
+			if candidate.Type != database.AIProviderTypeOpenai {
 				continue
 			}
 			if provider.ID == uuid.Nil || candidate.CreatedAt.After(provider.CreatedAt) {
@@ -176,13 +176,12 @@ func ChatModelConfig(t testing.TB, db database.Store, seed database.ChatModelCon
 		}
 		if provider.ID == uuid.Nil {
 			provider = AIProvider(t, db, database.AIProvider{
-				Type: database.AIProviderType(providerName),
+				Type: database.AIProviderTypeOpenai,
 			})
 		}
 		aiProviderID = uuid.NullUUID{UUID: provider.ID, Valid: true}
 	}
 	params := database.InsertChatModelConfigParams{
-		Provider:             providerName,
 		Model:                takeFirst(seed.Model, "gpt-4o-mini"),
 		DisplayName:          takeFirst(seed.DisplayName, "Test Model"),
 		CreatedBy:            seed.CreatedBy,
@@ -222,6 +221,7 @@ func AIProvider(t testing.TB, db database.Store, seed database.AIProvider, munge
 		Type:        provType,
 		Name:        name,
 		DisplayName: displayName,
+		Icon:        seed.Icon,
 		Enabled:     takeFirst(seed.Enabled, true),
 		// Use an unsupported scheme so leaked test provider calls fail immediately without retries.
 		BaseUrl:       takeFirst(seed.BaseUrl, "invalid://test.invalid/"),
@@ -481,6 +481,7 @@ func BoundarySession(t testing.TB, db database.Store, seed database.BoundarySess
 func BoundaryLogs(t testing.TB, db database.Store, seed []database.BoundaryLog) []database.BoundaryLog {
 	ids := make([]uuid.UUID, 0, len(seed))
 	sessionID := seed[0].SessionID
+	ownerID := seed[0].OwnerID.UUID
 	sequenceNumbers := make([]int32, 0, len(seed))
 	capturedAt := make([]time.Time, 0, len(seed))
 	createdAt := make([]time.Time, 0, len(seed))
@@ -502,6 +503,7 @@ func BoundaryLogs(t testing.TB, db database.Store, seed []database.BoundaryLog) 
 	logs, err := db.InsertBoundaryLogs(genCtx, database.InsertBoundaryLogsParams{
 		ID:             ids,
 		SessionID:      sessionID,
+		OwnerID:        ownerID,
 		SequenceNumber: sequenceNumbers,
 		CapturedAt:     capturedAt,
 		CreatedAt:      createdAt,
@@ -2076,6 +2078,7 @@ func AIBridgeToolUsage(t testing.TB, db database.Store, seed database.InsertAIBr
 		InterceptionID:     takeFirst(seed.InterceptionID, uuid.New()),
 		ProviderResponseID: takeFirst(seed.ProviderResponseID, "provider_response_id"),
 		ProviderToolCallID: takeFirst(seed.ProviderToolCallID),
+		ProviderItemID:     takeFirst(seed.ProviderItemID),
 		Tool:               takeFirst(seed.Tool, "tool"),
 		ServerUrl:          serverURL,
 		Input:              takeFirst(seed.Input, "input"),
