@@ -33,5 +33,5 @@ export const useDebugRunsExistence = (
 		}
 	}, [chatTurnInFlight, hasDebugRuns, query.refetch]);
 
-	return { hasDebugRuns, chatDebugRunsQuery: query };
+	return { hasDebugRuns };
 };
