@@ -885,12 +885,15 @@ export const createServer = async (port: number): Promise<MockServer> => {
 
 	return {
 		app,
-		close: () =>
-			new Promise<void>((resolve, reject) => {
-				// Order matters: stop accepting, then drop keep-alives.
+		close: () => {
+			// close() stops accepting new connections; closeAllConnections()
+			// force-drops keep-alives so the close callback resolves promptly.
+			const closed = new Promise<void>((resolve, reject) => {
 				server.close((err) => (err ? reject(err) : resolve()));
-				server.closeAllConnections?.();
-			}),
+			});
+			server.closeAllConnections?.();
+			return closed;
+		},
 	};
 };
 
