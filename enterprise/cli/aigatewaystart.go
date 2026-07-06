@@ -5,6 +5,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -15,7 +16,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	tracenoop "go.opentelemetry.io/otel/trace/noop"
+	semconv "go.opentelemetry.io/otel/semconv/v1.14.0"
+	"go.opentelemetry.io/otel/semconv/v1.14.0/httpconv"
+	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/xerrors"
 
 	"cdr.dev/slog/v3"
@@ -24,6 +27,7 @@ import (
 	agpl "github.com/coder/coder/v2/cli"
 	"github.com/coder/coder/v2/cli/clilog"
 	"github.com/coder/coder/v2/coderd/aibridged"
+	coderdtracing "github.com/coder/coder/v2/coderd/tracing"
 	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/enterprise/coderd"
 	"github.com/coder/retry"
@@ -97,15 +101,14 @@ func (r *RootCmd) aiGatewayStart() *serpent.Command {
 
 			metrics := aibridge.NewMetrics(registry)
 			providerMetrics := aibridged.NewMetrics(registry)
-			tracer := tracenoop.NewTracerProvider().Tracer("aibridged")
 
-			// Standalone Gateway starts with an empty pool. Providers are
-			// fetched later via GetAIProviders DRPC and pool is updated.
-			pool, err := aibridged.NewCachedBridgePool(aibridged.DefaultPoolOptions, nil, logger.Named("pool"), metrics, tracer)
-			if err != nil {
-				return xerrors.Errorf("create request pool: %w", err)
-			}
-			registry.MustRegister(keypool.NewStateCollector(pool.KeyPools))
+			tracerProvider, _, closeTracing := agpl.ConfigureTraceProvider(signalCtx, logger, vals, "coder-ai-gateway")
+			defer func() {
+				logger.Debug(signalCtx, "closing tracing")
+				traceCloseErr := shutdownWithTimeout(closeTracing, 5*time.Second)
+				logger.Debug(signalCtx, "tracing closed", slog.Error(traceCloseErr))
+			}()
+			tracer := tracerProvider.Tracer("aibridged")
 
 			if vals.Prometheus.Enable.Value() {
 				logger.Info(signalCtx, "starting Prometheus endpoint", slog.F("address", vals.Prometheus.Address.String()))
@@ -114,6 +117,14 @@ func (r *RootCmd) aiGatewayStart() *serpent.Command {
 				), vals.Prometheus.Address.String(), "prometheus")
 				defer closeFunc()
 			}
+
+			// Standalone Gateway starts with an empty pool. Providers are
+			// fetched later via GetAIProviders DRPC and pool is updated.
+			pool, err := aibridged.NewCachedBridgePool(aibridged.DefaultPoolOptions, nil, logger.Named("pool"), metrics, tracer)
+			if err != nil {
+				return xerrors.Errorf("create request pool: %w", err)
+			}
+			registry.MustRegister(keypool.NewStateCollector(pool.KeyPools))
 
 			dialer := aibridged.NewWebsocketDialer(serverURL, transport, resolvedKey)
 			aibridgedCtx, aibridgedCancel := context.WithCancel(context.Background())
@@ -194,7 +205,7 @@ func (r *RootCmd) aiGatewayStart() *serpent.Command {
 			)
 
 			httpServer := &http.Server{
-				Handler:           mux,
+				Handler:           tracingMiddleware(tracer)(mux),
 				ReadHeaderTimeout: time.Minute,
 			}
 
@@ -265,9 +276,18 @@ func (r *RootCmd) aiGatewayStart() *serpent.Command {
 		},
 	}
 
-	// Standalone Gateway only uses part of the options from "AI Gateway" group.
-	// Other options from the group are coderd-only (eg. budget, provider-seeding).
-	standaloneOpts := map[string]struct{}{
+	// The standalone Gateway inherits a subset of coderd's deployment options.
+	// Logging and tracing options are inherited by group. The remaining groups mix
+	// in coderd-only settings, so those options are inherited individually by env var:
+	//   - "AI Gateway" holds coderd-only controls (budget, provider seeding),
+	//     only the LLM-traffic options are inherited.
+	//   - "Prometheus" holds agent/database collectors that a standalone
+	//     Gateway has no source for.
+	inheritedGroups := map[string]struct{}{
+		"Logging": {},
+		"Tracing": {},
+	}
+	inheritedEnvs := map[string]struct{}{
 		"CODER_AI_GATEWAY_ALLOW_BYOK":                        {},
 		"CODER_AI_GATEWAY_SEND_ACTOR_HEADERS":                {},
 		"CODER_AI_GATEWAY_DUMP_DIR":                          {},
@@ -278,38 +298,62 @@ func (r *RootCmd) aiGatewayStart() *serpent.Command {
 		"CODER_AI_GATEWAY_CIRCUIT_BREAKER_MAX_REQUESTS":      {},
 		"CODER_AI_GATEWAY_MAX_CONCURRENCY":                   {},
 		"CODER_AI_GATEWAY_RATE_LIMIT":                        {},
+		"CODER_PROMETHEUS_ENABLE":                            {},
+		"CODER_PROMETHEUS_ADDRESS":                           {},
+	}
+	// excludedEnvs are options that live in an inherited group but do not apply
+	// to a standalone Gateway. CODER_ENABLE_TERRAFORM_DEBUG_MODE is grouped under
+	// Logging but controls provisioner behavior that coderd owns.
+	excludedEnvs := map[string]struct{}{
+		"CODER_ENABLE_TERRAFORM_DEBUG_MODE": {},
 	}
 
-	var aiGatewayOpts serpent.OptionSet
 	for _, opt := range vals.Options() {
-		if opt.Group == nil || opt.Group.Name != "AI Gateway" {
+		if _, excluded := excludedEnvs[opt.Env]; excluded {
 			continue
 		}
-		if _, ok := standaloneOpts[opt.Env]; !ok {
-			continue
+		_, byEnv := inheritedEnvs[opt.Env]
+		byGroup := false
+		if opt.Group != nil {
+			_, byGroup = inheritedGroups[opt.Group.Name]
 		}
-		aiGatewayOpts = append(aiGatewayOpts, opt)
-	}
-
-	cmd.Options = append(cmd.Options, aiGatewayOpts...)
-
-	observabilityOpts := map[string]struct{}{
-		"CODER_LOGGING_HUMAN":       {},
-		"CODER_LOGGING_JSON":        {},
-		"CODER_LOGGING_STACKDRIVER": {},
-		"CODER_LOG_FILTER":          {},
-		"CODER_VERBOSE":             {},
-		"CODER_PROMETHEUS_ENABLE":   {},
-		"CODER_PROMETHEUS_ADDRESS":  {},
-	}
-	for _, opt := range vals.Options() {
-		if _, ok := observabilityOpts[opt.Env]; !ok {
+		if !byEnv && !byGroup {
 			continue
 		}
 		cmd.Options = append(cmd.Options, opt)
 	}
 
 	return cmd
+}
+
+// tracingMiddleware records a span for every HTTP request served by the
+// standalone Gateway. Unlike the shared coderd tracing middleware, it is not
+// restricted to coderd's route patterns (/api, ...), so it also covers Gateway
+// routes mounted at "/". It reuses tracing.StartHTTPSpan for span and context
+// propagation setup, and wraps the ResponseWriter in a tracing.StatusWriter to
+// capture the response status for the span.
+func tracingMiddleware(tracer trace.Tracer) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+			r, span := coderdtracing.StartHTTPSpan(tracer, rw, r, fmt.Sprintf("%s %s", r.Method, r.URL.Path))
+			defer span.End()
+
+			// Wrap the writer so the response status can be recorded on the span.
+			sw := &coderdtracing.StatusWriter{ResponseWriter: rw}
+			next.ServeHTTP(sw, r)
+
+			status := sw.Status
+			if status == 0 {
+				status = http.StatusOK
+			}
+			span.SetAttributes(
+				semconv.HTTPMethodKey.String(r.Method),
+				semconv.HTTPTargetKey.String(r.URL.Path),
+				semconv.HTTPStatusCodeKey.Int(status),
+			)
+			span.SetStatus(httpconv.ServerStatus(status))
+		})
+	}
 }
 
 // resolveAIGatewayKey resolves key from --key or --key-file flags.

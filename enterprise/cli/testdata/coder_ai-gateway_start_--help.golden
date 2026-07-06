@@ -84,5 +84,19 @@ INTROSPECTION / PROMETHEUS OPTIONS:
       --prometheus-enable bool, $CODER_PROMETHEUS_ENABLE
           Serve prometheus metrics on the address defined by prometheus address.
 
+INTROSPECTION / TRACING OPTIONS: 
+      --trace-logs bool, $CODER_TRACE_LOGS
+          Enables capturing of logs as events in traces. This is useful for
+          debugging, but may result in a very large amount of events being sent
+          to the tracing backend which may incur significant costs.
+
+      --trace bool, $CODER_TRACE_ENABLE
+          Whether application tracing data is collected. It exports to a backend
+          configured by environment variables. See:
+          https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/protocol/exporter.md.
+
+      --trace-honeycomb-api-key string, $CODER_TRACE_HONEYCOMB_API_KEY
+          Enables trace exporting to Honeycomb.io using the provided API Key.
+
 ———
 Run `coder --help` for a list of global options.

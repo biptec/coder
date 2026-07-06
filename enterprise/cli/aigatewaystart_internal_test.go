@@ -4,12 +4,15 @@ package cli
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	tracenoop "go.opentelemetry.io/otel/trace/noop"
 	"golang.org/x/xerrors"
 
 	"cdr.dev/slog/v3"
@@ -216,44 +219,109 @@ func TestAIGatewayStart_DeploymentOptions(t *testing.T) {
 	require.ElementsMatch(t, want, got)
 }
 
-func TestAIGatewayStart_LoggingOptions(t *testing.T) {
+func TestAIGatewayStart_ObservabilityOptions(t *testing.T) {
 	t.Parallel()
 
 	cmd := (&RootCmd{}).aiGatewayStart()
 
-	for _, tc := range []struct {
+	type flagEnv struct {
 		flag string
 		env  string
+	}
+	for _, group := range []struct {
+		name    string
+		present []flagEnv
+		// absent lists flags from the same coderd option group that the
+		// standalone Gateway must not expose.
+		absent []string
 	}{
-		{flag: "log-human", env: "CODER_LOGGING_HUMAN"},
-		{flag: "log-json", env: "CODER_LOGGING_JSON"},
-		{flag: "log-stackdriver", env: "CODER_LOGGING_STACKDRIVER"},
-		{flag: "log-filter", env: "CODER_LOG_FILTER"},
-		{flag: "verbose", env: "CODER_VERBOSE"},
+		{
+			name: "Logging",
+			present: []flagEnv{
+				{flag: "log-human", env: "CODER_LOGGING_HUMAN"},
+				{flag: "log-json", env: "CODER_LOGGING_JSON"},
+				{flag: "log-stackdriver", env: "CODER_LOGGING_STACKDRIVER"},
+				{flag: "log-filter", env: "CODER_LOG_FILTER"},
+				{flag: "verbose", env: "CODER_VERBOSE"},
+			},
+			// enable-terraform-debug-mode is grouped under Logging but is a
+			// coderd/provisioner-only control and must not be inherited.
+			absent: []string{"enable-terraform-debug-mode"},
+		},
+		{
+			name: "Metrics",
+			present: []flagEnv{
+				{flag: "prometheus-enable", env: "CODER_PROMETHEUS_ENABLE"},
+				{flag: "prometheus-address", env: "CODER_PROMETHEUS_ADDRESS"},
+			},
+			absent: []string{
+				"prometheus-collect-agent-stats",
+				"prometheus-collect-db-metrics",
+			},
+		},
+		{
+			name: "Tracing",
+			present: []flagEnv{
+				{flag: "trace", env: "CODER_TRACE_ENABLE"},
+				{flag: "trace-honeycomb-api-key", env: "CODER_TRACE_HONEYCOMB_API_KEY"},
+				{flag: "trace-logs", env: "CODER_TRACE_LOGS"},
+				{flag: "trace-datadog", env: "CODER_TRACE_DATADOG"},
+			},
+			absent: []string{
+				"telemetry-enable",
+				"telemetry-url",
+			},
+		},
 	} {
-		opt := cmd.Options.ByFlag(tc.flag)
-		require.NotNil(t, opt, "missing --%s", tc.flag)
-		require.Equal(t, tc.env, opt.Env)
+		t.Run(group.name, func(t *testing.T) {
+			t.Parallel()
+
+			for _, tc := range group.present {
+				opt := cmd.Options.ByFlag(tc.flag)
+				require.NotNil(t, opt, "missing --%s", tc.flag)
+				require.Equal(t, tc.env, opt.Env)
+			}
+			for _, flag := range group.absent {
+				require.Nil(t, cmd.Options.ByFlag(flag), "unexpected --%s", flag)
+			}
+		})
 	}
 }
 
-func TestAIGatewayStart_MetricsOptions(t *testing.T) {
+// TestAIGatewayStart_TracingMiddleware verifies that the standalone Gateway's
+// tracing middleware traces every route (including those mounted at "/") and
+// does not panic when the ResponseWriter has not already been wrapped in a
+// tracing.StatusWriter, while still propagating the downstream status code.
+func TestAIGatewayStart_TracingMiddleware(t *testing.T) {
 	t.Parallel()
 
-	cmd := (&RootCmd{}).aiGatewayStart()
+	tracer := tracenoop.NewTracerProvider().Tracer("test")
 
-	for _, tc := range []struct {
-		flag string
-		env  string
-	}{
-		{flag: "prometheus-enable", env: "CODER_PROMETHEUS_ENABLE"},
-		{flag: "prometheus-address", env: "CODER_PROMETHEUS_ADDRESS"},
+	// Includes coderd-style /api paths (which the shared middleware would try
+	// to trace and panic on without a StatusWriter) and Gateway paths mounted
+	// at "/" (which the shared middleware would skip entirely).
+	for _, path := range []string{
+		"/",
+		"/api/v2/aibridge/v1/messages",
+		"/api/v2/ai-gateway/v1/messages",
+		"/anthropic/v1/messages",
 	} {
-		opt := cmd.Options.ByFlag(tc.flag)
-		require.NotNil(t, opt, "missing --%s", tc.flag)
-		require.Equal(t, tc.env, opt.Env)
-	}
+		t.Run(path, func(t *testing.T) {
+			t.Parallel()
 
-	require.Nil(t, cmd.Options.ByFlag("prometheus-collect-agent-stats"))
-	require.Nil(t, cmd.Options.ByFlag("prometheus-collect-db-metrics"))
+			var gotPath string
+			handler := tracingMiddleware(tracer)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath = r.URL.Path
+				w.WriteHeader(http.StatusTeapot)
+			}))
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, path, nil)
+			require.NotPanics(t, func() {
+				handler.ServeHTTP(rec, req)
+			})
+			require.Equal(t, path, gotPath, "handler should be invoked")
+			require.Equal(t, http.StatusTeapot, rec.Code)
+		})
+	}
 }
