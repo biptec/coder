@@ -301,10 +301,8 @@ func TestWatchChatGit(t *testing.T) {
 	t.Run("DisconnectedAgentRejected", func(t *testing.T) {
 		t.Parallel()
 
-		// This test ensures that a chat whose workspace agent is
-		// not connected returns a 400 error, and that the handler
-		// selects a root agent even when the database returns a dev
-		// container sub-agent (parent_id set) first.
+		// The handler must reject a disconnected agent with a 400
+		// and select the root agent when a sub-agent precedes it.
 
 		var (
 			ctx    = testutil.Context(t, testutil.WaitShort)
@@ -354,8 +352,6 @@ func TestWatchChatGit(t *testing.T) {
 			ID: workspaceID,
 		}, nil)
 
-		// And: Return a disconnected dev container sub-agent first,
-		// then the disconnected root agent.
 		mDB.EXPECT().GetWorkspaceAgentsInLatestBuildByWorkspaceID(gomock.Any(), workspaceID).
 			Return([]database.WorkspaceAgent{
 				{
@@ -373,9 +369,7 @@ func TestWatchChatGit(t *testing.T) {
 				},
 			}, nil)
 
-		// And: Node receives the root agent's ID, proving it was
-		// selected over the sub-agent, and allowing
-		// db2sdk.WorkspaceAgent to complete.
+		// Node(agentID) proves the root agent was selected.
 		mCoordinator.EXPECT().Node(agentID).Return(nil)
 
 		// And: We mount the HTTP handler.

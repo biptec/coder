@@ -494,7 +494,13 @@ func (api *API) enrichChatAgentIDs(ctx context.Context, chats []codersdk.Chat) {
 				slog.Error(err),
 			)
 		} else if agent, err := agentselect.FindChatAgent(agents); err == nil {
-			agentID = &agent.ID
+			id := agent.ID
+			agentID = &id
+		} else {
+			api.Logger.Debug(ctx, "failed to select chat agent for enrichment",
+				slog.F("workspace_id", workspaceID),
+				slog.Error(err),
+			)
 		}
 		agentIDByWorkspace[workspaceID] = agentID
 		return agentID
@@ -2412,7 +2418,7 @@ func (api *API) watchChatGit(rw http.ResponseWriter, r *http.Request) {
 	agent, err := agentselect.FindChatAgent(agents)
 	if err != nil {
 		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
-			Message: codersdk.ChatGitWatchWorkspaceNoAgentsMessage,
+			Message: codersdk.ChatGitWatchNoEligibleAgentMessage,
 			Detail:  err.Error(),
 		})
 		return
@@ -2569,7 +2575,7 @@ func (api *API) watchChatDesktop(rw http.ResponseWriter, r *http.Request) {
 	agent, err := agentselect.FindChatAgent(agents)
 	if err != nil {
 		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
-			Message: "Chat workspace has no agents.",
+			Message: codersdk.ChatGitWatchNoEligibleAgentMessage,
 			Detail:  err.Error(),
 		})
 		return

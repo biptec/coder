@@ -1,4 +1,11 @@
-import { type FC, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+	type FC,
+	useEffect,
+	useEffectEvent,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 
 import {
 	useInfiniteQuery,
@@ -833,6 +840,39 @@ const AgentChatPage: FC = () => {
 
 	// Subscribe to live workspace updates so that agent status changes
 	// (e.g. connected/disconnected) are reflected without a page refresh.
+	// The updater is a useEffectEvent so it can read chatAgentId without
+	// listing it in the effect deps; agent_id changing (e.g. backend
+	// enrichment after creation) must not tear down and reopen the socket.
+	const applyWatchedWorkspaceUpdate = useEffectEvent(
+		(watchedWorkspaceId: string, next: TypesGen.Workspace) => {
+			queryClient.setQueryData<TypesGen.Workspace | undefined>(
+				workspaceByIdKey(watchedWorkspaceId),
+				(prev) => {
+					// Return the same reference when nothing the UI
+					// reads has changed. This prevents react-query
+					// from notifying subscribers and avoids a full
+					// AgentChatPage re-render on every heartbeat.
+					const prevAgent = getWorkspaceAgent(prev, chatAgentId);
+					const nextAgent = getWorkspaceAgent(next, chatAgentId);
+					if (
+						prev &&
+						prev.latest_build.status === next.latest_build.status &&
+						prev.health.healthy === next.health.healthy &&
+						prev.name === next.name &&
+						prev.owner_name === next.owner_name &&
+						prevAgent?.id === nextAgent?.id &&
+						prevAgent?.status === nextAgent?.status &&
+						prevAgent?.name === nextAgent?.name &&
+						prevAgent?.expanded_directory === nextAgent?.expanded_directory &&
+						prevAgent?.lifecycle_state === nextAgent?.lifecycle_state
+					) {
+						return prev;
+					}
+					return next;
+				},
+			);
+		},
+	);
 	useEffect(() => {
 		if (!workspaceId) {
 			return;
@@ -845,33 +885,9 @@ const AgentChatPage: FC = () => {
 						return;
 					}
 					if (event.parsedMessage.type === "data") {
-						const next = event.parsedMessage.data as TypesGen.Workspace;
-						queryClient.setQueryData<TypesGen.Workspace | undefined>(
-							workspaceByIdKey(workspaceId),
-							(prev) => {
-								// Return the same reference when nothing the UI
-								// reads has changed. This prevents react-query
-								// from notifying subscribers and avoids a full
-								// AgentChatPage re-render on every heartbeat.
-								const prevAgent = getWorkspaceAgent(prev, chatAgentId);
-								const nextAgent = getWorkspaceAgent(next, chatAgentId);
-								if (
-									prev &&
-									prev.latest_build.status === next.latest_build.status &&
-									prev.health.healthy === next.health.healthy &&
-									prev.name === next.name &&
-									prev.owner_name === next.owner_name &&
-									prevAgent?.id === nextAgent?.id &&
-									prevAgent?.status === nextAgent?.status &&
-									prevAgent?.name === nextAgent?.name &&
-									prevAgent?.expanded_directory ===
-										nextAgent?.expanded_directory &&
-									prevAgent?.lifecycle_state === nextAgent?.lifecycle_state
-								) {
-									return prev;
-								}
-								return next;
-							},
+						applyWatchedWorkspaceUpdate(
+							workspaceId,
+							event.parsedMessage.data as TypesGen.Workspace,
 						);
 					}
 				});
@@ -887,7 +903,7 @@ const AgentChatPage: FC = () => {
 				});
 			},
 		});
-	}, [workspaceId, chatAgentId, queryClient]);
+	}, [workspaceId, queryClient]);
 	const sshConfigQuery = useQuery(deploymentSSHConfig());
 	const workspaceAgent = getWorkspaceAgent(workspace, chatAgentId);
 	const { proxy } = useProxy();

@@ -100,13 +100,21 @@ func TestEnrichChatAgentIDs(t *testing.T) {
 		)
 		api, mDB := newAPI(t)
 
+		// The failing lookup must happen once; the nil result is
+		// cached and reused for the second chat in the same
+		// workspace.
 		mDB.EXPECT().GetWorkspaceAgentsInLatestBuildByWorkspaceID(gomock.Any(), workspaceID).
-			Return(nil, xerrors.New("boom"))
+			Return(nil, xerrors.New("boom")).
+			Times(1)
 
-		chats := []codersdk.Chat{{WorkspaceID: &workspaceID}}
+		chats := []codersdk.Chat{
+			{WorkspaceID: &workspaceID},
+			{WorkspaceID: &workspaceID},
+		}
 		api.enrichChatAgentIDs(ctx, chats)
 
 		require.Nil(t, chats[0].AgentID)
+		require.Nil(t, chats[1].AgentID)
 	})
 
 	t.Run("SkipsChatsWithoutWorkspaceOrWithAgent", func(t *testing.T) {
@@ -117,8 +125,7 @@ func TestEnrichChatAgentIDs(t *testing.T) {
 			workspaceID = uuid.New()
 			existing    = uuid.New()
 		)
-		// No database expectations: neither chat should trigger a
-		// lookup.
+		// Neither chat should trigger a lookup.
 		api, _ := newAPI(t)
 
 		chats := []codersdk.Chat{
