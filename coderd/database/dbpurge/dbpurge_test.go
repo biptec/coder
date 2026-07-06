@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sqlc-dev/pqtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
@@ -254,6 +255,7 @@ func TestMetrics(t *testing.T) {
 		mDB.EXPECT().DeleteOldTelemetryLocks(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		mDB.EXPECT().DeleteOldWorkspaceBuildOrchestrations(gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
 		mDB.EXPECT().DeleteOldAuditLogConnectionEvents(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		mDB.EXPECT().SweepChatMessagesSearchTsv(gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
 		mDB.EXPECT().DeleteOldChatDebugRuns(gomock.Any(), gomock.AssignableToTypeOf(database.DeleteOldChatDebugRunsParams{})).Return(int64(0), nil).MinTimes(1)
 		mDB.EXPECT().InTx(gomock.Any(), database.DefaultTXOptions().WithID("db_purge")).
 			DoAndReturn(func(f func(database.Store) error, _ *database.TxOptions) error {
@@ -305,6 +307,7 @@ func TestMetrics(t *testing.T) {
 		mDB.EXPECT().DeleteOldTelemetryLocks(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		mDB.EXPECT().DeleteOldWorkspaceBuildOrchestrations(gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
 		mDB.EXPECT().DeleteOldAuditLogConnectionEvents(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		mDB.EXPECT().SweepChatMessagesSearchTsv(gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
 		mDB.EXPECT().DeleteOldChats(gomock.Any(), gomock.AssignableToTypeOf(database.DeleteOldChatsParams{})).Return(int64(0), nil).MinTimes(1)
 		mDB.EXPECT().DeleteOldChatFiles(gomock.Any(), gomock.AssignableToTypeOf(database.DeleteOldChatFilesParams{})).Return(int64(0), nil).MinTimes(1)
 		mDB.EXPECT().InTx(gomock.Any(), database.DefaultTXOptions().WithID("db_purge")).
@@ -2860,4 +2863,378 @@ func TestDeleteOldChatFiles(t *testing.T) {
 			tc.run(t)
 		})
 	}
+}
+
+// awaitDoTicks returns a function that blocks until the next purge tick
+// completes. The first call waits for the initial tick fired by
+// dbpurge.New; each subsequent call advances the mock clock by the purge
+// interval and waits for that tick to finish. Unlike awaitDoTick, it does
+// not trigger an extra trailing tick, so database state is stable between
+// calls. tick may be called at most n times.
+func awaitDoTicks(ctx context.Context, t *testing.T, clk *quartz.Mock, n int) func() {
+	t.Helper()
+	completed := make(chan struct{})
+	advance := make(chan struct{})
+	trapNow := clk.Trap().Now()
+	trapStop := clk.Trap().TickerStop()
+	trapReset := clk.Trap().TickerReset()
+	go func() {
+		defer close(completed)
+		defer trapReset.Close()
+		defer trapStop.Close()
+		defer trapNow.Close()
+		// Wait for the initial tick signified by a call to Now(), then
+		// the ticker reset that signifies doTick completed.
+		trapNow.MustWait(ctx).MustRelease(ctx)
+		trapReset.MustWait(ctx).MustRelease(ctx)
+		select {
+		case completed <- struct{}{}:
+		case <-ctx.Done():
+			return
+		}
+		for i := 1; i < n; i++ {
+			select {
+			case <-advance:
+			case <-ctx.Done():
+				return
+			}
+			d, w := clk.AdvanceNext()
+			if !assert.Equal(t, 10*time.Minute, d) {
+				return
+			}
+			w.MustWait(ctx)
+			// The purge loop stops the ticker, runs doTick, then resets.
+			trapStop.MustWait(ctx).MustRelease(ctx)
+			trapReset.MustWait(ctx).MustRelease(ctx)
+			select {
+			case completed <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	first := true
+	return func() {
+		t.Helper()
+		if !first {
+			testutil.RequireSend(ctx, t, advance, struct{}{})
+		}
+		first = false
+		testutil.TryReceive(ctx, t, completed)
+	}
+}
+
+//nolint:paralleltest // It uses LockIDDBPurge.
+func TestSweepChatMessagesSearchTsv(t *testing.T) {
+	now := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
+
+	type chatSearchDeps struct {
+		user        database.User
+		modelConfig database.ChatModelConfig
+		chat        database.Chat
+	}
+	setupDeps := func(t *testing.T, db database.Store) chatSearchDeps {
+		t.Helper()
+		user := dbgen.User(t, db, database.User{})
+		org := dbgen.Organization(t, db, database.Organization{})
+		_ = dbgen.OrganizationMember(t, db, database.OrganizationMember{
+			UserID:         user.ID,
+			OrganizationID: org.ID,
+		})
+		_ = dbgen.ChatProvider(t, db, database.ChatProvider{
+			Provider:    "openai",
+			DisplayName: "OpenAI",
+		})
+		modelConfig := dbgen.ChatModelConfig(t, db, database.ChatModelConfig{
+			Model:        "test-model",
+			ContextLimit: 8192,
+		})
+		chat := dbgen.Chat(t, db, database.Chat{
+			OrganizationID:    org.ID,
+			OwnerID:           user.ID,
+			LastModelConfigID: modelConfig.ID,
+			Title:             "search-sweep-test-chat",
+		})
+		return chatSearchDeps{user: user, modelConfig: modelConfig, chat: chat}
+	}
+	textContent := func(text string) pqtype.NullRawMessage {
+		return pqtype.NullRawMessage{
+			RawMessage: json.RawMessage(fmt.Sprintf(`[{"type":"text","text":%q}]`, text)),
+			Valid:      true,
+		}
+	}
+	createMessage := func(t *testing.T, db database.Store, deps chatSearchDeps, role database.ChatMessageRole, visibility database.ChatMessageVisibility, content pqtype.NullRawMessage) database.ChatMessage {
+		t.Helper()
+		return dbgen.ChatMessage(t, db, database.ChatMessage{
+			ChatID:        deps.chat.ID,
+			CreatedBy:     uuid.NullUUID{UUID: deps.user.ID, Valid: true},
+			ModelConfigID: uuid.NullUUID{UUID: deps.modelConfig.ID, Valid: true},
+			Role:          role,
+			Visibility:    visibility,
+			Content:       content,
+		})
+	}
+	softDelete := func(ctx context.Context, t *testing.T, rawDB *sql.DB, id int64) {
+		t.Helper()
+		_, err := rawDB.ExecContext(ctx, "UPDATE chat_messages SET deleted = true WHERE id = $1", id)
+		require.NoError(t, err)
+	}
+	// countPending repeats the predicate of
+	// idx_chat_messages_search_tsv_pending: what the sweep considers
+	// eligible-but-unswept.
+	countPending := func(ctx context.Context, t *testing.T, rawDB *sql.DB) int {
+		t.Helper()
+		var count int
+		err := rawDB.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM chat_messages
+			WHERE search_tsv IS NULL
+			  AND deleted = false
+			  AND visibility IN ('user', 'both')
+			  AND role IN ('user', 'assistant')`).Scan(&count)
+		require.NoError(t, err)
+		return count
+	}
+	searchTsv := func(ctx context.Context, t *testing.T, rawDB *sql.DB, id int64) (isNull bool, text string) {
+		t.Helper()
+		err := rawDB.QueryRowContext(ctx,
+			"SELECT search_tsv IS NULL, COALESCE(search_tsv::text, '') FROM chat_messages WHERE id = $1", id).
+			Scan(&isNull, &text)
+		require.NoError(t, err)
+		return isNull, text
+	}
+	requireSwept := func(ctx context.Context, t *testing.T, rawDB *sql.DB, id int64, msg string) {
+		t.Helper()
+		isNull, _ := searchTsv(ctx, t, rawDB, id)
+		require.False(t, isNull, msg)
+	}
+	requireUnswept := func(ctx context.Context, t *testing.T, rawDB *sql.DB, id int64, msg string) {
+		t.Helper()
+		isNull, _ := searchTsv(ctx, t, rawDB, id)
+		require.True(t, isNull, msg)
+	}
+
+	//nolint:paralleltest // It uses LockIDDBPurge.
+	t.Run("DrainConverges", func(t *testing.T) {
+		ctx := testutil.Context(t, testutil.WaitLong)
+		clk := quartz.NewMock(t)
+		clk.Set(now).MustWait(ctx)
+		db, _, rawDB := dbtestutil.NewDBWithSQLDB(t, dbtestutil.WithDumpOnFailure())
+		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true})
+		deps := setupDeps(t, db)
+
+		eligibleBoth := createMessage(t, db, deps, database.ChatMessageRoleUser, database.ChatMessageVisibilityBoth, textContent("hello world"))
+		eligibleUserVis := createMessage(t, db, deps, database.ChatMessageRoleAssistant, database.ChatMessageVisibilityUser, textContent("assistant reply"))
+		eligibleNoText := createMessage(t, db, deps, database.ChatMessageRoleUser, database.ChatMessageVisibilityBoth, pqtype.NullRawMessage{RawMessage: json.RawMessage(`[]`), Valid: true})
+		toolMsg := createMessage(t, db, deps, database.ChatMessageRoleTool, database.ChatMessageVisibilityBoth, textContent("tool output"))
+		modelOnlyMsg := createMessage(t, db, deps, database.ChatMessageRoleUser, database.ChatMessageVisibilityModel, textContent("model only"))
+		deletedMsg := createMessage(t, db, deps, database.ChatMessageRoleUser, database.ChatMessageVisibilityBoth, textContent("deleted message"))
+		softDelete(ctx, t, rawDB, deletedMsg.ID)
+
+		tick := awaitDoTicks(ctx, t, clk, 1)
+		closer := dbpurge.New(ctx, logger, db, &codersdk.DeploymentValues{}, prometheus.NewRegistry(), dbpurge.WithClock(clk))
+		defer closer.Close()
+		tick()
+
+		require.Zero(t, countPending(ctx, t, rawDB), "queue should be drained")
+		requireSwept(ctx, t, rawDB, eligibleBoth.ID, "eligible message with visibility=both should be swept")
+		requireSwept(ctx, t, rawDB, eligibleUserVis.ID, "eligible assistant message with visibility=user should be swept")
+		requireSwept(ctx, t, rawDB, eligibleNoText.ID, "eligible message with no text should be swept (sentinel)")
+		requireUnswept(ctx, t, rawDB, toolMsg.ID, "tool message should never be swept")
+		requireUnswept(ctx, t, rawDB, modelOnlyMsg.ID, "model-only message should never be swept")
+		requireUnswept(ctx, t, rawDB, deletedMsg.ID, "deleted message should never be swept")
+	})
+
+	//nolint:paralleltest // It uses LockIDDBPurge.
+	t.Run("SweepsNewestFirst", func(t *testing.T) {
+		ctx := testutil.Context(t, testutil.WaitLong)
+		clk := quartz.NewMock(t)
+		clk.Set(now).MustWait(ctx)
+		db, _, rawDB := dbtestutil.NewDBWithSQLDB(t, dbtestutil.WithDumpOnFailure())
+		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true})
+		deps := setupDeps(t, db)
+
+		var ids []int64
+		for i := range 5 {
+			msg := createMessage(t, db, deps, database.ChatMessageRoleUser, database.ChatMessageVisibilityBoth, textContent(fmt.Sprintf("message %d", i)))
+			ids = append(ids, msg.ID)
+		}
+
+		tick := awaitDoTicks(ctx, t, clk, 1)
+		closer := dbpurge.New(ctx, logger, db, &codersdk.DeploymentValues{}, prometheus.NewRegistry(),
+			dbpurge.WithClock(clk), dbpurge.WithChatSearchSweepLimits(2, 1))
+		defer closer.Close()
+		tick()
+
+		// One batch of 2: only the two highest ids are swept.
+		slices.Sort(ids)
+		requireSwept(ctx, t, rawDB, ids[4], "newest message should be swept first")
+		requireSwept(ctx, t, rawDB, ids[3], "second-newest message should be swept first")
+		for _, id := range ids[:3] {
+			requireUnswept(ctx, t, rawDB, id, "older messages should remain pending after one batch")
+		}
+	})
+
+	//nolint:paralleltest // It uses LockIDDBPurge.
+	t.Run("NoTextSentinel", func(t *testing.T) {
+		ctx := testutil.Context(t, testutil.WaitLong)
+		clk := quartz.NewMock(t)
+		clk.Set(now).MustWait(ctx)
+		db, _, rawDB := dbtestutil.NewDBWithSQLDB(t, dbtestutil.WithDumpOnFailure())
+		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true})
+		deps := setupDeps(t, db)
+
+		emptyArr := createMessage(t, db, deps, database.ChatMessageRoleUser, database.ChatMessageVisibilityBoth, pqtype.NullRawMessage{RawMessage: json.RawMessage(`[]`), Valid: true})
+		noTextParts := createMessage(t, db, deps, database.ChatMessageRoleAssistant, database.ChatMessageVisibilityBoth, pqtype.NullRawMessage{RawMessage: json.RawMessage(`[{"type":"tool_call","id":"x"}]`), Valid: true})
+
+		tick := awaitDoTicks(ctx, t, clk, 1)
+		closer := dbpurge.New(ctx, logger, db, &codersdk.DeploymentValues{}, prometheus.NewRegistry(), dbpurge.WithClock(clk))
+		defer closer.Close()
+		tick()
+
+		for _, id := range []int64{emptyArr.ID, noTextParts.ID} {
+			isNull, text := searchTsv(ctx, t, rawDB, id)
+			require.False(t, isNull, "no-text row should get the empty-tsvector sentinel, not stay NULL")
+			require.Empty(t, text, "no-text row should have an empty tsvector")
+		}
+		require.Zero(t, countPending(ctx, t, rawDB), "sentinel rows should not reappear as pending")
+	})
+
+	//nolint:paralleltest // It uses LockIDDBPurge.
+	t.Run("PerTickBound", func(t *testing.T) {
+		ctx := testutil.Context(t, testutil.WaitLong)
+		clk := quartz.NewMock(t)
+		clk.Set(now).MustWait(ctx)
+		db, _, rawDB := dbtestutil.NewDBWithSQLDB(t, dbtestutil.WithDumpOnFailure())
+		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true})
+		deps := setupDeps(t, db)
+
+		for i := range 6 {
+			createMessage(t, db, deps, database.ChatMessageRoleUser, database.ChatMessageVisibilityBoth, textContent(fmt.Sprintf("message %d", i)))
+		}
+
+		tick := awaitDoTicks(ctx, t, clk, 2)
+		closer := dbpurge.New(ctx, logger, db, &codersdk.DeploymentValues{}, prometheus.NewRegistry(),
+			dbpurge.WithClock(clk), dbpurge.WithChatSearchSweepLimits(2, 2))
+		defer closer.Close()
+
+		tick()
+		require.Equal(t, 2, countPending(ctx, t, rawDB), "one tick sweeps at most maxBatches*batchSize rows")
+
+		tick()
+		require.Zero(t, countPending(ctx, t, rawDB), "next tick continues draining")
+	})
+
+	//nolint:paralleltest // It uses LockIDDBPurge.
+	t.Run("SkipsDeletedRows", func(t *testing.T) {
+		ctx := testutil.Context(t, testutil.WaitLong)
+		clk := quartz.NewMock(t)
+		clk.Set(now).MustWait(ctx)
+		db, _, rawDB := dbtestutil.NewDBWithSQLDB(t, dbtestutil.WithDumpOnFailure())
+		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true})
+		deps := setupDeps(t, db)
+
+		msg := createMessage(t, db, deps, database.ChatMessageRoleUser, database.ChatMessageVisibilityBoth, textContent("soft deleted before sweep"))
+		softDelete(ctx, t, rawDB, msg.ID)
+		require.Zero(t, countPending(ctx, t, rawDB), "deleted rows should not appear as pending")
+
+		tick := awaitDoTicks(ctx, t, clk, 1)
+		closer := dbpurge.New(ctx, logger, db, &codersdk.DeploymentValues{}, prometheus.NewRegistry(), dbpurge.WithClock(clk))
+		defer closer.Close()
+		tick()
+
+		requireUnswept(ctx, t, rawDB, msg.ID, "deleted row should never be swept")
+	})
+
+	//nolint:paralleltest // It uses LockIDDBPurge.
+	t.Run("SweepsNewMessagesAfterDrain", func(t *testing.T) {
+		ctx := testutil.Context(t, testutil.WaitLong)
+		clk := quartz.NewMock(t)
+		clk.Set(now).MustWait(ctx)
+		db, _, rawDB := dbtestutil.NewDBWithSQLDB(t, dbtestutil.WithDumpOnFailure())
+		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true})
+		deps := setupDeps(t, db)
+
+		initial := createMessage(t, db, deps, database.ChatMessageRoleUser, database.ChatMessageVisibilityBoth, textContent("initial message"))
+
+		tick := awaitDoTicks(ctx, t, clk, 2)
+		closer := dbpurge.New(ctx, logger, db, &codersdk.DeploymentValues{}, prometheus.NewRegistry(), dbpurge.WithClock(clk))
+		defer closer.Close()
+
+		tick()
+		requireSwept(ctx, t, rawDB, initial.ID, "initial message should be swept")
+		require.Zero(t, countPending(ctx, t, rawDB))
+
+		fresh := createMessage(t, db, deps, database.ChatMessageRoleUser, database.ChatMessageVisibilityBoth, textContent("post drain message"))
+		tick()
+		requireSwept(ctx, t, rawDB, fresh.ID, "message inserted after drain should be swept on the next tick")
+	})
+
+	//nolint:paralleltest // It uses LockIDDBPurge.
+	t.Run("SteadyStateNoop", func(t *testing.T) {
+		ctx := testutil.Context(t, testutil.WaitLong)
+		clk := quartz.NewMock(t)
+		clk.Set(now).MustWait(ctx)
+		db, _, rawDB := dbtestutil.NewDBWithSQLDB(t, dbtestutil.WithDumpOnFailure())
+		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true})
+		_ = setupDeps(t, db)
+		reg := prometheus.NewRegistry()
+
+		tick := awaitDoTicks(ctx, t, clk, 1)
+		closer := dbpurge.New(ctx, logger, db, &codersdk.DeploymentValues{}, reg, dbpurge.WithClock(clk))
+		defer closer.Close()
+		tick()
+
+		require.Zero(t, countPending(ctx, t, rawDB))
+		swept := promhelp.CounterValue(t, reg, "coderd_dbpurge_chat_search_rows_swept_total", nil)
+		require.Zero(t, swept, "empty queue should sweep zero rows")
+	})
+
+	//nolint:paralleltest // It uses LockIDDBPurge.
+	t.Run("MetricsCountsSweptRows", func(t *testing.T) {
+		ctx := testutil.Context(t, testutil.WaitLong)
+		clk := quartz.NewMock(t)
+		clk.Set(now).MustWait(ctx)
+		db, _, _ := dbtestutil.NewDBWithSQLDB(t, dbtestutil.WithDumpOnFailure())
+		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true})
+		deps := setupDeps(t, db)
+		reg := prometheus.NewRegistry()
+
+		for i := range 3 {
+			createMessage(t, db, deps, database.ChatMessageRoleUser, database.ChatMessageVisibilityBoth, textContent(fmt.Sprintf("message %d", i)))
+		}
+		createMessage(t, db, deps, database.ChatMessageRoleTool, database.ChatMessageVisibilityBoth, textContent("tool output"))
+
+		tick := awaitDoTicks(ctx, t, clk, 1)
+		closer := dbpurge.New(ctx, logger, db, &codersdk.DeploymentValues{}, reg, dbpurge.WithClock(clk))
+		defer closer.Close()
+		tick()
+
+		swept := promhelp.CounterValue(t, reg, "coderd_dbpurge_chat_search_rows_swept_total", nil)
+		require.Equal(t, 3, swept, "counter should count exactly the eligible swept rows")
+	})
+
+	//nolint:paralleltest // It uses LockIDDBPurge.
+	t.Run("SkippedWhenLockHeld", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), testutil.WaitShort)
+		defer cancel()
+
+		clk := quartz.NewMock(t)
+		ctrl := gomock.NewController(t)
+		mDB := dbmock.NewMockStore(ctrl)
+		mDB.EXPECT().GetChatRetentionDays(gomock.Any()).Return(int32(0), nil).AnyTimes()
+		mDB.EXPECT().GetChatDebugRetentionDays(gomock.Any(), codersdk.DefaultChatDebugRetentionDays).
+			Return(int32(0), nil).AnyTimes()
+		mDB.EXPECT().TryAcquireLock(gomock.Any(), int64(database.LockIDDBPurge)).Return(false, nil).AnyTimes()
+		mDB.EXPECT().SweepChatMessagesSearchTsv(gomock.Any(), gomock.Any()).Times(0)
+		mDB.EXPECT().InTx(gomock.Any(), database.DefaultTXOptions().WithID("db_purge")).
+			DoAndReturn(func(f func(database.Store) error, _ *database.TxOptions) error {
+				return f(mDB)
+			}).MinTimes(1)
+
+		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true})
+		done := awaitDoTick(ctx, t, clk)
+		closer := dbpurge.New(ctx, logger, mDB, &codersdk.DeploymentValues{}, prometheus.NewRegistry(), dbpurge.WithClock(clk))
+		defer closer.Close()
+		testutil.TryReceive(ctx, t, done)
+	})
 }

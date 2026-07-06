@@ -310,6 +310,28 @@ SET
 WHERE
     id = @id::bigint;
 
+-- name: SweepChatMessagesSearchTsv :execrows
+-- Backfills chat_messages.search_tsv for pending rows, newest first.
+-- The WHERE clause must match the predicate of
+-- idx_chat_messages_search_tsv_pending exactly so the partial index
+-- serves this query.
+WITH batch AS (
+    SELECT id FROM chat_messages
+    WHERE search_tsv IS NULL
+      AND deleted = false
+      AND visibility IN ('user', 'both')
+      AND role IN ('user', 'assistant')
+    ORDER BY id DESC
+    LIMIT @batch_size::int
+)
+UPDATE chat_messages cm
+-- COALESCE to an empty tsvector so rows with no extractable text leave
+-- the pending queue; NULL means "pending", '' means "swept, no text".
+SET search_tsv = COALESCE(
+    to_tsvector('simple', chat_message_search_text(cm.content)),
+    ''::tsvector)
+FROM batch WHERE cm.id = batch.id;
+
 -- name: GetChatByID :one
 SELECT *
 FROM chats_expanded
