@@ -1579,10 +1579,7 @@ type ChatStatus string
 
 const (
 	ChatStatusWaiting        ChatStatus = "waiting"
-	ChatStatusPending        ChatStatus = "pending"
 	ChatStatusRunning        ChatStatus = "running"
-	ChatStatusPaused         ChatStatus = "paused"
-	ChatStatusCompleted      ChatStatus = "completed"
 	ChatStatusError          ChatStatus = "error"
 	ChatStatusRequiresAction ChatStatus = "requires_action"
 	ChatStatusInterrupting   ChatStatus = "interrupting"
@@ -1626,10 +1623,7 @@ func (ns NullChatStatus) Value() (driver.Value, error) {
 func (e ChatStatus) Valid() bool {
 	switch e {
 	case ChatStatusWaiting,
-		ChatStatusPending,
 		ChatStatusRunning,
-		ChatStatusPaused,
-		ChatStatusCompleted,
 		ChatStatusError,
 		ChatStatusRequiresAction,
 		ChatStatusInterrupting:
@@ -1641,10 +1635,7 @@ func (e ChatStatus) Valid() bool {
 func AllChatStatusValues() []ChatStatus {
 	return []ChatStatus{
 		ChatStatusWaiting,
-		ChatStatusPending,
 		ChatStatusRunning,
-		ChatStatusPaused,
-		ChatStatusCompleted,
 		ChatStatusError,
 		ChatStatusRequiresAction,
 		ChatStatusInterrupting,

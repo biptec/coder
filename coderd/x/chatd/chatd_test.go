@@ -1816,7 +1816,7 @@ func TestSendMessageRejectsInvalidQueuedModelConfigID(t *testing.T) {
 
 	chat := dbgen.Chat(t, db, database.Chat{
 		OrganizationID:    org.ID,
-		Status:            database.ChatStatusPending,
+		Status:            database.ChatStatusRunning,
 		OwnerID:           user.ID,
 		LastModelConfigID: modelConfig.ID,
 		Title:             "reject invalid queued model config",
@@ -2933,17 +2933,17 @@ func TestUpdateChatStatusPersistsLastError(t *testing.T) {
 	require.Equal(t, wantPayload, requireChatLastErrorPayload(t, fromDB.LastError))
 
 	// Verify the error is cleared when the chat transitions to a
-	// non-error status (e.g. pending after a retry).
+	// non-error status (e.g. running after a retry).
 	chat, err = db.UpdateChatStatus(ctx, database.UpdateChatStatusParams{
 		ID:          chat.ID,
-		Status:      database.ChatStatusPending,
+		Status:      database.ChatStatusRunning,
 		WorkerID:    uuid.NullUUID{},
 		StartedAt:   sql.NullTime{},
 		HeartbeatAt: sql.NullTime{},
 		LastError:   pqtype.NullRawMessage{},
 	})
 	require.NoError(t, err)
-	require.Equal(t, database.ChatStatusPending, chat.Status)
+	require.Equal(t, database.ChatStatusRunning, chat.Status)
 	require.False(t, chat.LastError.Valid)
 
 	fromDB, err = db.GetChatByID(ctx, chat.ID)
@@ -5251,14 +5251,8 @@ func TestHeartbeatNoWorkspaceNoBump(t *testing.T) {
 
 // waitForChatProcessed waits for a wake-triggered processOnce to
 // fully complete for the given chat. It polls until the chat leaves
-// both pending and running states (meaning processChat has finished
-// its cleanup and updated the DB), then calls WaitUntilIdleForTest.
-//
-// Waiting for a terminal state (not just "not pending") avoids a
-// WaitGroup Add/Wait race: AcquireChats changes the DB status to
-// running before processOnce calls inflight.Add(1). If we only
-// waited for status != pending, we could call Wait() while Add(1)
-// hasn't happened yet.
+// the running state (meaning processChat has finished its cleanup
+// and updated the DB), then calls WaitUntilIdleForTest.
 func waitForChatProcessed(
 	ctx context.Context,
 	t *testing.T,
@@ -5272,12 +5266,10 @@ func waitForChatProcessed(
 		if err != nil {
 			return false
 		}
-		// Wait until the chat reaches a terminal state. Neither
-		// pending (waiting to be acquired) nor running (being
+		// Wait until the chat reaches a settled state (not being
 		// processed). This guarantees that inflight.Add(1) has
 		// already been called by processOnce.
-		return c.Status != database.ChatStatusPending &&
-			c.Status != database.ChatStatusRunning
+		return c.Status != database.ChatStatusRunning
 	}, testutil.WaitShort, testutil.IntervalFast)
 	chatd.WaitUntilIdleForTest(server)
 }
@@ -8404,7 +8396,7 @@ func TestProposeChatTitle_DebugRun(t *testing.T) {
 
 			chat := dbgen.Chat(t, db, database.Chat{
 				OrganizationID:    org.ID,
-				Status:            database.ChatStatusCompleted,
+				Status:            database.ChatStatusWaiting,
 				ClientType:        database.ChatClientTypeUi,
 				OwnerID:           user.ID,
 				Title:             "original title",
@@ -11714,54 +11706,6 @@ func TestEditMessageRejectsUnknownModelConfig(t *testing.T) {
 	storedChat, err := db.GetChatByID(ctx, chat.ID)
 	require.NoError(t, err)
 	require.Equal(t, modelA.ID, storedChat.LastModelConfigID)
-}
-
-// TestPromoteQueuedWhileRequiresActionMixedTools guards against
-func TestAcquireChatsSkipsArchivedPendingChat(t *testing.T) {
-	t.Parallel()
-
-	db, ps := dbtestutil.NewDB(t)
-	_ = newTestServer(t, db, ps, uuid.New())
-
-	ctx := testutil.Context(t, testutil.WaitLong)
-	user, org, model := seedChatDependencies(t, db)
-
-	archivedChat := dbgen.Chat(t, db, database.Chat{
-		OwnerID:           user.ID,
-		OrganizationID:    org.ID,
-		Title:             "acquire-skip-archived",
-		LastModelConfigID: model.ID,
-	})
-
-	// Archive the chat, then force it to pending.
-	_, err := db.ArchiveChatByID(ctx, archivedChat.ID)
-	require.NoError(t, err)
-
-	_, err = db.UpdateChatStatus(ctx, database.UpdateChatStatusParams{
-		ID:     archivedChat.ID,
-		Status: database.ChatStatusPending,
-	})
-	require.NoError(t, err)
-
-	// Insert a second, non-archived pending chat so the result
-	// slice is non-empty and the assertion is not vacuously true.
-	activeChat := dbgen.Chat(t, db, database.Chat{
-		OwnerID:           user.ID,
-		OrganizationID:    org.ID,
-		Title:             "acquire-active",
-		LastModelConfigID: model.ID,
-		Status:            database.ChatStatusPending,
-	})
-
-	now := time.Now()
-	acquired, err := db.AcquireChats(ctx, database.AcquireChatsParams{
-		WorkerID:  uuid.New(),
-		StartedAt: now,
-		NumChats:  10,
-	})
-	require.NoError(t, err)
-	require.Len(t, acquired, 1, "only the non-archived chat should be acquired")
-	require.Equal(t, activeChat.ID, acquired[0].ID)
 }
 
 // TestAdvisorGating_ExperimentDisabled verifies that the advisor tool is

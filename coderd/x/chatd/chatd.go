@@ -4543,9 +4543,6 @@ func (p *Server) maybeFinalizeTurnStatusLabelAndPush(
 	case database.ChatStatusWaiting:
 		p.finalizeSuccessfulTurnStatusLabelAndPush(ctx, chat, status, runResult, logger)
 
-	case database.ChatStatusPending:
-		p.setLastTurnSummaryAsync(ctx, chat, fallbackTurnStatusLabel(status), logger)
-
 	case database.ChatStatusError:
 		p.clearLastTurnSummaryAsync(ctx, chat, logger)
 		if p.webpushConfigured() {
