@@ -571,7 +571,7 @@ func (q *sqlQuerier) DeleteAIProviderByID(ctx context.Context, id uuid.UUID) err
 
 const getAIProviderByID = `-- name: GetAIProviderByID :one
 SELECT
-    id, type, name, display_name, enabled, deleted, base_url, settings, settings_key_id, created_at, updated_at
+    id, type, name, display_name, enabled, deleted, base_url, settings, settings_key_id, created_at, updated_at, icon
 FROM
     ai_providers
 WHERE
@@ -593,13 +593,14 @@ func (q *sqlQuerier) GetAIProviderByID(ctx context.Context, id uuid.UUID) (AIPro
 		&i.SettingsKeyID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Icon,
 	)
 	return i, err
 }
 
 const getAIProviderByIDForReferenceLock = `-- name: GetAIProviderByIDForReferenceLock :one
 SELECT
-    id, type, name, display_name, enabled, deleted, base_url, settings, settings_key_id, created_at, updated_at
+    id, type, name, display_name, enabled, deleted, base_url, settings, settings_key_id, created_at, updated_at, icon
 FROM
     ai_providers
 WHERE
@@ -625,13 +626,14 @@ func (q *sqlQuerier) GetAIProviderByIDForReferenceLock(ctx context.Context, id u
 		&i.SettingsKeyID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Icon,
 	)
 	return i, err
 }
 
 const getAIProviderByName = `-- name: GetAIProviderByName :one
 SELECT
-    id, type, name, display_name, enabled, deleted, base_url, settings, settings_key_id, created_at, updated_at
+    id, type, name, display_name, enabled, deleted, base_url, settings, settings_key_id, created_at, updated_at, icon
 FROM
     ai_providers
 WHERE
@@ -653,13 +655,14 @@ func (q *sqlQuerier) GetAIProviderByName(ctx context.Context, name string) (AIPr
 		&i.SettingsKeyID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Icon,
 	)
 	return i, err
 }
 
 const getAIProviders = `-- name: GetAIProviders :many
 SELECT
-    id, type, name, display_name, enabled, deleted, base_url, settings, settings_key_id, created_at, updated_at
+    id, type, name, display_name, enabled, deleted, base_url, settings, settings_key_id, created_at, updated_at, icon
 FROM
     ai_providers
 WHERE
@@ -697,6 +700,7 @@ func (q *sqlQuerier) GetAIProviders(ctx context.Context, arg GetAIProvidersParam
 			&i.SettingsKeyID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Icon,
 		); err != nil {
 			return nil, err
 		}
@@ -717,6 +721,7 @@ INSERT INTO ai_providers (
     type,
     name,
     display_name,
+    icon,
     enabled,
     base_url,
     settings,
@@ -726,13 +731,14 @@ INSERT INTO ai_providers (
     $2::ai_provider_type,
     $3::text,
     $4::text,
-    $5::boolean,
-    $6::text,
+    $5::text,
+    $6::boolean,
     $7::text,
-    $8::text
+    $8::text,
+    $9::text
 )
 RETURNING
-    id, type, name, display_name, enabled, deleted, base_url, settings, settings_key_id, created_at, updated_at
+    id, type, name, display_name, enabled, deleted, base_url, settings, settings_key_id, created_at, updated_at, icon
 `
 
 type InsertAIProviderParams struct {
@@ -740,6 +746,7 @@ type InsertAIProviderParams struct {
 	Type          AIProviderType `db:"type" json:"type"`
 	Name          string         `db:"name" json:"name"`
 	DisplayName   sql.NullString `db:"display_name" json:"display_name"`
+	Icon          string         `db:"icon" json:"icon"`
 	Enabled       bool           `db:"enabled" json:"enabled"`
 	BaseUrl       string         `db:"base_url" json:"base_url"`
 	Settings      sql.NullString `db:"settings" json:"settings"`
@@ -752,6 +759,7 @@ func (q *sqlQuerier) InsertAIProvider(ctx context.Context, arg InsertAIProviderP
 		arg.Type,
 		arg.Name,
 		arg.DisplayName,
+		arg.Icon,
 		arg.Enabled,
 		arg.BaseUrl,
 		arg.Settings,
@@ -770,6 +778,7 @@ func (q *sqlQuerier) InsertAIProvider(ctx context.Context, arg InsertAIProviderP
 		&i.SettingsKeyID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Icon,
 	)
 	return i, err
 }
@@ -780,20 +789,22 @@ UPDATE
 SET
     type = $1::ai_provider_type,
     display_name = $2::text,
-    enabled = $3::boolean,
-    base_url = $4::text,
-    settings = $5::text,
-    settings_key_id = $6::text,
+    icon = $3::text,
+    enabled = $4::boolean,
+    base_url = $5::text,
+    settings = $6::text,
+    settings_key_id = $7::text,
     updated_at = NOW()
 WHERE
-    id = $7::uuid AND deleted = FALSE
+    id = $8::uuid AND deleted = FALSE
 RETURNING
-    id, type, name, display_name, enabled, deleted, base_url, settings, settings_key_id, created_at, updated_at
+    id, type, name, display_name, enabled, deleted, base_url, settings, settings_key_id, created_at, updated_at, icon
 `
 
 type UpdateAIProviderParams struct {
 	Type          AIProviderType `db:"type" json:"type"`
 	DisplayName   sql.NullString `db:"display_name" json:"display_name"`
+	Icon          string         `db:"icon" json:"icon"`
 	Enabled       bool           `db:"enabled" json:"enabled"`
 	BaseUrl       string         `db:"base_url" json:"base_url"`
 	Settings      sql.NullString `db:"settings" json:"settings"`
@@ -805,6 +816,7 @@ func (q *sqlQuerier) UpdateAIProvider(ctx context.Context, arg UpdateAIProviderP
 	row := q.db.QueryRowContext(ctx, updateAIProvider,
 		arg.Type,
 		arg.DisplayName,
+		arg.Icon,
 		arg.Enabled,
 		arg.BaseUrl,
 		arg.Settings,
@@ -824,6 +836,7 @@ func (q *sqlQuerier) UpdateAIProvider(ctx context.Context, arg UpdateAIProviderP
 		&i.SettingsKeyID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Icon,
 	)
 	return i, err
 }
@@ -838,7 +851,7 @@ SET
 WHERE
     id = $3::uuid
 RETURNING
-    id, type, name, display_name, enabled, deleted, base_url, settings, settings_key_id, created_at, updated_at
+    id, type, name, display_name, enabled, deleted, base_url, settings, settings_key_id, created_at, updated_at, icon
 `
 
 type UpdateEncryptedAIProviderSettingsParams struct {
@@ -866,6 +879,7 @@ func (q *sqlQuerier) UpdateEncryptedAIProviderSettings(ctx context.Context, arg 
 		&i.SettingsKeyID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Icon,
 	)
 	return i, err
 }
@@ -6164,19 +6178,6 @@ func (q *sqlQuerier) BatchUpsertChatHeartbeats(ctx context.Context, arg BatchUps
 	return err
 }
 
-const clearChatMessageProviderResponseIDsByChatID = `-- name: ClearChatMessageProviderResponseIDsByChatID :exec
-UPDATE chat_messages
-SET provider_response_id = NULL
-WHERE chat_id = $1::uuid
-    AND deleted = false
-    AND provider_response_id IS NOT NULL
-`
-
-func (q *sqlQuerier) ClearChatMessageProviderResponseIDsByChatID(ctx context.Context, chatID uuid.UUID) error {
-	_, err := q.db.ExecContext(ctx, clearChatMessageProviderResponseIDsByChatID, chatID)
-	return err
-}
-
 const countChatQueuedMessages = `-- name: CountChatQueuedMessages :one
 SELECT COUNT(*)::bigint AS count
 FROM chat_queued_messages
@@ -9728,8 +9729,7 @@ INSERT INTO chat_messages (
     context_limit,
     compressed,
     total_cost_micros,
-    runtime_ms,
-    provider_response_id
+    runtime_ms
 )
 SELECT
     $1::uuid,
@@ -9749,8 +9749,7 @@ SELECT
     NULLIF(UNNEST($15::bigint[]), 0),
     UNNEST($16::boolean[]),
     NULLIF(UNNEST($17::bigint[]), 0),
-    NULLIF(UNNEST($18::bigint[]), 0),
-    NULLIF(UNNEST($19::text[]), '')
+    NULLIF(UNNEST($18::bigint[]), 0)
 RETURNING
     id, chat_id, model_config_id, created_at, role, content, visibility, input_tokens, output_tokens, total_tokens, reasoning_tokens, cache_creation_tokens, cache_read_tokens, context_limit, compressed, created_by, content_version, total_cost_micros, runtime_ms, deleted, provider_response_id, api_key_id, revision
 `
@@ -9774,7 +9773,6 @@ type InsertChatMessagesParams struct {
 	Compressed          []bool                  `db:"compressed" json:"compressed"`
 	TotalCostMicros     []int64                 `db:"total_cost_micros" json:"total_cost_micros"`
 	RuntimeMs           []int64                 `db:"runtime_ms" json:"runtime_ms"`
-	ProviderResponseID  []string                `db:"provider_response_id" json:"provider_response_id"`
 }
 
 func (q *sqlQuerier) InsertChatMessages(ctx context.Context, arg InsertChatMessagesParams) ([]ChatMessage, error) {
@@ -9797,7 +9795,6 @@ func (q *sqlQuerier) InsertChatMessages(ctx context.Context, arg InsertChatMessa
 		pq.Array(arg.Compressed),
 		pq.Array(arg.TotalCostMicros),
 		pq.Array(arg.RuntimeMs),
-		pq.Array(arg.ProviderResponseID),
 	)
 	if err != nil {
 		return nil, err
@@ -12093,144 +12090,6 @@ func (q *sqlQuerier) UpdateChatStatus(ctx context.Context, arg UpdateChatStatusP
 		arg.StartedAt,
 		arg.HeartbeatAt,
 		arg.LastError,
-		arg.ID,
-	)
-	var i Chat
-	err := row.Scan(
-		&i.ID,
-		&i.OwnerID,
-		&i.WorkspaceID,
-		&i.Title,
-		&i.Status,
-		&i.WorkerID,
-		&i.StartedAt,
-		&i.HeartbeatAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.ParentChatID,
-		&i.RootChatID,
-		&i.LastModelConfigID,
-		&i.Archived,
-		&i.LastError,
-		&i.Mode,
-		pq.Array(&i.MCPServerIDs),
-		&i.Labels,
-		&i.BuildID,
-		&i.AgentID,
-		&i.PinOrder,
-		&i.LastReadMessageID,
-		&i.DynamicTools,
-		&i.OrganizationID,
-		&i.PlanMode,
-		&i.ClientType,
-		&i.LastTurnSummary,
-		&i.SnapshotVersion,
-		&i.HistoryVersion,
-		&i.QueueVersion,
-		&i.GenerationAttempt,
-		&i.RetryState,
-		&i.RetryStateVersion,
-		&i.RunnerID,
-		&i.RequiresActionDeadlineAt,
-		&i.UserACL,
-		&i.GroupACL,
-		&i.OwnerUsername,
-		&i.OwnerName,
-		&i.ContextAggregateHash,
-		&i.ContextDirtySince,
-		&i.ContextDirtyResources,
-		&i.ContextError,
-	)
-	return i, err
-}
-
-const updateChatStatusPreserveUpdatedAt = `-- name: UpdateChatStatusPreserveUpdatedAt :one
-WITH updated_chat AS (
-UPDATE
-    chats
-SET
-    status = $1::chat_status,
-    worker_id = $2::uuid,
-    started_at = $3::timestamptz,
-    heartbeat_at = $4::timestamptz,
-    last_error = $5::jsonb,
-    updated_at = $6::timestamptz
-WHERE
-    id = $7::uuid
-RETURNING id, owner_id, workspace_id, title, status, worker_id, started_at, heartbeat_at, created_at, updated_at, parent_chat_id, root_chat_id, last_model_config_id, archived, last_error, mode, mcp_server_ids, labels, build_id, agent_id, pin_order, last_read_message_id, dynamic_tools, organization_id, plan_mode, client_type, last_turn_summary, user_acl, group_acl, snapshot_version, history_version, queue_version, generation_attempt, retry_state, retry_state_version, runner_id, requires_action_deadline_at, context_aggregate_hash, context_dirty_since, context_dirty_resources, context_error
-),
-chats_expanded AS (
-    SELECT
-        updated_chat.id,
-        updated_chat.owner_id,
-        updated_chat.workspace_id,
-        updated_chat.title,
-        updated_chat.status,
-        updated_chat.worker_id,
-        updated_chat.started_at,
-        updated_chat.heartbeat_at,
-        updated_chat.created_at,
-        updated_chat.updated_at,
-        updated_chat.parent_chat_id,
-        updated_chat.root_chat_id,
-        updated_chat.last_model_config_id,
-        updated_chat.archived,
-        updated_chat.last_error,
-        updated_chat.mode,
-        updated_chat.mcp_server_ids,
-        updated_chat.labels,
-        updated_chat.build_id,
-        updated_chat.agent_id,
-        updated_chat.pin_order,
-        updated_chat.last_read_message_id,
-        updated_chat.dynamic_tools,
-        updated_chat.organization_id,
-        updated_chat.plan_mode,
-        updated_chat.client_type,
-        updated_chat.last_turn_summary,
-        updated_chat.snapshot_version,
-        updated_chat.history_version,
-        updated_chat.queue_version,
-        updated_chat.generation_attempt,
-        updated_chat.retry_state,
-        updated_chat.retry_state_version,
-        updated_chat.runner_id,
-        updated_chat.requires_action_deadline_at,
-        COALESCE(root.user_acl, updated_chat.user_acl) AS user_acl,
-        COALESCE(root.group_acl, updated_chat.group_acl) AS group_acl,
-        owner.username AS owner_username,
-        owner.name AS owner_name,
-        updated_chat.context_aggregate_hash,
-        updated_chat.context_dirty_since,
-        updated_chat.context_dirty_resources,
-        updated_chat.context_error
-    FROM
-        updated_chat
-    LEFT JOIN chats root ON root.id = COALESCE(updated_chat.root_chat_id, updated_chat.parent_chat_id)
-    JOIN visible_users owner ON owner.id = updated_chat.owner_id
-)
-SELECT id, owner_id, workspace_id, title, status, worker_id, started_at, heartbeat_at, created_at, updated_at, parent_chat_id, root_chat_id, last_model_config_id, archived, last_error, mode, mcp_server_ids, labels, build_id, agent_id, pin_order, last_read_message_id, dynamic_tools, organization_id, plan_mode, client_type, last_turn_summary, snapshot_version, history_version, queue_version, generation_attempt, retry_state, retry_state_version, runner_id, requires_action_deadline_at, user_acl, group_acl, owner_username, owner_name, context_aggregate_hash, context_dirty_since, context_dirty_resources, context_error
-FROM chats_expanded
-`
-
-type UpdateChatStatusPreserveUpdatedAtParams struct {
-	Status      ChatStatus            `db:"status" json:"status"`
-	WorkerID    uuid.NullUUID         `db:"worker_id" json:"worker_id"`
-	StartedAt   sql.NullTime          `db:"started_at" json:"started_at"`
-	HeartbeatAt sql.NullTime          `db:"heartbeat_at" json:"heartbeat_at"`
-	LastError   pqtype.NullRawMessage `db:"last_error" json:"last_error"`
-	UpdatedAt   time.Time             `db:"updated_at" json:"updated_at"`
-	ID          uuid.UUID             `db:"id" json:"id"`
-}
-
-func (q *sqlQuerier) UpdateChatStatusPreserveUpdatedAt(ctx context.Context, arg UpdateChatStatusPreserveUpdatedAtParams) (Chat, error) {
-	row := q.db.QueryRowContext(ctx, updateChatStatusPreserveUpdatedAt,
-		arg.Status,
-		arg.WorkerID,
-		arg.StartedAt,
-		arg.HeartbeatAt,
-		arg.LastError,
-		arg.UpdatedAt,
 		arg.ID,
 	)
 	var i Chat

@@ -12762,11 +12762,11 @@ func TestUpdateChatLastTurnSummary(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 1, affected)
 
-	advancedUpdatedAt := chat.UpdatedAt.Add(time.Second)
-	_, err = db.UpdateChatStatusPreserveUpdatedAt(ctx, database.UpdateChatStatusPreserveUpdatedAtParams{
-		ID:        chat.ID,
-		Status:    database.ChatStatusRunning,
-		UpdatedAt: advancedUpdatedAt,
+	// Advance updated_at with a title write so the next assertion can
+	// prove the summary update preserves the stored value.
+	advanced, err := db.UpdateChatByID(ctx, database.UpdateChatByIDParams{
+		ID:    chat.ID,
+		Title: "summary-chat-advanced",
 	})
 	require.NoError(t, err)
 
@@ -12781,7 +12781,7 @@ func TestUpdateChatLastTurnSummary(t *testing.T) {
 	fetched, err = db.GetChatByID(ctx, chat.ID)
 	require.NoError(t, err)
 	require.Equal(t, sql.NullString{String: "still fresh summary", Valid: true}, fetched.LastTurnSummary)
-	require.Equal(t, advancedUpdatedAt, fetched.UpdatedAt)
+	require.Equal(t, advanced.UpdatedAt, fetched.UpdatedAt)
 
 	_, err = db.LockChatAndBumpSnapshotVersion(ctx, chat.ID)
 	require.NoError(t, err)
@@ -12803,7 +12803,6 @@ func TestUpdateChatLastTurnSummary(t *testing.T) {
 		Compressed:          []bool{false},
 		TotalCostMicros:     []int64{0},
 		RuntimeMs:           []int64{0},
-		ProviderResponseID:  []string{""},
 	})
 	require.NoError(t, err)
 
@@ -14497,7 +14496,6 @@ func TestGetChatsFilter(t *testing.T) {
 			Compressed:          []bool{false},
 			TotalCostMicros:     []int64{0},
 			RuntimeMs:           []int64{0},
-			ProviderResponseID:  []string{""},
 		})
 		require.NoError(t, err)
 	}
@@ -14742,7 +14740,6 @@ func TestChatHasUnread(t *testing.T) {
 			Compressed:          []bool{false},
 			TotalCostMicros:     []int64{0},
 			RuntimeMs:           []int64{0},
-			ProviderResponseID:  []string{""},
 		})
 		require.NoError(t, err)
 	}
