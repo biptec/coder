@@ -1,8 +1,31 @@
 # Configure Control Plane Access
 
-Coder server's primary configuration is done via environment variables. For a
-full list of the options, run `coder server --help` or see our
-[CLI documentation](../../reference/cli/server.md).
+Coder server's primary configuration is done via environment variables.
+For a full list of the options, run `coder server --help` or refer to the [CLI documentation](../../reference/cli/server.md).
+
+## Linux service environment file
+
+When you install Coder with the Linux `.deb` or `.rpm` package, the `coder` systemd service reads server environment variables from `/etc/coder.d/coder.env`.
+The package creates this file with common server options, including `CODER_ACCESS_URL`, `CODER_HTTP_ADDRESS`, `CODER_PG_CONNECTION_URL`, `CODER_TLS_ENABLE`, `CODER_TLS_CERT_FILE`, and `CODER_TLS_KEY_FILE`.
+
+Each non-comment line uses `KEY=value` syntax:
+
+```shell
+CODER_ACCESS_URL=https://coder.example.com
+CODER_HTTP_ADDRESS=127.0.0.1:3000
+CODER_PG_CONNECTION_URL=postgres://coder:password@postgres.example.com/coder?sslmode=require
+```
+
+To change Coder configuration for the packaged service:
+
+1. Edit `/etc/coder.d/coder.env`.
+1. Restart the service:
+
+   ```shell
+   sudo systemctl restart coder
+   ```
+
+Run `coder server --help` or refer to the [CLI documentation](../../reference/cli/server.md) for the full list of supported environment variables.
 
 ## Access URL
 
