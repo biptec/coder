@@ -16,8 +16,11 @@ import {
 import {
 	chat,
 	chatMessagesForInfiniteScroll,
+	chatModelConfigs,
+	chatModels,
 	createChat,
 	createChatMessage,
+	userChatProviderConfigs,
 } from "#/api/queries/chats";
 import type * as TypesGen from "#/api/typesGenerated";
 import { useAuthenticated } from "#/hooks/useAuthenticated";
@@ -27,6 +30,12 @@ import {
 	useChatSelector,
 } from "#/pages/AgentsPage/components/ChatConversation/chatStore";
 import { useChatStore } from "#/pages/AgentsPage/components/ChatConversation/useChatStore";
+import type { ModelSelectorOption } from "#/pages/AgentsPage/components/ChatElements";
+import {
+	getModelSelectorPlaceholder,
+	resolveModelOptionId,
+	resolveModelSelector,
+} from "#/pages/AgentsPage/utils/modelOptions";
 import type { ChatDetailError } from "#/pages/AgentsPage/utils/usageLimitMessage";
 
 interface CoderAgentContextValue {
@@ -35,16 +44,30 @@ interface CoderAgentContextValue {
 	toggle: () => void;
 	close: () => void;
 	chatId: string | null;
+	chatTitle: string | undefined;
 	store: ChatStore;
 	persistedError: ChatDetailError | undefined;
 	sendMessage: (text: string) => void;
 	startNewChat: () => void;
 	isThinking: boolean;
+	// True while a create-chat or send-message request is in flight.
+	isSendPending: boolean;
+	// Model selector state, mirroring the agents chat page wiring.
+	modelOptions: readonly ModelSelectorOption[];
+	selectedModel: string;
+	setSelectedModel: (id: string) => void;
+	hasModelOptions: boolean;
+	modelSelectorPlaceholder: string;
+	isModelCatalogLoading: boolean;
 }
 
 const CoderAgentContext = createContext<CoderAgentContextValue | null>(null);
 
 const CHAT_ID_STORAGE_KEY = "coder_agent_chat_id";
+
+// Same key the agents chat page uses, so the panel and the full
+// page share the user's last model choice.
+const LAST_MODEL_CONFIG_ID_STORAGE_KEY = "agents.last-model-config-id";
 
 // Key used to store an error from a failed chat creation, before any
 // chat ID exists.
@@ -177,6 +200,50 @@ export const CoderAgentProvider: FC<
 	const { isPending: isSendPending, mutateAsync: createMessageAsync } =
 		useMutation(createChatMessage(queryClient, chatId ?? ""));
 
+	// Model selector, wired the same way as the agents chat page.
+	const chatModelsQuery = useQuery(chatModels());
+	const chatModelConfigsQuery = useQuery(chatModelConfigs());
+	const userProviderConfigsQuery = useQuery(userChatProviderConfigs());
+	const {
+		options: modelOptions,
+		isModelCatalogLoading,
+		modelCatalog,
+		hasConfiguredModels,
+	} = resolveModelSelector(
+		chatModelConfigsQuery,
+		chatModelsQuery,
+		userProviderConfigsQuery,
+	);
+	const [selectedModel, setSelectedModel] = useState(() =>
+		readLocalStorage(LAST_MODEL_CONFIG_ID_STORAGE_KEY, ""),
+	);
+	// Validate the user's choice against current options, falling back
+	// to the chat's last model or the first available option.
+	const effectiveSelectedModel = (() => {
+		const resolvedSelectedModel = resolveModelOptionId(
+			selectedModel,
+			modelOptions,
+		);
+		if (resolvedSelectedModel) {
+			return resolvedSelectedModel;
+		}
+		const resolvedChatModel = resolveModelOptionId(
+			chatQuery.data?.last_model_config_id,
+			modelOptions,
+		);
+		if (resolvedChatModel) {
+			return resolvedChatModel;
+		}
+		return modelOptions[0]?.id ?? "";
+	})();
+	const hasModelOptions = modelOptions.length > 0;
+	const modelSelectorPlaceholder = getModelSelectorPlaceholder(
+		modelOptions,
+		isModelCatalogLoading,
+		hasConfiguredModels,
+		modelCatalog,
+	);
+
 	// The store's status is hydrated from REST and kept fresh by the
 	// WebSocket, so it is the authoritative source for the thinking
 	// indicator.
@@ -198,20 +265,28 @@ export const CoderAgentProvider: FC<
 	const sendMessage = useCallback(
 		(text: string) => {
 			const content: TypesGen.ChatInputPart[] = [{ type: "text", text }];
+			const modelConfigId = effectiveSelectedModel || undefined;
 			void (async () => {
 				try {
 					if (chatId) {
-						await createMessageAsync({ content });
-						return;
+						await createMessageAsync({
+							content,
+							model_config_id: modelConfigId,
+						});
+					} else {
+						const created = await createChatAsync({
+							organization_id: organizationId,
+							content,
+							model_config_id: modelConfigId,
+							labels: { "coder-agent": "true" },
+							client_type: "ui",
+						});
+						clearChatErrorReason(PENDING_CHAT_ERROR_KEY);
+						setChatId(created.id);
 					}
-					const created = await createChatAsync({
-						organization_id: organizationId,
-						content,
-						labels: { "coder-agent": "true" },
-						client_type: "ui",
-					});
-					clearChatErrorReason(PENDING_CHAT_ERROR_KEY);
-					setChatId(created.id);
+					if (modelConfigId) {
+						writeLocalStorage(LAST_MODEL_CONFIG_ID_STORAGE_KEY, modelConfigId);
+					}
 				} catch (error) {
 					const target = chatId ?? PENDING_CHAT_ERROR_KEY;
 					setChatErrorReason(target, {
@@ -229,6 +304,7 @@ export const CoderAgentProvider: FC<
 			clearChatErrorReason,
 			createChatAsync,
 			createMessageAsync,
+			effectiveSelectedModel,
 			organizationId,
 			setChatErrorReason,
 			setChatId,
@@ -248,11 +324,19 @@ export const CoderAgentProvider: FC<
 				toggle,
 				close,
 				chatId,
+				chatTitle: chatQuery.data?.title,
 				store,
 				persistedError,
 				sendMessage,
 				startNewChat,
 				isThinking,
+				isSendPending: isCreatePending || isSendPending,
+				modelOptions,
+				selectedModel: effectiveSelectedModel,
+				setSelectedModel,
+				hasModelOptions,
+				modelSelectorPlaceholder,
+				isModelCatalogLoading,
 			}}
 		>
 			{children}

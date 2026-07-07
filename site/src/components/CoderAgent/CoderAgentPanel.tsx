@@ -1,17 +1,19 @@
-import { ArrowUpIcon, PlusIcon, SparklesIcon, XIcon } from "lucide-react";
+import { ExternalLinkIcon, PlusIcon, SparklesIcon, XIcon } from "lucide-react";
+import { type FC, useEffect, useRef } from "react";
+import { Link } from "react-router";
+import { Button } from "#/components/Button/Button";
 import {
-	type FC,
-	type KeyboardEvent,
-	useEffect,
-	useRef,
-	useState,
-} from "react";
+	AgentChatInput,
+	type ChatMessageInputRef,
+} from "#/pages/AgentsPage/components/AgentChatInput";
 import {
 	type ChatStore,
 	selectOrderedMessageIDs,
 	useChatSelector,
 } from "#/pages/AgentsPage/components/ChatConversation/chatStore";
+import type { ModelSelectorOption } from "#/pages/AgentsPage/components/ChatElements";
 import { ChatPageTimeline } from "#/pages/AgentsPage/components/ChatPageContent";
+import { buildAgentChatPath } from "#/pages/AgentsPage/utils/navigation";
 import type { ChatDetailError } from "#/pages/AgentsPage/utils/usageLimitMessage";
 import { cn } from "#/utils/cn";
 
@@ -21,9 +23,18 @@ interface CoderAgentPanelProps {
 	onNewChat: () => void;
 	onSendMessage: (text: string) => void;
 	isThinking: boolean;
+	isSendPending: boolean;
 	chatId: string | null;
+	chatTitle: string | undefined;
 	store: ChatStore;
 	persistedError: ChatDetailError | undefined;
+	// Model selector state, provided by CoderAgentProvider.
+	modelOptions: readonly ModelSelectorOption[];
+	selectedModel: string;
+	onModelChange: (id: string) => void;
+	hasModelOptions: boolean;
+	modelSelectorPlaceholder: string;
+	isModelCatalogLoading: boolean;
 }
 
 export const CoderAgentPanel: FC<CoderAgentPanelProps> = ({
@@ -32,13 +43,20 @@ export const CoderAgentPanel: FC<CoderAgentPanelProps> = ({
 	onNewChat,
 	onSendMessage,
 	isThinking,
+	isSendPending,
 	chatId,
+	chatTitle,
 	store,
 	persistedError,
+	modelOptions,
+	selectedModel,
+	onModelChange,
+	hasModelOptions,
+	modelSelectorPlaceholder,
+	isModelCatalogLoading,
 }) => {
-	const [inputValue, setInputValue] = useState("");
 	const messagesEndRef = useRef<HTMLDivElement>(null);
-	const inputRef = useRef<HTMLInputElement>(null);
+	const inputRef = useRef<ChatMessageInputRef>(null);
 
 	const orderedMessageIDs = useChatSelector(store, selectOrderedMessageIDs);
 	const messageCount = orderedMessageIDs.length;
@@ -56,18 +74,9 @@ export const CoderAgentPanel: FC<CoderAgentPanelProps> = ({
 		}
 	}, [open]);
 
-	const handleSend = () => {
-		const text = inputValue.trim();
-		if (!text) return;
+	const handleSend = (text: string) => {
 		onSendMessage(text);
-		setInputValue("");
-	};
-
-	const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-		if (e.key === "Enter" && !e.shiftKey) {
-			e.preventDefault();
-			handleSend();
-		}
+		inputRef.current?.clear();
 	};
 
 	if (!open) return null;
@@ -84,43 +93,48 @@ export const CoderAgentPanel: FC<CoderAgentPanelProps> = ({
 				"animate-in slide-in-from-bottom-2 fade-in duration-200",
 			)}
 		>
-			{/* Header. Flat and borderless to match the agents chat top bar. */}
-			<div className="flex shrink-0 items-center justify-between gap-2 px-4 py-2">
-				<div className="flex min-w-0 items-center gap-1.5">
-					<SparklesIcon className="size-3.5 shrink-0 text-content-secondary" />
-					<h2 className="truncate text-sm font-semibold text-content-primary">
-						Coder Agent
-					</h2>
+			{/* Header. Mirrors the agents chat top bar (ChatTopBar). */}
+			<div className="flex shrink-0 items-center gap-2 px-4 py-1.5">
+				<div className="flex min-w-0 flex-1 items-center gap-1.5">
+					<span className="truncate text-sm text-content-primary">
+						{chatTitle || "Coder Agent"}
+					</span>
 				</div>
 				<div className="flex items-center gap-1">
-					<button
-						type="button"
+					<Button
+						variant="subtle"
+						size="icon"
 						onClick={onNewChat}
+						className="size-7 text-content-secondary hover:text-content-primary"
 						aria-label="New chat"
-						className={cn(
-							"inline-flex size-7 items-center justify-center rounded-md",
-							"border-0 bg-transparent cursor-pointer",
-							"text-content-secondary hover:text-content-primary",
-							"hover:bg-surface-secondary",
-							"transition-colors",
-						)}
 					>
 						<PlusIcon className="size-4" />
-					</button>
-					<button
-						type="button"
+					</Button>
+					{chatId && (
+						<Button
+							asChild
+							variant="subtle"
+							size="icon"
+							className="size-7 text-content-secondary hover:text-content-primary"
+						>
+							<Link
+								to={buildAgentChatPath({ chatId })}
+								aria-label="Open in Agents"
+								onClick={onClose}
+							>
+								<ExternalLinkIcon className="size-4" />
+							</Link>
+						</Button>
+					)}
+					<Button
+						variant="subtle"
+						size="icon"
 						onClick={onClose}
+						className="size-7 text-content-secondary hover:text-content-primary"
 						aria-label="Close Coder Agent"
-						className={cn(
-							"inline-flex size-7 items-center justify-center rounded-md",
-							"border-0 bg-transparent cursor-pointer",
-							"text-content-secondary hover:text-content-primary",
-							"hover:bg-surface-secondary",
-							"transition-colors",
-						)}
 					>
 						<XIcon className="size-4" />
-					</button>
+					</Button>
 				</div>
 			</div>
 
@@ -178,47 +192,23 @@ export const CoderAgentPanel: FC<CoderAgentPanelProps> = ({
 				</div>
 			</div>
 
-			{/* Input. Mirrors the AgentChatInput composer container. */}
-			<div className="shrink-0 px-4 pb-4 pt-2">
-				<div
-					className={cn(
-						"relative flex items-end gap-2 rounded-xl p-2",
-						"border border-border-default/80 border-solid",
-						"bg-surface-secondary shadow-sm",
-						"has-[input:focus]:ring-2 has-[input:focus]:ring-content-link/40",
-					)}
-				>
-					<input
-						ref={inputRef}
-						type="text"
-						value={inputValue}
-						onChange={(e) => setInputValue(e.target.value)}
-						onKeyDown={handleKeyDown}
-						placeholder="Type a message..."
-						aria-label="Message Coder Agent"
-						className={cn(
-							"min-w-0 flex-1 self-center",
-							"border-0 bg-transparent px-2 py-1.5 text-sm",
-							"text-content-primary placeholder:text-content-secondary",
-							"focus:outline-none",
-						)}
-					/>
-					<button
-						type="button"
-						onClick={handleSend}
-						disabled={!inputValue.trim()}
-						aria-label="Send message"
-						className={cn(
-							"inline-flex size-7 shrink-0 cursor-pointer items-center justify-center",
-							"rounded-full border-0",
-							"bg-surface-invert-primary text-surface-primary",
-							"transition-opacity hover:opacity-90",
-							"disabled:cursor-not-allowed disabled:opacity-40",
-						)}
-					>
-						<ArrowUpIcon className="size-4" />
-					</button>
-				</div>
+			{/* Composer. The real agents chat input, minimally wired.
+			    AgentChatInput adds its own bottom padding (pb-4 at sm+). */}
+			<div className="shrink-0 px-4">
+				<AgentChatInput
+					inputRef={inputRef}
+					onSend={handleSend}
+					placeholder="Type a message..."
+					isDisabled={!hasModelOptions}
+					isLoading={isSendPending}
+					selectedModel={selectedModel}
+					onModelChange={onModelChange}
+					modelOptions={modelOptions}
+					modelSelectorPlaceholder={modelSelectorPlaceholder}
+					hasModelOptions={hasModelOptions}
+					isModelCatalogLoading={isModelCatalogLoading}
+					canConfigureAgentSetup={false}
+				/>
 			</div>
 		</div>
 	);

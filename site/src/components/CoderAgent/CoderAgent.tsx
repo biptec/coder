@@ -14,11 +14,19 @@ export const CoderAgent: FC = () => {
 		toggle,
 		close,
 		chatId,
+		chatTitle,
 		store,
 		persistedError,
 		sendMessage,
 		startNewChat,
 		isThinking,
+		isSendPending,
+		modelOptions,
+		selectedModel,
+		setSelectedModel,
+		hasModelOptions,
+		modelSelectorPlaceholder,
+		isModelCatalogLoading,
 	} = useCoderAgentContext();
 
 	const orderedMessageIDs = useChatSelector(store, selectOrderedMessageIDs);
@@ -46,9 +54,17 @@ export const CoderAgent: FC = () => {
 				onNewChat={startNewChat}
 				onSendMessage={sendMessage}
 				isThinking={isThinking}
+				isSendPending={isSendPending}
 				chatId={chatId}
+				chatTitle={chatTitle}
 				store={store}
 				persistedError={persistedError}
+				modelOptions={modelOptions}
+				selectedModel={selectedModel}
+				onModelChange={setSelectedModel}
+				hasModelOptions={hasModelOptions}
+				modelSelectorPlaceholder={modelSelectorPlaceholder}
+				isModelCatalogLoading={isModelCatalogLoading}
 			/>
 			<CoderAgentButton
 				open={open}
