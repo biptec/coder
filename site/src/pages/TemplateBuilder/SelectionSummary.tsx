@@ -51,17 +51,22 @@ export const SelectionSummary: React.FC<SelectionSummaryProps> = ({
 	onNavigateStep,
 	onNavigateModule,
 }) => {
-	const variant = (step: number) => {
+	const indicatorVariant = (step: number): Variant => {
 		if (currentStep === step) return "current";
 		if (step <= maxReachedStep) return "complete";
 		return "upcoming";
 	};
+	// The vertical line below step N represents the path from N to N+1.
+	// It stays green as soon as the user has advanced past N, even if the
+	// current step later drops back below N (backward navigation).
+	const dividerVariant = (step: number): Variant =>
+		maxReachedStep > step ? "complete" : "current";
 	const reachable = (step: number) => step <= maxReachedStep;
 	return (
 		<div>
 			<h2 className="text-xl font-semibold">Selection</h2>
 			<div className="text-sm">
-				<VariantContext.Provider value={variant(1)}>
+				<VariantContext.Provider value={indicatorVariant(1)}>
 					<StepIndicator
 						step={1}
 						onClick={
@@ -72,6 +77,8 @@ export const SelectionSummary: React.FC<SelectionSummaryProps> = ({
 					>
 						Base Template
 					</StepIndicator>
+				</VariantContext.Provider>
+				<VariantContext.Provider value={dividerVariant(1)}>
 					{selectedTemplate ? (
 						<BaseTemplateSelection
 							template={selectedTemplate}
@@ -85,7 +92,7 @@ export const SelectionSummary: React.FC<SelectionSummaryProps> = ({
 						<StepDivider />
 					)}
 				</VariantContext.Provider>
-				<VariantContext.Provider value={variant(2)}>
+				<VariantContext.Provider value={indicatorVariant(2)}>
 					<StepIndicator
 						step={2}
 						onClick={
@@ -96,6 +103,8 @@ export const SelectionSummary: React.FC<SelectionSummaryProps> = ({
 					>
 						Modules
 					</StepIndicator>
+				</VariantContext.Provider>
+				<VariantContext.Provider value={dividerVariant(2)}>
 					{selectedModules ? (
 						<ModuleSelection
 							modules={selectedModules}
@@ -105,7 +114,7 @@ export const SelectionSummary: React.FC<SelectionSummaryProps> = ({
 						<StepDivider />
 					)}
 				</VariantContext.Provider>
-				<VariantContext.Provider value={variant(3)}>
+				<VariantContext.Provider value={indicatorVariant(3)}>
 					<StepIndicator
 						step={3}
 						onClick={

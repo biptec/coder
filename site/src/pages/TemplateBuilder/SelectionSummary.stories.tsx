@@ -174,6 +174,15 @@ export const BackwardNavigation: Story = {
 			{ id: "claude-code", name: "Claude Code", iconUrl: "/icon/claude.svg" },
 		],
 	},
+	play: async ({ canvasElement }) => {
+		// Both dividers must be rendered in the completed variant because
+		// the user has walked past both. Regression check for the divider
+		// colour flipping back to grey after backward navigation.
+		const dividers = canvasElement.querySelectorAll(
+			"[class*='border-border-success']",
+		);
+		await expect(dividers.length).toBeGreaterThanOrEqual(2);
+	},
 };
 
 export const UpcomingStepsInert: Story = {
