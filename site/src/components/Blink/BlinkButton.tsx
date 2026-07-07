@@ -27,38 +27,43 @@ export const BlinkButton: FC<BlinkButtonProps> = ({
 				"w-12 h-12 rounded-full",
 				"bg-surface-invert-primary text-surface-primary",
 				"shadow-lg hover:scale-105 transition-transform",
-				"focus:outline-none focus-visible:ring-2 focus-visible:ring-border-focus",
-				hasUnread && !open && "animate-[blink-pulse_2s_ease-in-out_infinite]",
+				"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-content-link",
 			)}
 		>
 			<SparklesIcon className="size-5" />
 
-			{isThinking && (
+			{/* Unread indicator */}
+			{hasUnread && !open && !isThinking && (
 				<span
 					className={cn(
 						"absolute -top-0.5 -right-0.5",
 						"w-3 h-3 rounded-full",
 						"bg-content-link",
-						"animate-ping",
-					)}
-				/>
-			)}
-			{isThinking && (
-				<span
-					className={cn(
-						"absolute -top-0.5 -right-0.5",
-						"w-3 h-3 rounded-full",
-						"bg-content-link",
+						"animate-pulse",
 					)}
 				/>
 			)}
 
-			<style>{`
-				@keyframes blink-pulse {
-					0%, 100% { box-shadow: 0 0 0 0 currentColor; }
-					50% { box-shadow: 0 0 0 6px transparent; }
-				}
-			`}</style>
+			{/* Thinking indicator */}
+			{isThinking && (
+				<>
+					<span
+						className={cn(
+							"absolute -top-0.5 -right-0.5",
+							"w-3 h-3 rounded-full",
+							"bg-content-link",
+							"animate-ping",
+						)}
+					/>
+					<span
+						className={cn(
+							"absolute -top-0.5 -right-0.5",
+							"w-3 h-3 rounded-full",
+							"bg-content-link",
+						)}
+					/>
+				</>
+			)}
 		</button>
 	);
 };

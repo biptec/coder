@@ -1,5 +1,11 @@
 import { ArrowUpIcon, PlusIcon, SparklesIcon, XIcon } from "lucide-react";
-import { type FC, type KeyboardEvent, useEffect, useRef, useState } from "react";
+import {
+	type FC,
+	type KeyboardEvent,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { cn } from "#/utils/cn";
 
 export interface BlinkMessage {
@@ -31,9 +37,11 @@ export const BlinkPanel: FC<BlinkPanelProps> = ({
 	const inputRef = useRef<HTMLInputElement>(null);
 
 	// Auto-scroll to bottom on new messages or thinking state change.
+	const messageCount = messages.length;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: messageCount and isThinking are intentional scroll triggers
 	useEffect(() => {
 		messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-	}, [messages, isThinking]);
+	}, [messageCount, isThinking]);
 
 	// Focus input when panel opens.
 	useEffect(() => {
@@ -178,12 +186,7 @@ export const BlinkPanel: FC<BlinkPanelProps> = ({
 			</div>
 
 			{/* Footer / Input */}
-			<div
-				className={cn(
-					"px-4 py-3",
-					"border-t border-border border-solid",
-				)}
-			>
+			<div className={cn("px-4 py-3", "border-t border-border border-solid")}>
 				<div className="flex items-center gap-2">
 					<input
 						ref={inputRef}
@@ -199,7 +202,7 @@ export const BlinkPanel: FC<BlinkPanelProps> = ({
 							"rounded-lg border border-border border-solid",
 							"bg-surface-primary text-content-primary",
 							"placeholder:text-content-disabled",
-							"focus:outline-none focus:ring-2 focus:ring-border-focus",
+							"focus:outline-none focus-visible:ring-2 focus-visible:ring-content-link",
 						)}
 					/>
 					<button

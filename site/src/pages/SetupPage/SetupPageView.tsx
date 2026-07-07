@@ -417,7 +417,7 @@ export const SetupPageView: FC<SetupPageViewProps> = ({
 					{/* Blink assistant */}
 					<label
 						htmlFor="blink-toggle"
-						className="flex cursor-pointer gap-3 items-start p-4 rounded-lg border border-border hover:border-border-hover transition-colors"
+						className="flex cursor-pointer gap-3 items-start p-4 rounded-lg border border-border hover:border-border-secondary transition-colors"
 					>
 						<Switch
 							id="blink-toggle"
