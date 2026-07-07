@@ -225,15 +225,6 @@ const BaseTemplateSelection: React.FC<BaseTemplateSelectionProps> = ({
 	template,
 	onClick,
 }) => {
-	const inner = (
-		<div className="flex items-start p-1">
-			<div className="h-[1lh] content-center">
-				<Avatar src={template.iconUrl} size="sm" variant="icon" />
-			</div>
-			<span className="ml-2 text-content-secondary">{template.name}</span>
-		</div>
-	);
-
 	return (
 		<StepDivider>
 			{onClick ? (
@@ -242,14 +233,19 @@ const BaseTemplateSelection: React.FC<BaseTemplateSelectionProps> = ({
 					onClick={onClick}
 					aria-label={`Configure ${template.name}`}
 					className={cn(
-						"w-full text-left p-0 bg-transparent border-0 cursor-pointer rounded-sm",
-						"hover:bg-surface-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-primary",
+						"flex items-center gap-2 w-full text-left p-2 rounded-sm bg-transparent border-0 cursor-pointer",
+						"text-content-secondary hover:text-content-primary hover:bg-surface-secondary",
+						"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-primary",
 					)}
 				>
-					{inner}
+					<Avatar src={template.iconUrl} size="sm" variant="icon" />
+					<span>{template.name}</span>
 				</button>
 			) : (
-				inner
+				<div className="flex items-center gap-2 p-2 text-content-secondary">
+					<Avatar src={template.iconUrl} size="sm" variant="icon" />
+					<span>{template.name}</span>
+				</div>
 			)}
 		</StepDivider>
 	);
@@ -274,25 +270,21 @@ const ModuleSelection: React.FC<ModuleSelectionProps> = ({
 						onClick={() => onSelectModule(module.id)}
 						aria-label={`Configure ${module.name}`}
 						className={cn(
-							"flex items-start w-full text-left p-2 rounded-sm bg-transparent border-0 cursor-pointer",
+							"flex items-center gap-2 w-full text-left p-2 rounded-sm bg-transparent border-0 cursor-pointer",
 							"text-content-secondary hover:text-content-primary hover:bg-surface-secondary",
 							"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-primary",
 						)}
 					>
-						<div className="h-[1lh] content-center">
-							<Avatar src={module.iconUrl} size="sm" variant="icon" />
-						</div>
-						<span className="flex-1 ml-2">{module.name}</span>
+						<Avatar src={module.iconUrl} size="sm" variant="icon" />
+						<span className="flex-1">{module.name}</span>
 					</button>
 				) : (
 					<div
 						key={module.id}
-						className="flex items-start p-2 text-content-secondary"
+						className="flex items-center gap-2 p-2 text-content-secondary"
 					>
-						<div className="h-[1lh] content-center">
-							<Avatar src={module.iconUrl} size="sm" variant="icon" />
-						</div>
-						<span className="flex-1 ml-2">{module.name}</span>
+						<Avatar src={module.iconUrl} size="sm" variant="icon" />
+						<span className="flex-1">{module.name}</span>
 					</div>
 				),
 			)}
