@@ -89,48 +89,6 @@ function repoTabLabel(repoRoot: string): string {
 	return segments[segments.length - 1] ?? repoRoot;
 }
 
-/**
- * Total number of switchable views in the git panel. Used by callers to
- * decorate the `Git` sidebar tab label with a count.
- */
-export function countGitPanelViews(
-	repositories: ReadonlyMap<string, WorkspaceAgentRepoChanges>,
-	remoteDiffStats: ChatDiffStatus | undefined,
-	prTab: { prNumber: number } | undefined,
-	everDirty: ReadonlySet<string> | undefined,
-): number {
-	const hasRemoteDiff =
-		(remoteDiffStats?.changed_files ?? 0) > 0 ||
-		(remoteDiffStats?.additions ?? 0) > 0 ||
-		(remoteDiffStats?.deletions ?? 0) > 0;
-	const showRemote = Boolean(prTab) || hasRemoteDiff;
-
-	const localRoots = new Set<string>();
-	for (const [root, repo] of repositories.entries()) {
-		if (repoHasDiff(repo)) {
-			localRoots.add(root);
-		}
-	}
-	if (everDirty) {
-		for (const root of everDirty) {
-			if (repositories.has(root)) {
-				localRoots.add(root);
-			}
-		}
-	}
-
-	return (showRemote ? 1 : 0) + localRoots.size;
-}
-
-function repoHasDiff(repo: WorkspaceAgentRepoChanges): boolean {
-	if (!repo.unified_diff) return false;
-	for (const line of repo.unified_diff.split("\n")) {
-		if (line.startsWith("+") && !line.startsWith("+++")) return true;
-		if (line.startsWith("-") && !line.startsWith("---")) return true;
-	}
-	return false;
-}
-
 export const GitPanel: FC<GitPanelProps> = ({
 	prTab,
 	repositories,
