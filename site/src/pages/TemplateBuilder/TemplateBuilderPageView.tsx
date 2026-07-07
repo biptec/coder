@@ -21,6 +21,7 @@ import {
 	PageHeaderSubtitle,
 	PageHeaderTitle,
 } from "#/components/PageHeader/PageHeader";
+import { HasReachedBottomProvider } from "#/hooks/useHasReachedBottom";
 
 import { docs } from "#/utils/docs";
 import { BaseInfraSelectStep } from "./BaseInfraSelectStep";
@@ -201,15 +202,21 @@ export const TemplateBuilderPageView: FC<TemplateBuilderPageViewProps> = ({
 				{/* Main content area */}
 				<div className="flex-1 min-w-0">
 					<div className="p-6 border border-solid rounded-lg overflow-x-auto">
-						{renderStepContent(
-							currentStep.id,
-							state,
-							dispatch,
-							moduleVarMap,
-							createError,
-							handleProvisionerStatusChange,
-							handleDeselectModule,
-						)}
+						{/*
+							 Reset the "has reached bottom" signal on every step change
+							 so required fields on a fresh step do not start out flagged.
+							*/}
+						<HasReachedBottomProvider key={currentStep.id}>
+							{renderStepContent(
+								currentStep.id,
+								state,
+								dispatch,
+								moduleVarMap,
+								createError,
+								handleProvisionerStatusChange,
+								handleDeselectModule,
+							)}
+						</HasReachedBottomProvider>
 					</div>
 
 					{/* Navigation controls */}

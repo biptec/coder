@@ -1,4 +1,4 @@
-import { type FC, useEffect, useState } from "react";
+import { type FC, useEffect, useRef, useState } from "react";
 import { useQuery } from "react-query";
 import {
 	permittedOrganizations,
@@ -13,10 +13,13 @@ import { Label } from "#/components/Label/Label";
 import { Link } from "#/components/Link/Link";
 import { OrganizationAutocomplete } from "#/components/OrganizationAutocomplete/OrganizationAutocomplete";
 import { Textarea } from "#/components/Textarea/Textarea";
+import { useHasBeenScrolledPast } from "#/hooks/useHasBeenScrolledPast";
+import { useHasReachedBottom } from "#/hooks/useHasReachedBottom";
 import {
 	TemplateBuilderSubtitle,
 	TemplateBuilderTitle,
 } from "#/pages/TemplateBuilder/TemplateBuilderHeader";
+import { cn } from "#/utils/cn";
 import { docs } from "#/utils/docs";
 import type {
 	SelectedBaseMeta,
@@ -71,6 +74,17 @@ export const TemplateCustomizationsStep: FC<
 		onChangeField("organizationId", org?.id ?? "");
 	};
 
+	// Highlight required fields with the destructive red outline when the user
+	// has scrolled past them or reached the bottom of the page while they are
+	// still empty.
+	const hasReachedBottom = useHasReachedBottom();
+	const idWrapperRef = useRef<HTMLDivElement>(null);
+	const idScrolledPast = useHasBeenScrolledPast(idWrapperRef);
+	const idIsInvalid = (idScrolledPast || hasReachedBottom) && !state.name;
+	const orgWrapperRef = useRef<HTMLDivElement>(null);
+	const orgScrolledPast = useHasBeenScrolledPast(orgWrapperRef);
+	const orgIsInvalid = (orgScrolledPast || hasReachedBottom) && !selectedOrg;
+
 	return (
 		<div className="min-w-[654px]">
 			<TemplateBuilderTitle>Customizations</TemplateBuilderTitle>
@@ -101,7 +115,7 @@ export const TemplateCustomizationsStep: FC<
 						</div>
 
 						{orgOptions.length > 0 && (
-							<div className="flex flex-col gap-2">
+							<div ref={orgWrapperRef} className="flex flex-col gap-2">
 								<Label htmlFor="organization">
 									Organization
 									<span className="text-xs font-bold text-content-destructive ml-1">
@@ -111,6 +125,7 @@ export const TemplateCustomizationsStep: FC<
 								<OrganizationAutocomplete
 									id="organization"
 									required
+									aria-invalid={orgIsInvalid}
 									value={selectedOrg}
 									onChange={handleOrgChange}
 									options={orgOptions}
@@ -151,7 +166,7 @@ export const TemplateCustomizationsStep: FC<
 							</div>
 						</div>
 
-						<div className="flex flex-col gap-2">
+						<div ref={idWrapperRef} className="flex flex-col gap-2">
 							<Label htmlFor="template-name">
 								ID
 								<span className="text-xs font-bold text-content-destructive ml-1">
@@ -165,6 +180,8 @@ export const TemplateCustomizationsStep: FC<
 									onChange={(e) => onChangeField("name", e.target.value)}
 									placeholder="my-template"
 									aria-required
+									aria-invalid={idIsInvalid}
+									className={cn(idIsInvalid && "border-border-destructive")}
 								/>
 								<p className="text-xs text-content-secondary mt-1">
 									Used to identify the template in URLs and the API.

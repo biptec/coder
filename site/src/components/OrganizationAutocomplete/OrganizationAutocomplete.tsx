@@ -17,6 +17,7 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 } from "#/components/Popover/Popover";
+import { cn } from "#/utils/cn";
 
 type OrganizationAutocompleteProps = {
 	value: Organization | null;
@@ -24,6 +25,7 @@ type OrganizationAutocompleteProps = {
 	options: readonly Organization[];
 	id?: string;
 	required?: boolean;
+	"aria-invalid"?: boolean;
 };
 
 export const OrganizationAutocomplete: FC<OrganizationAutocompleteProps> = ({
@@ -32,6 +34,7 @@ export const OrganizationAutocomplete: FC<OrganizationAutocompleteProps> = ({
 	options,
 	id,
 	required,
+	"aria-invalid": ariaInvalid,
 }) => {
 	const [open, setOpen] = useState(false);
 
@@ -43,8 +46,12 @@ export const OrganizationAutocomplete: FC<OrganizationAutocompleteProps> = ({
 					variant="outline"
 					aria-expanded={open}
 					aria-required={required}
+					aria-invalid={ariaInvalid}
 					data-testid="organization-autocomplete"
-					className="w-full justify-start gap-2 font-normal"
+					className={cn(
+						"w-full justify-start gap-2 font-normal",
+						ariaInvalid && "border-border-destructive",
+					)}
 				>
 					{value ? (
 						<>

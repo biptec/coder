@@ -104,6 +104,10 @@ const TextField: FC<TextFieldDefinition> = ({
 		description={description}
 		required={required}
 		placeholder={placeholder}
+		// Once the user scrolls past a required field, flip it to the
+		// destructive red outline so easy-to-miss empty required fields
+		// stand out. Clears as soon as the field has a value.
+		markInvalidWhenScrolledPastEmpty
 		// Placeholder text is instructional (a hint of what to enter),
 		// so it uses the dimmer content-disabled tone instead of the
 		// default content-secondary. The important flag beats the base
