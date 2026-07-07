@@ -40,21 +40,27 @@ export const SetupPage: FC = () => {
 
 	// If the user is logged in, navigate to the app
 	if (isSignedIn) {
-		if (!setupRequired.current) {
-			return <Navigate to="/" state={{ isRedirect: true }} replace />;
-		}
-		// If Blink was enabled during setup, show the intro page first.
-		const blinkEnabled = (() => {
+		// If Blink was enabled during setup and the intro hasn't been seen,
+		// show the intro page first. Checked via localStorage rather than
+		// the setupRequired ref because the component can remount after
+		// sign-in, which resets the ref.
+		const blinkIntroPending = (() => {
 			try {
-				return localStorage.getItem("blink_enabled") === "true";
+				return (
+					localStorage.getItem("blink_enabled") === "true" &&
+					localStorage.getItem("blink_intro_completed") !== "true"
+				);
 			} catch {
 				return false;
 			}
 		})();
-		return blinkEnabled ? (
-			<Navigate to="/setup/blink" replace />
-		) : (
+		if (blinkIntroPending) {
+			return <Navigate to="/setup/blink" replace />;
+		}
+		return setupRequired.current ? (
 			<Navigate to="/templates" replace />
+		) : (
+			<Navigate to="/" state={{ isRedirect: true }} replace />
 		);
 	}
 
