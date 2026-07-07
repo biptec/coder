@@ -15,6 +15,7 @@ import (
 
 	"github.com/coder/coder/v2/coderd/database"
 	"github.com/coder/coder/v2/coderd/database/dbauthz"
+	"github.com/coder/coder/v2/coderd/rbac"
 	"github.com/coder/coder/v2/codersdk"
 )
 
@@ -31,6 +32,8 @@ func Entitlements(
 	externalAuthCount int,
 	keys map[string]ed25519.PublicKey,
 	enablements map[codersdk.FeatureName]bool,
+	authorizer rbac.Authorizer,
+	experiments codersdk.Experiments,
 ) (codersdk.Entitlements, error) {
 	now := time.Now()
 
@@ -40,10 +43,21 @@ func Entitlements(
 		return codersdk.Entitlements{}, err
 	}
 
-	// nolint:gocritic // Getting active user count is a system function.
-	activeUserCount, err := db.GetActiveUserCount(dbauthz.AsSystemRestricted(ctx), false) // Don't include system user in license count.
-	if err != nil {
-		return codersdk.Entitlements{}, xerrors.Errorf("query active user count: %w", err)
+	var activeUserCount int64
+	if experiments.Enabled(codersdk.ExperimentPermissionBasedLicensing) && authorizer != nil {
+		// Permission-based licensing counts only users the RBAC engine
+		// authorizes to create workspaces. Users without workspace-create
+		// capability ("gateway accounts") do not consume seats.
+		activeUserCount, err = CountWorkspaceCapableUsers(ctx, db, authorizer)
+		if err != nil {
+			return codersdk.Entitlements{}, xerrors.Errorf("count workspace capable users: %w", err)
+		}
+	} else {
+		// nolint:gocritic // Getting active user count is a system function.
+		activeUserCount, err = db.GetActiveUserCount(dbauthz.AsSystemRestricted(ctx), false) // Don't include system user in license count.
+		if err != nil {
+			return codersdk.Entitlements{}, xerrors.Errorf("query active user count: %w", err)
+		}
 	}
 
 	// nolint:gocritic // Getting active AI seat count is a system function.
