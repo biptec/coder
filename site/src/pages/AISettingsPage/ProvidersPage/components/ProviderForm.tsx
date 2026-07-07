@@ -3,7 +3,10 @@ import { TriangleAlertIcon } from "lucide-react";
 import { type FC, useEffect, useRef } from "react";
 import { Link } from "react-router";
 import * as Yup from "yup";
-import type { AIProviderType } from "#/api/typesGenerated";
+import type {
+	AIProviderBedrockEndpoint,
+	AIProviderType,
+} from "#/api/typesGenerated";
 import { ErrorAlert } from "#/components/Alert/ErrorAlert";
 import { Button } from "#/components/Button/Button";
 import { CodeExample } from "#/components/CodeExample/CodeExample";
@@ -12,6 +15,13 @@ import { Form, FormFields } from "#/components/Form/Form";
 import { FormField } from "#/components/FormField/FormField";
 import { Label } from "#/components/Label/Label";
 import { Link as DocsLink } from "#/components/Link/Link";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "#/components/Select/Select";
 import { Spinner } from "#/components/Spinner/Spinner";
 import { useUnsavedChangesPrompt } from "#/hooks/useUnsavedChangesPrompt";
 import { docs } from "#/utils/docs";
@@ -23,6 +33,7 @@ export type ProviderFormValues = {
 	name: string;
 	displayName: string;
 	baseUrl: string;
+	endpoint: AIProviderBedrockEndpoint;
 	model: string;
 	smallFastModel: string;
 	accessKey: string;
@@ -35,14 +46,24 @@ export type ProviderFormValues = {
 const HTTP_SCHEME_REGEX = /^https?:\/\//i;
 const BEDROCK_CANONICAL_URL_REGEX =
 	/^https:\/\/bedrock-runtime\.([a-z0-9-]+)\.amazonaws\.com\/?$/i;
+// Mantle is a passthrough transport hosted at bedrock-mantle.{region}.api.aws,
+// optionally suffixed with /anthropic.
+const BEDROCK_MANTLE_URL_REGEX =
+	/^https:\/\/bedrock-mantle\.([a-z0-9-]+)\.api\.aws(\/anthropic)?\/?$/i;
 const PROVIDER_NAME_REGEX = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 export const SAVED_CREDENTIAL_MASK = "********";
 
+// The region lives in the same subdomain slot for both the InvokeModel host
+// (bedrock-runtime.{region}.amazonaws.com) and the mantle host
+// (bedrock-mantle.{region}.api.aws), so either shape yields the region.
 export const parseBedrockRegionFromBaseUrl = (
 	baseUrl: string,
 ): string | undefined => {
-	const match = BEDROCK_CANONICAL_URL_REGEX.exec(baseUrl.trim());
+	const trimmed = baseUrl.trim();
+	const match =
+		BEDROCK_CANONICAL_URL_REGEX.exec(trimmed) ??
+		BEDROCK_MANTLE_URL_REGEX.exec(trimmed);
 	return match?.[1]?.toLowerCase();
 };
 
@@ -65,6 +86,7 @@ const defaultInitialValues: ProviderFormValues = {
 	name: "",
 	displayName: "",
 	baseUrl: "",
+	endpoint: "invoke-model",
 	model: "",
 	smallFastModel: "",
 	accessKey: "",
@@ -73,6 +95,14 @@ const defaultInitialValues: ProviderFormValues = {
 	apiKey: "",
 	enabled: true,
 };
+
+// Base URL prefills used when switching the Bedrock transport. The region is
+// preserved from whatever the user already entered, falling back to us-east-1.
+const BEDROCK_MANTLE_DEFAULT_REGION = "us-east-1";
+const bedrockInvokeModelBaseUrl = (region: string) =>
+	`https://bedrock-runtime.${region}.amazonaws.com`;
+const bedrockMantleBaseUrl = (region: string) =>
+	`https://bedrock-mantle.${region}.api.aws`;
 
 // Bedrock model defaults mirror codersdk/deployment.go's
 // aiGatewayBedrockModel and aiGatewayBedrockSmallFastModel defaults
@@ -162,16 +192,38 @@ const makeBedrockSchema = (editing: boolean) =>
 			.required(),
 		name: makeNameSchema(editing),
 		displayName: makeDisplayNameSchema(editing),
+		endpoint: Yup.string()
+			.oneOf(["invoke-model", "mantle"] as const)
+			.required(),
 		baseUrl: Yup.string()
 			.url("Endpoint must be a valid URL")
-			.matches(
-				BEDROCK_CANONICAL_URL_REGEX,
-				"Endpoint must be a standard AWS Bedrock URL.",
-			)
+			.when("endpoint", {
+				is: "mantle",
+				then: (schema) =>
+					schema.matches(
+						BEDROCK_MANTLE_URL_REGEX,
+						"Endpoint must be a Bedrock mantle URL (https://bedrock-mantle.{region}.api.aws).",
+					),
+				otherwise: (schema) =>
+					schema.matches(
+						BEDROCK_CANONICAL_URL_REGEX,
+						"Endpoint must be a standard AWS Bedrock URL.",
+					),
+			})
 			.required("Endpoint is required"),
 		apiKey: Yup.string(),
-		model: Yup.string().required("Model is required"),
-		smallFastModel: Yup.string().required("Small-fast model is required"),
+		// Mantle passthrough forwards the model chosen by the client, so the
+		// model fields are not configured on the provider.
+		model: Yup.string().when("endpoint", {
+			is: (endpoint: string) => endpoint !== "mantle",
+			then: (schema) => schema.required("Model is required"),
+			otherwise: (schema) => schema,
+		}),
+		smallFastModel: Yup.string().when("endpoint", {
+			is: (endpoint: string) => endpoint !== "mantle",
+			then: (schema) => schema.required("Small-fast model is required"),
+			otherwise: (schema) => schema,
+		}),
 		accessKey: Yup.string().test(
 			"access-key-paired",
 			BEDROCK_ACCESS_KEY_PAIRED_MESSAGE,
@@ -346,6 +398,23 @@ export const ProviderForm: FC<ProviderFormProps> = ({
 		}
 	};
 
+	// Switching transports rewrites the base URL to the matching host, keeping
+	// the region the user already entered so they do not retype it.
+	const handleBedrockEndpointChange = (endpoint: AIProviderBedrockEndpoint) => {
+		void form.setFieldValue("endpoint", endpoint);
+		const region =
+			parseBedrockRegionFromBaseUrl(form.values.baseUrl) ??
+			BEDROCK_MANTLE_DEFAULT_REGION;
+		void form.setFieldValue(
+			"baseUrl",
+			endpoint === "mantle"
+				? bedrockMantleBaseUrl(region)
+				: bedrockInvokeModelBaseUrl(region),
+		);
+	};
+
+	const isMantle = form.values.endpoint === "mantle";
+
 	// When the parent's mutation finishes without an error, treat the just-
 	// submitted values as the new baseline so the unsaved-changes prompt does
 	// not fire on subsequent navigations. React Query reports a missing error
@@ -462,49 +531,90 @@ export const ProviderForm: FC<ProviderFormProps> = ({
 								className="w-full"
 							/>
 						</div>
+						<div className="flex flex-col gap-2">
+							<Label htmlFor="bedrock-endpoint">Transport</Label>
+							<Select
+								value={form.values.endpoint}
+								onValueChange={(value) =>
+									handleBedrockEndpointChange(
+										value as AIProviderBedrockEndpoint,
+									)
+								}
+							>
+								<SelectTrigger id="bedrock-endpoint" className="w-full">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="invoke-model">
+										InvokeModel (default)
+									</SelectItem>
+									<SelectItem value="mantle">Mantle</SelectItem>
+								</SelectContent>
+							</Select>
+							<p className="text-xs text-content-secondary m-0">
+								{isMantle
+									? "Mantle is a passthrough transport. The client selects the model at request time."
+									: "InvokeModel calls the standard AWS Bedrock runtime API."}
+							</p>
+						</div>
 						<FormField
 							required
 							field={getFieldHelpers("baseUrl")}
 							label="Endpoint"
 							description={
-								<>
-									In the format of{" "}
-									<code>
-										{"https://bedrock-runtime.{region}.amazonaws.com"}
-									</code>
-								</>
+								isMantle ? (
+									<>
+										In the format of{" "}
+										<code>{"https://bedrock-mantle.{region}.api.aws"}</code>
+									</>
+								) : (
+									<>
+										In the format of{" "}
+										<code>
+											{"https://bedrock-runtime.{region}.amazonaws.com"}
+										</code>
+									</>
+								)
 							}
 							className="w-full"
-							placeholder={baseUrlPlaceholder(form.values.type)}
+							placeholder={
+								isMantle
+									? bedrockMantleBaseUrl(BEDROCK_MANTLE_DEFAULT_REGION)
+									: baseUrlPlaceholder(form.values.type)
+							}
 						/>
-						<div className="grid grid-cols-2 items-start gap-4">
-							<FormField
-								required
-								field={getFieldHelpers("model")}
-								label="Model"
-								className="w-full"
-								placeholder={BEDROCK_DEFAULT_MODEL}
-							/>
-							<FormField
-								required
-								field={getFieldHelpers("smallFastModel")}
-								label="Small-fast model"
-								className="w-full"
-								placeholder={BEDROCK_DEFAULT_SMALL_FAST_MODEL}
-							/>
-						</div>
-						<p className="text-xs text-content-secondary m-0">
-							Find available Bedrock model IDs in the{" "}
-							<DocsLink
-								size="sm"
-								href={BEDROCK_MODEL_CARDS_URL}
-								target="_blank"
-								rel="noreferrer"
-							>
-								AWS Bedrock model cards
-							</DocsLink>
-							.
-						</p>
+						{!isMantle && (
+							<>
+								<div className="grid grid-cols-2 items-start gap-4">
+									<FormField
+										required
+										field={getFieldHelpers("model")}
+										label="Model"
+										className="w-full"
+										placeholder={BEDROCK_DEFAULT_MODEL}
+									/>
+									<FormField
+										required
+										field={getFieldHelpers("smallFastModel")}
+										label="Small-fast model"
+										className="w-full"
+										placeholder={BEDROCK_DEFAULT_SMALL_FAST_MODEL}
+									/>
+								</div>
+								<p className="text-xs text-content-secondary m-0">
+									Find available Bedrock model IDs in the{" "}
+									<DocsLink
+										size="sm"
+										href={BEDROCK_MODEL_CARDS_URL}
+										target="_blank"
+										rel="noreferrer"
+									>
+										AWS Bedrock model cards
+									</DocsLink>
+									.
+								</p>
+							</>
+						)}
 						<div className="grid grid-cols-2 items-start gap-4">
 							<CredentialField
 								label="Access key"

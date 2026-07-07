@@ -354,6 +354,9 @@ func bedrockConfig(baseURL string, bedrock *codersdk.AIProviderBedrockSettings) 
 		SmallFastModel:  bedrockSettings.SmallFastModel,
 		RoleARN:         bedrockSettings.RoleARN,
 		ExternalID:      bedrockSettings.ExternalID,
+		// The transport is a settings discriminator: mantle signs and forwards
+		// the native request unchanged, invoke-model uses the legacy translation.
+		Endpoint: aibridge.BedrockEndpoint(bedrockSettings.ResolvedEndpoint()),
 	}
 }
 

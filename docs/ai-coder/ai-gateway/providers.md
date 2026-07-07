@@ -192,6 +192,41 @@ To enforce it, add the external ID to the target role's trust policy as an
 > not enforced, and the role can still be assumed without it. To rotate the
 > external ID, recreate the provider.
 
+#### Transport: InvokeModel vs Mantle
+
+A Bedrock provider selects a **transport**:
+
+- **InvokeModel** (default): AI Gateway translates the request into Bedrock's
+  InvokeModel format (`bedrock-runtime.<region>.amazonaws.com`) and configures
+  the model and small-fast model on the provider.
+- **Mantle**: AI Gateway targets the mantle endpoint
+  (`https://bedrock-mantle.<region>.api.aws/anthropic/v1/messages`), which
+  serves Anthropic models through the native Messages API. The gateway forwards
+  the request body **unchanged** and only applies AWS SigV4 signing (service
+  `bedrock-mantle`) with the provider's configured base identity. The client,
+  not the gateway, produces the Bedrock-legal request, so no model identifiers
+  are configured on the provider (the client sends the model in each request).
+
+Both transports use the same credentials (default chain, static keys, or a
+role ARN) and require a **region**. To route Claude Code through a mantle
+provider, run it in mantle mode with client-side signing disabled so the
+gateway signs centrally, and pass the Coder token as a Bearer credential for
+attribution:
+
+```sh
+export CLAUDE_CODE_USE_MANTLE=1
+export CLAUDE_CODE_SKIP_MANTLE_AUTH=1
+export ANTHROPIC_BEDROCK_MANTLE_BASE_URL=https://<coder-host>/api/v2/aibridge/<provider-name>
+export AWS_REGION=us-east-1
+export ANTHROPIC_CUSTOM_HEADERS="Authorization: Bearer <coder-session-token>"
+```
+
+Use the `Authorization: Bearer` header for the Coder token rather than
+`X-Coder-AI-Governance-Token`: the governance header puts the request in
+[Bring Your Own Key](#bring-your-own-key) mode. A Bearer token is authenticated
+for attribution and stripped before the gateway signs with the provider's AWS
+credentials.
+
 ### GitHub Copilot
 
 GitHub Copilot offers three plans: Individual, Business, and Enterprise,

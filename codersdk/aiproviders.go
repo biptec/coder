@@ -281,6 +281,15 @@ func (req CreateAIProviderRequest) Validate() []ValidationError {
 				Detail: "external_id is server-generated and cannot be set",
 			})
 		}
+		// The mantle transport signs SigV4 and builds its host from the
+		// region, so a region is required (no bedrock-runtime-style base URL
+		// fallback applies).
+		if req.Settings.Bedrock.ResolvedEndpoint() == AIProviderBedrockEndpointMantle && req.Settings.Bedrock.Region == "" {
+			validations = append(validations, ValidationError{
+				Field:  "settings.region",
+				Detail: "region is required for the mantle endpoint",
+			})
+		}
 	}
 	if req.Type == AIProviderTypeCopilot && len(req.APIKeys) > 0 {
 		validations = append(validations, ValidationError{

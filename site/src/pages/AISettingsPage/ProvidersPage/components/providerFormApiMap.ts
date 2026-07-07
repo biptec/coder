@@ -1,5 +1,6 @@
 import type {
 	AIProvider,
+	AIProviderBedrockEndpoint,
 	AIProviderBedrockSettings,
 	AIProviderKeyMutation,
 	AIProviderSettings,
@@ -113,22 +114,30 @@ export const getProviderDisplayType = (
 };
 
 const buildBedrockSettings = (
+	endpoint: AIProviderBedrockEndpoint,
 	region: string | undefined,
 	model: string,
 	smallFastModel: string,
 	accessKey: string,
 	accessKeySecret: string,
 	roleArn: string,
-): BedrockSettingsWire => ({
-	_type: BEDROCK_SETTINGS_TYPE,
-	_version: BEDROCK_SETTINGS_VERSION,
-	...(region ? { region } : {}),
-	model,
-	small_fast_model: smallFastModel,
-	...(accessKey ? { access_key: accessKey } : {}),
-	...(accessKeySecret ? { access_key_secret: accessKeySecret } : {}),
-	...(roleArn ? { role_arn: roleArn } : {}),
-});
+): BedrockSettingsWire => {
+	// Mantle is a passthrough transport: the client sends the model, so the
+	// provider omits the model fields. The endpoint discriminator is only
+	// emitted for mantle to keep InvokeModel blobs minimal (an absent
+	// endpoint resolves to InvokeModel server-side).
+	const isMantle = endpoint === "mantle";
+	return {
+		_type: BEDROCK_SETTINGS_TYPE,
+		_version: BEDROCK_SETTINGS_VERSION,
+		...(region ? { region } : {}),
+		...(isMantle ? { endpoint } : {}),
+		...(isMantle ? {} : { model, small_fast_model: smallFastModel }),
+		...(accessKey ? { access_key: accessKey } : {}),
+		...(accessKeySecret ? { access_key_secret: accessKeySecret } : {}),
+		...(roleArn ? { role_arn: roleArn } : {}),
+	};
+};
 
 // Bedrock credentials live in `settings`; openai/anthropic keys go in
 // `api_keys`. `display_name` is omitted when blank so the server stores
@@ -147,6 +156,7 @@ export const providerFormValuesToCreate = (
 	if (values.type === "bedrock") {
 		const region = parseBedrockRegionFromBaseUrl(base.base_url);
 		const settings = buildBedrockSettings(
+			values.endpoint,
 			region,
 			values.model.trim(),
 			values.smallFastModel.trim(),
@@ -222,6 +232,7 @@ export const providerFormValuesToUpdate = (
 	const region = parseBedrockRegionFromBaseUrl(base.base_url ?? "");
 
 	const settings = buildBedrockSettings(
+		values.endpoint,
 		region,
 		values.model.trim(),
 		values.smallFastModel.trim(),
@@ -242,13 +253,19 @@ export const aiProviderToFormValues = (
 	const displayName = provider.display_name || provider.name;
 	if (isBedrockProvider(provider)) {
 		const s = (provider.settings as SettingsWire | null) ?? {};
+		// A missing endpoint resolves to InvokeModel (legacy rows). Mantle
+		// providers store no model fields, so leave them blank.
+		const endpoint: AIProviderBedrockEndpoint =
+			s.endpoint === "mantle" ? "mantle" : "invoke-model";
+		const isMantle = endpoint === "mantle";
 		return {
 			type: "bedrock",
 			name: provider.name,
 			displayName,
 			baseUrl: provider.base_url,
-			model: s.model ?? "",
-			smallFastModel: s.small_fast_model ?? "",
+			endpoint,
+			model: isMantle ? "" : (s.model ?? ""),
+			smallFastModel: isMantle ? "" : (s.small_fast_model ?? ""),
 			accessKey: "",
 			accessKeySecret: "",
 			roleArn: s.role_arn ?? "",

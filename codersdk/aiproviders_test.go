@@ -212,3 +212,70 @@ func TestAIProviderRequest_ValidateRoleARN(t *testing.T) {
 		})
 	}
 }
+
+func TestAIProviderRequest_ValidateBedrockMantle(t *testing.T) {
+	t.Parallel()
+
+	hasFieldError := func(vs []codersdk.ValidationError, field string) bool {
+		for _, v := range vs {
+			if v.Field == field {
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("MantleRequiresRegion", func(t *testing.T) {
+		t.Parallel()
+		create := codersdk.CreateAIProviderRequest{
+			Type:    codersdk.AIProviderTypeBedrock,
+			Name:    "bedrock",
+			BaseURL: "https://bedrock-mantle.us-east-1.api.aws",
+			Settings: codersdk.AIProviderSettings{
+				Bedrock: &codersdk.AIProviderBedrockSettings{
+					Endpoint: codersdk.AIProviderBedrockEndpointMantle,
+				},
+			},
+		}
+		require.True(t, hasFieldError(create.Validate(), "settings.region"))
+
+		create.Settings.Bedrock.Region = "us-east-1"
+		require.False(t, hasFieldError(create.Validate(), "settings.region"))
+	})
+
+	t.Run("InvokeModelDoesNotRequireRegionField", func(t *testing.T) {
+		t.Parallel()
+		// The default (invoke-model) endpoint keeps its existing rules; the
+		// mantle-specific region check must not fire for it.
+		create := codersdk.CreateAIProviderRequest{
+			Type:    codersdk.AIProviderTypeBedrock,
+			Name:    "bedrock",
+			BaseURL: "https://bedrock-runtime.us-east-1.amazonaws.com",
+			Settings: codersdk.AIProviderSettings{
+				Bedrock: &codersdk.AIProviderBedrockSettings{RoleARN: "arn:aws:iam::123456789012:role/BedrockRole"},
+			},
+		}
+		require.False(t, hasFieldError(create.Validate(), "settings.region"))
+	})
+
+	t.Run("EndpointRoundTripsInSettings", func(t *testing.T) {
+		t.Parallel()
+		in := codersdk.AIProviderSettings{
+			Bedrock: &codersdk.AIProviderBedrockSettings{
+				Region:   "us-east-1",
+				Endpoint: codersdk.AIProviderBedrockEndpointMantle,
+			},
+		}
+		raw, err := json.Marshal(in)
+		require.NoError(t, err)
+		require.Contains(t, string(raw), `"endpoint":"mantle"`)
+
+		var out codersdk.AIProviderSettings
+		require.NoError(t, json.Unmarshal(raw, &out))
+		require.NotNil(t, out.Bedrock)
+		require.Equal(t, codersdk.AIProviderBedrockEndpointMantle, out.Bedrock.Endpoint)
+		// Absent endpoint resolves to invoke-model.
+		require.Equal(t, codersdk.AIProviderBedrockEndpointInvokeModel,
+			codersdk.AIProviderBedrockSettings{}.ResolvedEndpoint())
+	})
+}

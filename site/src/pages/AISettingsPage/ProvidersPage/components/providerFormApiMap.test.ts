@@ -26,6 +26,7 @@ const baseOpenAIFormValues: ProviderFormValues = {
 	name: "primary-openai",
 	displayName: "Primary OpenAI",
 	baseUrl: "https://api.openai.com",
+	endpoint: "invoke-model",
 	model: "",
 	smallFastModel: "",
 	accessKey: "",
@@ -40,6 +41,7 @@ const baseBedrockFormValues: ProviderFormValues = {
 	name: "primary-bedrock",
 	displayName: "Primary Bedrock",
 	baseUrl: "https://bedrock-runtime.us-east-1.amazonaws.com",
+	endpoint: "invoke-model",
 	model: "anthropic.claude-sonnet-4-5",
 	smallFastModel: "anthropic.claude-haiku-4-5",
 	accessKey: "AKIA-test",
@@ -54,6 +56,7 @@ const baseCopilotFormValues: ProviderFormValues = {
 	name: "copilot",
 	displayName: "GitHub Copilot",
 	baseUrl: "https://api.business.githubcopilot.com",
+	endpoint: "invoke-model",
 	model: "",
 	smallFastModel: "",
 	accessKey: "",
@@ -84,6 +87,20 @@ describe("parseBedrockRegionFromBaseUrl", () => {
 				"https://bedrock-runtime.us-west-2.amazonaws.com/",
 			),
 		).toBe("us-west-2");
+	});
+
+	it("extracts the region from a mantle URL", () => {
+		expect(
+			parseBedrockRegionFromBaseUrl("https://bedrock-mantle.us-east-1.api.aws"),
+		).toBe("us-east-1");
+	});
+
+	it("extracts the region from a mantle URL with the /anthropic suffix", () => {
+		expect(
+			parseBedrockRegionFromBaseUrl(
+				"https://bedrock-mantle.eu-west-1.api.aws/anthropic",
+			),
+		).toBe("eu-west-1");
 	});
 
 	it("lowercases the region", () => {
@@ -377,6 +394,34 @@ describe("providerFormValuesToCreate", () => {
 			const s = req.settings as unknown as Record<string, unknown>;
 			expect(s._type).toBe("bedrock");
 			expect(s.region).toBe("us-east-1");
+		});
+
+		it("omits the endpoint discriminator and includes the model fields for InvokeModel", () => {
+			// InvokeModel is the default transport, so the endpoint is left out
+			// to keep the settings blob minimal; the model fields are configured
+			// on the provider.
+			const req = providerFormValuesToCreate(baseBedrockFormValues);
+			const s = req.settings as unknown as Record<string, unknown>;
+			expect(s.endpoint).toBeUndefined();
+			expect(s.model).toBe("anthropic.claude-sonnet-4-5");
+			expect(s.small_fast_model).toBe("anthropic.claude-haiku-4-5");
+		});
+
+		it("sets endpoint=mantle, derives the region, and omits the model fields", () => {
+			// Mantle is a passthrough: the client sends the model, so the
+			// provider stores neither model field but keeps the region so the
+			// backend recognises the Bedrock provider.
+			const req = providerFormValuesToCreate({
+				...baseBedrockFormValues,
+				endpoint: "mantle",
+				baseUrl: "https://bedrock-mantle.us-east-1.api.aws",
+			});
+			const s = req.settings as unknown as Record<string, unknown>;
+			expect(s._type).toBe("bedrock");
+			expect(s.endpoint).toBe("mantle");
+			expect(s.region).toBe("us-east-1");
+			expect(s.model).toBeUndefined();
+			expect(s.small_fast_model).toBeUndefined();
 		});
 
 		it("omits the region when the URL is non-canonical", () => {
@@ -713,6 +758,26 @@ describe("aiProviderToFormValues", () => {
 		expect(values.type).toBe("bedrock");
 		expect(values.model).toBe("anthropic.claude-opus-4-7");
 		expect(values.smallFastModel).toBe("anthropic.claude-haiku-4-5");
+	});
+
+	it("reads endpoint=mantle back and leaves the model fields blank", () => {
+		const provider: AIProvider = {
+			...MockAIProviderBedrock,
+			settings: settings({
+				_type: "bedrock",
+				endpoint: "mantle",
+				region: "us-east-1",
+			}),
+		};
+		const values = aiProviderToFormValues(provider);
+		expect(values.endpoint).toBe("mantle");
+		expect(values.model).toBe("");
+		expect(values.smallFastModel).toBe("");
+	});
+
+	it("defaults endpoint to invoke-model for a legacy provider without one", () => {
+		const values = aiProviderToFormValues(MockAIProviderBedrock);
+		expect(values.endpoint).toBe("invoke-model");
 	});
 
 	it("never round-trips Bedrock secrets back to the form", () => {

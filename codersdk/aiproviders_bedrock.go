@@ -8,6 +8,24 @@ const AIProviderSettingsTypeBedrock = "bedrock"
 // AIProviderBedrockSettings.
 const AIProviderBedrockSettingsVersion = 1
 
+// AIProviderBedrockEndpoint selects which AWS Bedrock transport a Bedrock
+// provider targets.
+type AIProviderBedrockEndpoint string
+
+const (
+	// AIProviderBedrockEndpointInvokeModel is the legacy InvokeModel transport
+	// (bedrock-runtime.{region}.amazonaws.com); the gateway translates the
+	// native Messages request into Bedrock's InvokeModel format. It is the
+	// default when no endpoint is set.
+	AIProviderBedrockEndpointInvokeModel AIProviderBedrockEndpoint = "invoke-model"
+	// AIProviderBedrockEndpointMantle is the mantle transport
+	// (bedrock-mantle.{region}.api.aws/anthropic/v1/messages). The gateway
+	// forwards the native Messages request unchanged and only applies AWS
+	// SigV4 signing (service bedrock-mantle); the client emits the
+	// Bedrock-legal request.
+	AIProviderBedrockEndpointMantle AIProviderBedrockEndpoint = "mantle"
+)
+
 // AIProviderBedrockSettings configures providers that authenticate
 // against AWS Bedrock. AccessKey and AccessKeySecret are write-only:
 // servers strip them from GET and list responses. Both secret fields
@@ -40,6 +58,19 @@ type AIProviderBedrockSettings struct {
 	// reject any client-supplied value that differs from the stored one (an
 	// update may echo the stored value back).
 	ExternalID string `json:"external_id,omitempty"`
+	// Endpoint selects the Bedrock transport. An empty value resolves to
+	// AIProviderBedrockEndpointInvokeModel, so existing rows keep the legacy
+	// behavior without a schema version bump.
+	Endpoint AIProviderBedrockEndpoint `json:"endpoint,omitempty"`
+}
+
+// ResolvedEndpoint returns the configured endpoint, mapping the empty value to
+// the legacy InvokeModel transport so callers never have to special-case it.
+func (b AIProviderBedrockSettings) ResolvedEndpoint() AIProviderBedrockEndpoint {
+	if b.Endpoint == "" {
+		return AIProviderBedrockEndpointInvokeModel
+	}
+	return b.Endpoint
 }
 
 // IsConfigured reports whether any load-bearing Bedrock field is set,

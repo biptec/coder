@@ -1126,3 +1126,83 @@ func TestWriteUpstreamError(t *testing.T) {
 		})
 	}
 }
+
+// TestAugmentRequestForBedrockMantle verifies the mantle transport is a pure
+// passthrough: augmentRequestForBedrock leaves the body untouched (no model
+// remap, thinking conversion, beta filtering, or field stripping) and Model()
+// reports the client's model. The client emits mantle-legal requests.
+func TestAugmentRequestForBedrockMantle(t *testing.T) {
+	t.Parallel()
+
+	betas := "interleaved-thinking-2025-05-14,context-management-2025-06-27,advisor-tool-2026-03-01"
+	clientHeaders := http.Header{"Anthropic-Beta": {betas}}
+	i := &interceptionBase{
+		reqPayload: mustMessagesPayload(t,
+			`{"model":"anthropic.claude-opus-4-8","max_tokens":10000,"thinking":{"type":"adaptive"},"metadata":{"user_id":"u123"},"context_management":{"type":"auto"}}`),
+		bedrock: &BedrockRuntime{
+			Cfg: config.AWSBedrock{
+				Region:   "us-east-1",
+				Endpoint: config.BedrockEndpointMantle,
+			},
+		},
+		clientHeaders: clientHeaders,
+		logger:        slog.Make(),
+	}
+
+	i.augmentRequestForBedrock()
+
+	require.Equal(t, "anthropic.claude-opus-4-8", gjson.GetBytes(i.reqPayload, "model").String())
+	require.True(t, gjson.GetBytes(i.reqPayload, "context_management").Exists())
+	require.True(t, gjson.GetBytes(i.reqPayload, "metadata").Exists())
+	require.Equal(t, []string{betas}, clientHeaders.Values("Anthropic-Beta"))
+	require.Equal(t, "anthropic.claude-opus-4-8", i.Model())
+}
+
+// TestAWSMantleOptionsValidation verifies the mantle transport requires a
+// region (it scopes the SigV4 signature) but NOT model fields.
+func TestAWSMantleOptionsValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		cfg      config.AWSBedrock
+		errorMsg string
+	}{
+		{
+			name: "valid without model fields",
+			cfg: config.AWSBedrock{
+				Region:   "us-east-1",
+				Endpoint: config.BedrockEndpointMantle,
+			},
+		},
+		{
+			name: "missing region even with base url",
+			cfg: config.AWSBedrock{
+				BaseURL:  "https://proxy.internal",
+				Endpoint: config.BedrockEndpointMantle,
+			},
+			errorMsg: "region required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			base := &interceptionBase{
+				bedrock: &BedrockRuntime{
+					Cfg:   tt.cfg,
+					Creds: credentials.NewStaticCredentialsProvider("test-key", "test-secret", ""),
+				},
+			}
+			opts, err := base.withAWSBedrockOptions(context.Background())
+			if tt.errorMsg != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errorMsg)
+			} else {
+				require.NoError(t, err)
+				require.NotEmpty(t, opts)
+			}
+		})
+	}
+}
