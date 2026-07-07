@@ -387,7 +387,11 @@ export const GitPanel: FC<GitPanelProps> = ({
 								{prTitle}
 							</span>
 						</TooltipTrigger>
-						<TooltipContent side="bottom" align="start" className="max-w-sm">
+						<TooltipContent
+							side="bottom"
+							align="start"
+							className="max-w-[260px]"
+						>
 							{prTitle}
 						</TooltipContent>
 					</Tooltip>
