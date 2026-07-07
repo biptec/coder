@@ -1265,3 +1265,91 @@ export const LongWorkspaceNameMobile: Story = {
 		}
 	},
 };
+
+const dropFileOnComposer = (canvasElement: HTMLElement, file: File) => {
+	const composer = within(canvasElement).getByTestId("chat-composer");
+	const dataTransfer = new DataTransfer();
+	dataTransfer.items.add(file);
+	// Dispatch a native DragEvent: fireEvent cannot attach dataTransfer
+	// to drag events in a real browser.
+	composer.dispatchEvent(
+		new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer }),
+	);
+};
+
+export const WorkspaceUploadRoutedOnDrop: Story = {
+	args: {
+		onAttach: fn(),
+		workspaceUploads: {
+			uploads: [],
+			onAttach: fn(),
+			onRemove: fn(),
+		},
+	},
+	play: async ({ canvasElement, args }) => {
+		const file = createMockFile("dataset.zip", "application/zip");
+		dropFileOnComposer(canvasElement, file);
+		await waitFor(() => {
+			expect(args.workspaceUploads?.onAttach).toHaveBeenCalledWith([file]);
+		});
+		expect(args.onAttach).not.toHaveBeenCalled();
+	},
+};
+
+export const WorkspaceUploadRefusedWhileDisabled: Story = {
+	args: {
+		isDisabled: true,
+		onAttach: fn(),
+		workspaceUploads: {
+			uploads: [],
+			onAttach: fn(),
+			onRemove: fn(),
+		},
+	},
+	play: async ({ canvasElement, args }) => {
+		const file = createMockFile("dataset.zip", "application/zip");
+		dropFileOnComposer(canvasElement, file);
+		// Drop routing is synchronous; WorkspaceUploadRoutedOnDrop proves
+		// this simulation reaches the routing path when enabled.
+		expect(args.workspaceUploads?.onAttach).not.toHaveBeenCalled();
+		expect(args.onAttach).not.toHaveBeenCalled();
+	},
+};
+
+export const PasteRefusedFileFallsBackToText: Story = {
+	args: {
+		onAttach: fn(),
+		onRemoveAttachment: fn(),
+	},
+	parameters: {
+		pixel: { exclude: true },
+	},
+	play: async ({ canvasElement, args }) => {
+		const target = getPasteTarget(canvasElement);
+		await waitFor(() => {
+			expect(target.getAttribute("contenteditable")).toBe("true");
+		});
+		target.focus();
+
+		// Clipboard carrying both a file and a text payload. Without
+		// workspaceUploads the zip cannot be routed anywhere, so the
+		// paste must fall back to inserting the clipboard text.
+		const dataTransfer = new DataTransfer();
+		dataTransfer.items.add(createMockFile("dataset.zip", "application/zip"));
+		dataTransfer.setData("text/plain", "notes about the archive");
+		const event = new ClipboardEvent("paste", {
+			bubbles: true,
+			cancelable: true,
+		});
+		Object.defineProperty(event, "clipboardData", {
+			value: dataTransfer,
+			writable: false,
+		});
+		target.dispatchEvent(event);
+
+		await waitFor(() => {
+			expect(target.textContent).toContain("notes about the archive");
+		});
+		expect(args.onAttach).not.toHaveBeenCalled();
+	},
+};

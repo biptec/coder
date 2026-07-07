@@ -2915,10 +2915,8 @@ export const UserMessageWithWorkspaceFileReference: Story = {
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
 		expect(canvas.getByText("Unzip this in my workspace")).toBeVisible();
-		expect(
-			canvas.getByText(
-				"Workspace file attached. Display support is coming soon.",
-			),
-		).toBeVisible();
+		// Rendered as a WorkspaceFileChip with name and size.
+		expect(canvas.getByText("dataset.zip")).toBeVisible();
+		expect(canvas.getByText("4.1 kB")).toBeVisible();
 	},
 };

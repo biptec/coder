@@ -20,6 +20,7 @@ export type MessageDisplayState = {
 	shouldHide: boolean;
 	userInlineContent: UserInlineRenderBlock[];
 	userFileBlocks: FileRenderBlock[];
+	workspaceFileBlocks: WorkspaceFileReferenceBlock[];
 	workspaceFileReferenceCount: number;
 	hasUserMessageBody: boolean;
 	hasFileBlocks: boolean;
@@ -154,9 +155,10 @@ export const deriveMessageDisplayState = ({
 		? parsed.blocks.filter(isUserInlineRenderBlock)
 		: [];
 	const userFileBlocks = isUser ? parsed.blocks.filter(isFileRenderBlock) : [];
-	const workspaceFileReferenceCount = isUser
-		? parsed.blocks.filter(isWorkspaceFileReferenceBlock).length
-		: 0;
+	const workspaceFileBlocks = isUser
+		? parsed.blocks.filter(isWorkspaceFileReferenceBlock)
+		: [];
+	const workspaceFileReferenceCount = workspaceFileBlocks.length;
 	const hasWorkspaceFileReferences = workspaceFileReferenceCount > 0;
 	const hasFileAttachments = parsed.blocks.some(isFileRenderBlock);
 	const hasUserMessageBody =
@@ -184,6 +186,7 @@ export const deriveMessageDisplayState = ({
 		shouldHide: shouldHideTimelineEntry({ message, parsed }),
 		userInlineContent,
 		userFileBlocks,
+		workspaceFileBlocks,
 		workspaceFileReferenceCount,
 		hasUserMessageBody,
 		hasFileBlocks,

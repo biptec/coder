@@ -207,7 +207,11 @@ describe("resolveModelFromChatConfig", () => {
 
 describe("getWorkspaceAgent", () => {
 	const buildAgent = (id: string): TypesGen.WorkspaceAgent =>
-		({ id, name: `agent-${id}` }) as TypesGen.WorkspaceAgent;
+		({
+			id,
+			name: `agent-${id}`,
+			display_order: 0,
+		}) as TypesGen.WorkspaceAgent;
 
 	const buildWorkspace = (
 		agents: TypesGen.WorkspaceAgent[],
@@ -270,6 +274,111 @@ describe("getWorkspaceAgent", () => {
 		} as unknown as TypesGen.Workspace;
 		expect(getWorkspaceAgent(ws, "a1")).toEqual(
 			expect.objectContaining({ id: "a1" }),
+		);
+	});
+
+	// The unbound fallback mirrors the backend's
+	// agentselect.FindChatAgent so upload gating and SSH affordances
+	// target the agent the server will actually pick.
+	const buildNamedAgent = (
+		id: string,
+		name: string,
+		parentId: string | null = null,
+		displayOrder = 0,
+	): TypesGen.WorkspaceAgent =>
+		({
+			id,
+			name,
+			parent_id: parentId,
+			display_order: displayOrder,
+		}) as TypesGen.WorkspaceAgent;
+
+	it("prefers the -coderd-chat suffixed root agent when unbound", () => {
+		const ws = buildWorkspace([
+			buildNamedAgent("a1", "alpha"),
+			buildNamedAgent("a2", "zeta-coderd-chat"),
+		]);
+		expect(getWorkspaceAgent(ws, undefined)).toEqual(
+			expect.objectContaining({ id: "a2" }),
+		);
+	});
+
+	it("matches the chat suffix case-insensitively", () => {
+		const ws = buildWorkspace([
+			buildNamedAgent("a1", "alpha"),
+			buildNamedAgent("a2", "main-Coderd-Chat"),
+		]);
+		expect(getWorkspaceAgent(ws, undefined)).toEqual(
+			expect.objectContaining({ id: "a2" }),
+		);
+	});
+
+	it("re-sorts root agents with the backend comparator when unbound", () => {
+		// The API sorts agents per resource, so agents on different
+		// resources can arrive out of global order. FindChatAgent
+		// sorts all root agents globally by name.
+		const ws = {
+			latest_build: {
+				resources: [
+					{ agents: [buildNamedAgent("a1", "zeta")] },
+					{ agents: [buildNamedAgent("a2", "alpha")] },
+				],
+			},
+		} as unknown as TypesGen.Workspace;
+		expect(getWorkspaceAgent(ws, undefined)).toEqual(
+			expect.objectContaining({ id: "a2" }),
+		);
+	});
+
+	it("prioritizes display_order over name like the backend", () => {
+		const ws = buildWorkspace([
+			buildNamedAgent("a1", "alpha", null, 2),
+			buildNamedAgent("a2", "zeta", null, 1),
+		]);
+		expect(getWorkspaceAgent(ws, undefined)).toEqual(
+			expect.objectContaining({ id: "a2" }),
+		);
+	});
+
+	it("compares names case-insensitively before case-sensitively", () => {
+		// Case-sensitive byte order would put "Zeta" (uppercase Z)
+		// before "alpha"; the backend compares lowercased names first.
+		const ws = buildWorkspace([
+			buildNamedAgent("a1", "Zeta"),
+			buildNamedAgent("a2", "alpha"),
+		]);
+		expect(getWorkspaceAgent(ws, undefined)).toEqual(
+			expect.objectContaining({ id: "a2" }),
+		);
+	});
+
+	it("never falls back to child agents", () => {
+		const ws = buildWorkspace([
+			buildNamedAgent("child", "aaa-sub", "a1"),
+			buildNamedAgent("a1", "zeta"),
+		]);
+		expect(getWorkspaceAgent(ws, undefined)).toEqual(
+			expect.objectContaining({ id: "a1" }),
+		);
+	});
+
+	it("still resolves child agents by explicit id", () => {
+		const ws = buildWorkspace([
+			buildNamedAgent("child", "aaa-sub", "a1"),
+			buildNamedAgent("a1", "zeta"),
+		]);
+		expect(getWorkspaceAgent(ws, "child")).toEqual(
+			expect.objectContaining({ id: "child" }),
+		);
+	});
+
+	it("picks the first sorted match when several agents use the suffix", () => {
+		const ws = buildWorkspace([
+			buildNamedAgent("a1", "zeta-coderd-chat"),
+			buildNamedAgent("a2", "alpha-coderd-chat"),
+		]);
+		expect(getWorkspaceAgent(ws, undefined)).toEqual(
+			expect.objectContaining({ id: "a2" }),
 		);
 	});
 });

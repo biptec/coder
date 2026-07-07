@@ -77,7 +77,11 @@ import {
 	useChatStore,
 } from "./components/ChatConversation/chatStore";
 import { useChatToolInvalidations } from "./components/ChatConversation/useChatToolInvalidations";
-import type { PendingAttachment } from "./components/ChatPageContent";
+import type {
+	PendingAttachment,
+	PendingWorkspaceUpload,
+	SendChatMessageOptions,
+} from "./components/ChatPageContent";
 import {
 	getDefaultMCPSelection,
 	getSavedMCPSelection,
@@ -313,14 +317,14 @@ const buildAttachmentMediaTypes = (
 	);
 };
 
+export type SendChatTurnOptions = SendChatMessageOptions & {
+	editedMessageID?: number;
+};
+
 /** @internal Exported for testing. */
 export function useConversationEditingState(deps: {
 	chatID: string | undefined;
-	onSend: (
-		message: string,
-		attachments?: readonly PendingAttachment[],
-		editedMessageID?: number,
-	) => Promise<void>;
+	onSend: (options: SendChatTurnOptions) => Promise<void>;
 	onDeleteQueuedMessage: (id: number) => Promise<void>;
 	chatInputRef: React.RefObject<ChatMessageInputRef | null>;
 	inputValueRef: React.RefObject<string>;
@@ -514,14 +518,20 @@ export function useConversationEditingState(deps: {
 
 	// Wraps the parent onSend to clear local input/editing state
 	// and handle queue-edit deletion.
-	const handleSendFromInput = async (
-		message: string,
-		attachments?: readonly PendingAttachment[],
-	) => {
+	const handleSendFromInput = async ({
+		message,
+		attachments,
+		workspaceUploads,
+	}: SendChatMessageOptions) => {
 		const editedMessageID =
 			editingMessageId !== null ? editingMessageId : undefined;
 		const queueEditID = editingQueuedMessageID;
-		const sendPromise = onSend(message, attachments, editedMessageID);
+		const sendPromise = onSend({
+			message,
+			attachments,
+			workspaceUploads,
+			editedMessageID,
+		});
 
 		// For history edits, clear input immediately and prepare
 		// a rollback in case the send fails.
@@ -833,6 +843,16 @@ const AgentChatPage: FC = () => {
 		chatModelsQuery.data,
 	);
 
+	// The chat's bound agent is the one uploads and exec paths target
+	// on the backend, so agent-dependent UI must track it rather than
+	// the workspace's first agent. The ref lets the workspace watch
+	// below read the current binding without resubscribing.
+	const chatAgentId = chatQuery.data?.agent_id;
+	const chatAgentIdRef = useRef(chatAgentId);
+	useEffect(() => {
+		chatAgentIdRef.current = chatAgentId;
+	}, [chatAgentId]);
+
 	// Subscribe to live workspace updates so that agent status changes
 	// (e.g. connected/disconnected) are reflected without a page refresh.
 	useEffect(() => {
@@ -855,8 +875,14 @@ const AgentChatPage: FC = () => {
 								// reads has changed. This prevents react-query
 								// from notifying subscribers and avoids a full
 								// AgentChatPage re-render on every heartbeat.
-								const prevAgent = getWorkspaceAgent(prev, undefined);
-								const nextAgent = getWorkspaceAgent(next, undefined);
+								const prevAgent = getWorkspaceAgent(
+									prev,
+									chatAgentIdRef.current,
+								);
+								const nextAgent = getWorkspaceAgent(
+									next,
+									chatAgentIdRef.current,
+								);
 								if (
 									prev &&
 									prev.latest_build.status === next.latest_build.status &&
@@ -891,7 +917,7 @@ const AgentChatPage: FC = () => {
 		});
 	}, [workspaceId, queryClient]);
 	const sshConfigQuery = useQuery(deploymentSSHConfig());
-	const workspaceAgent = getWorkspaceAgent(workspace, undefined);
+	const workspaceAgent = getWorkspaceAgent(workspace, chatAgentId);
 	const { proxy } = useProxy();
 
 	const chatRecord = chatQuery.data;
@@ -1359,10 +1385,12 @@ const AgentChatPage: FC = () => {
 	function buildChatInputContent({
 		message,
 		attachments,
+		workspaceUploads,
 		useComposerContent = true,
 	}: {
 		message: string;
 		attachments?: readonly PendingAttachment[];
+		workspaceUploads?: readonly PendingWorkspaceUpload[];
 		useComposerContent?: boolean;
 	}): { content: TypesGen.ChatInputPart[]; hasContent: boolean } {
 		const content: TypesGen.ChatInputPart[] = [];
@@ -1406,18 +1434,34 @@ const AgentChatPage: FC = () => {
 			}
 		}
 
+		if (workspaceUploads && workspaceUploads.length > 0) {
+			for (const upload of workspaceUploads) {
+				content.push({
+					type: "workspace-file-reference",
+					workspace_file_path: upload.path,
+					workspace_file_name: upload.name,
+					workspace_file_size: upload.size,
+					workspace_file_media_type:
+						upload.mediaType || "application/octet-stream",
+					workspace_file_workspace_id: upload.workspaceId,
+				});
+			}
+		}
+
 		return { content, hasContent: content.length > 0 };
 	}
 
 	async function submitChatTurn({
 		message,
 		attachments,
+		workspaceUploads,
 		editedMessageID,
 		useComposerContent = true,
 		planModeSwitch,
 	}: {
 		message: string;
 		attachments?: readonly PendingAttachment[];
+		workspaceUploads?: readonly PendingWorkspaceUpload[];
 		editedMessageID?: number;
 		useComposerContent?: boolean;
 		planModeSwitch?: PlanModeSwitch;
@@ -1425,6 +1469,7 @@ const AgentChatPage: FC = () => {
 		const { content, hasContent } = buildChatInputContent({
 			message,
 			attachments,
+			workspaceUploads,
 			useComposerContent,
 		});
 		if (!hasContent || isSubmissionPending || !agentId || !hasModelOptions) {
@@ -1560,14 +1605,16 @@ const AgentChatPage: FC = () => {
 		}
 	}
 
-	async function handleSend(
-		message: string,
-		attachments?: readonly PendingAttachment[],
-		editedMessageID?: number,
-	) {
+	async function handleSend({
+		message,
+		attachments,
+		workspaceUploads,
+		editedMessageID,
+	}: SendChatTurnOptions) {
 		await submitChatTurn({
 			message,
 			attachments,
+			workspaceUploads,
 			editedMessageID,
 		});
 	}

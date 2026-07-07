@@ -92,6 +92,57 @@ export const resolveModelFromChatConfig = (
 	return modelOptions[0]?.id ?? "";
 };
 
+// Chat-designated agents use this naming convention; mirrors
+// agentselect.Suffix on the backend.
+const chatAgentSuffix = "-coderd-chat";
+
+// compareChatAgents replicates the backend comparator in
+// agentselect.FindChatAgent: display_order ASC, then case-insensitive
+// name, then name, then id. Plain string comparisons (not
+// localeCompare) match Go's byte-order string compare on these
+// ASCII-only fields.
+const compareChatAgents = (
+	a: TypesGen.WorkspaceAgent,
+	b: TypesGen.WorkspaceAgent,
+): number => {
+	if (a.display_order !== b.display_order) {
+		return a.display_order - b.display_order;
+	}
+	const aLower = a.name.toLowerCase();
+	const bLower = b.name.toLowerCase();
+	if (aLower !== bLower) {
+		return aLower < bLower ? -1 : 1;
+	}
+	if (a.name !== b.name) {
+		return a.name < b.name ? -1 : 1;
+	}
+	if (a.id !== b.id) {
+		return a.id < b.id ? -1 : 1;
+	}
+	return 0;
+};
+
+// selectChatAgent mirrors the backend's agentselect.FindChatAgent so
+// affordances gate on the agent the server will actually use before a
+// chat binds one: root agents only, re-sorted globally with the
+// backend's comparator (the API response is also sorted, but only
+// within each resource, so flattened order can diverge), preferring a
+// `-coderd-chat` suffixed agent. When several agents carry the suffix
+// the backend refuses to auto-select; the first match keeps the
+// affordance visible so the server's actionable error surfaces on use.
+const selectChatAgent = (
+	agents: readonly TypesGen.WorkspaceAgent[],
+): TypesGen.WorkspaceAgent | undefined => {
+	const rootAgents = agents
+		.filter((agent) => !agent.parent_id)
+		.sort(compareChatAgents);
+	return (
+		rootAgents.find((agent) =>
+			agent.name.toLowerCase().endsWith(chatAgentSuffix),
+		) ?? rootAgents[0]
+	);
+};
+
 export const getWorkspaceAgent = (
 	workspace: TypesGen.Workspace | undefined,
 	workspaceAgentId: string | undefined,
@@ -103,5 +154,8 @@ export const getWorkspaceAgent = (
 	if (agents.length === 0) {
 		return undefined;
 	}
-	return agents.find((agent) => agent.id === workspaceAgentId) ?? agents[0];
+	return (
+		agents.find((agent) => agent.id === workspaceAgentId) ??
+		selectChatAgent(agents)
+	);
 };
