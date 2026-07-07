@@ -3744,6 +3744,118 @@ func TestCreateChatModelConfig(t *testing.T) {
 		)
 	})
 
+	t.Run("ReasoningEffortStored", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := testutil.Context(t, testutil.WaitLong)
+		client := newChatClient(t)
+		_ = coderdtest.CreateFirstUser(t, client.Client)
+
+		aiProvider := createAIProviderForTest(t, client, "openai", "test-api-key")
+
+		contextLimit := int64(4096)
+		modelConfig, err := client.CreateChatModelConfig(ctx, codersdk.CreateChatModelConfigRequest{
+			AIProviderID: &aiProvider.ID,
+			Model:        "gpt-4o-mini",
+			ContextLimit: &contextLimit,
+			ModelConfig: &codersdk.ChatModelCallConfig{
+				ReasoningEffort: &codersdk.ChatModelReasoningEffortConfig{
+					Default: ptr.Ref("medium"),
+					Max:     ptr.Ref("xhigh"),
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, modelConfig.ModelConfig)
+		require.NotNil(t, modelConfig.ModelConfig.ReasoningEffort)
+		require.NotNil(t, modelConfig.ModelConfig.ReasoningEffort.Default)
+		require.Equal(t, "medium", *modelConfig.ModelConfig.ReasoningEffort.Default)
+		require.NotNil(t, modelConfig.ModelConfig.ReasoningEffort.Max)
+		require.Equal(t, "xhigh", *modelConfig.ModelConfig.ReasoningEffort.Max)
+		require.Equal(t, []string{"none", "minimal", "low", "medium", "high", "xhigh"}, modelConfig.ReasoningEfforts)
+	})
+
+	t.Run("ReasoningEffortRejectsSingleValue", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := testutil.Context(t, testutil.WaitLong)
+		client := newChatClient(t)
+		_ = coderdtest.CreateFirstUser(t, client.Client)
+
+		aiProvider := createAIProviderForTest(t, client, "openai", "test-api-key")
+
+		contextLimit := int64(4096)
+		_, err := client.CreateChatModelConfig(ctx, codersdk.CreateChatModelConfigRequest{
+			AIProviderID: &aiProvider.ID,
+			Model:        "gpt-4o-mini",
+			ContextLimit: &contextLimit,
+			ModelConfig: &codersdk.ChatModelCallConfig{
+				ReasoningEffort: &codersdk.ChatModelReasoningEffortConfig{
+					Default: ptr.Ref("high"),
+				},
+			},
+		})
+		sdkErr := requireSDKError(t, err, http.StatusBadRequest)
+		require.Equal(t, "Invalid model config.", sdkErr.Message)
+		require.Equal(t, "reasoning_effort.default and reasoning_effort.max must both be set", sdkErr.Detail)
+	})
+
+	t.Run("ReasoningEffortRejectsInvalidValue", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := testutil.Context(t, testutil.WaitLong)
+		client := newChatClient(t)
+		_ = coderdtest.CreateFirstUser(t, client.Client)
+
+		aiProvider := createAIProviderForTest(t, client, "openai", "test-api-key")
+
+		contextLimit := int64(4096)
+		_, err := client.CreateChatModelConfig(ctx, codersdk.CreateChatModelConfigRequest{
+			AIProviderID: &aiProvider.ID,
+			Model:        "gpt-4o-mini",
+			ContextLimit: &contextLimit,
+			ModelConfig: &codersdk.ChatModelCallConfig{
+				ReasoningEffort: &codersdk.ChatModelReasoningEffortConfig{
+					Default: ptr.Ref(" HIGH "),
+					Max:     ptr.Ref("high"),
+				},
+			},
+		})
+		sdkErr := requireSDKError(t, err, http.StatusBadRequest)
+		require.Equal(t, "Invalid model config.", sdkErr.Message)
+		require.Equal(
+			t,
+			"reasoning_effort.default must be one of none, minimal, low, medium, high, xhigh, max",
+			sdkErr.Detail,
+		)
+	})
+
+	t.Run("ReasoningEffortRejectsDefaultAboveMax", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := testutil.Context(t, testutil.WaitLong)
+		client := newChatClient(t)
+		_ = coderdtest.CreateFirstUser(t, client.Client)
+
+		aiProvider := createAIProviderForTest(t, client, "openai", "test-api-key")
+
+		contextLimit := int64(4096)
+		_, err := client.CreateChatModelConfig(ctx, codersdk.CreateChatModelConfigRequest{
+			AIProviderID: &aiProvider.ID,
+			Model:        "gpt-4o-mini",
+			ContextLimit: &contextLimit,
+			ModelConfig: &codersdk.ChatModelCallConfig{
+				ReasoningEffort: &codersdk.ChatModelReasoningEffortConfig{
+					Default: ptr.Ref("xhigh"),
+					Max:     ptr.Ref("low"),
+				},
+			},
+		})
+		sdkErr := requireSDKError(t, err, http.StatusBadRequest)
+		require.Equal(t, "Invalid model config.", sdkErr.Message)
+		require.Contains(t, sdkErr.Detail, "must not exceed")
+	})
+
 	t.Run("MissingContextLimit", func(t *testing.T) {
 		t.Parallel()
 

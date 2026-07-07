@@ -402,6 +402,11 @@ func (p *Server) newAdvisorRuntime(
 		advisorModel,
 		advisorCallConfig.ProviderOptions,
 	)
+	providerOptions = chatprovider.ApplyReasoningEffort(
+		advisorModel,
+		providerOptions,
+		chatprovider.ResolveReasoningEffort(advisorCallConfig.ReasoningEffort),
+	)
 
 	rt, err := chatadvisor.NewRuntime(chatadvisor.RuntimeConfig{
 		Model:           advisorModel,
@@ -2336,7 +2341,7 @@ func (p *Server) generateManualTitleCandidate(
 		)
 	}
 
-	title, usage, err := generateManualTitle(titleCtx, messages, titleModel)
+	title, usage, err := generateManualTitle(titleCtx, messages, titleModel, p.titleGenerationProviderOptions(ctx, titleModel, modelConfig))
 	finishDebugRun(err)
 	result.title = title
 	result.usage = usage

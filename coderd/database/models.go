@@ -4799,6 +4799,7 @@ type Chat struct {
 	ParentChatID             uuid.NullUUID         `db:"parent_chat_id" json:"parent_chat_id"`
 	RootChatID               uuid.NullUUID         `db:"root_chat_id" json:"root_chat_id"`
 	LastModelConfigID        uuid.UUID             `db:"last_model_config_id" json:"last_model_config_id"`
+	LastReasoningEffort      sql.NullString        `db:"last_reasoning_effort" json:"last_reasoning_effort"`
 	Archived                 bool                  `db:"archived" json:"archived"`
 	LastError                pqtype.NullRawMessage `db:"last_error" json:"last_error"`
 	Mode                     NullChatMode          `db:"mode" json:"mode"`
@@ -4964,6 +4965,8 @@ type ChatMessage struct {
 	ProviderResponseID  sql.NullString        `db:"provider_response_id" json:"provider_response_id"`
 	APIKeyID            sql.NullString        `db:"api_key_id" json:"api_key_id"`
 	Revision            int64                 `db:"revision" json:"revision"`
+	// Stores the selected effort for the turn triggered by this message.
+	ReasoningEffort sql.NullString `db:"reasoning_effort" json:"reasoning_effort"`
 }
 
 type ChatModelConfig struct {
@@ -4993,6 +4996,8 @@ type ChatQueuedMessage struct {
 	APIKeyID      sql.NullString  `db:"api_key_id" json:"api_key_id"`
 	Position      int64           `db:"position" json:"position"`
 	CreatedBy     uuid.UUID       `db:"created_by" json:"created_by"`
+	// Stores the selected effort until the queued row is promoted.
+	ReasoningEffort sql.NullString `db:"reasoning_effort" json:"reasoning_effort"`
 }
 
 type ChatTable struct {
@@ -5044,6 +5049,8 @@ type ChatTable struct {
 	ContextDirtyResources pqtype.NullRawMessage `db:"context_dirty_resources" json:"context_dirty_resources"`
 	// Snapshot-level error copied from the pinned snapshot (count cap exceeded, watcher degraded, etc.). Empty when healthy.
 	ContextError string `db:"context_error" json:"context_error"`
+	// Stores the most recent message effort once per-turn selection is wired.
+	LastReasoningEffort sql.NullString `db:"last_reasoning_effort" json:"last_reasoning_effort"`
 }
 
 type ChatUsageLimitConfig struct {

@@ -10,13 +10,16 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	fantasyopenai "charm.land/fantasy/providers/openai"
 	fantasyopenaicompat "charm.land/fantasy/providers/openaicompat"
 	"github.com/sqlc-dev/pqtype"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"cdr.dev/slog/v3/sloggers/slogtest"
 	"github.com/coder/coder/v2/coderd/database"
 	"github.com/coder/coder/v2/coderd/database/dbgen"
+	"github.com/coder/coder/v2/coderd/database/dbmock"
 	"github.com/coder/coder/v2/coderd/database/dbtestutil"
 	"github.com/coder/coder/v2/coderd/x/chatd/chatprovider"
 	"github.com/coder/coder/v2/coderd/x/chatd/chattest"
@@ -423,7 +426,7 @@ func TestMaybeGenerateChatTitlePreservesUpdatedAt(t *testing.T) {
 		chat,
 		[]database.ChatMessage{message},
 		"openai",
-		"test-model",
+		database.ChatModelConfig{Model: "test-model"},
 		model,
 		aiGatewayModelRoute{},
 		modelBuildOptions{},
@@ -444,6 +447,61 @@ func TestMaybeGenerateChatTitlePreservesUpdatedAt(t *testing.T) {
 	gotTitle, ok := generated.Load()
 	require.True(t, ok)
 	require.Equal(t, wantTitle, gotTitle)
+}
+
+func TestMaybeGenerateChatTitleAppliesModelConfigReasoningEffort(t *testing.T) {
+	t.Parallel()
+
+	ctx := testutil.Context(t, testutil.WaitShort)
+	chat, messages := titleOverrideTestChatAndMessages(t)
+	reasoningEffort := "high"
+	maxReasoningEffort := "max"
+	modelConfigRaw, err := json.Marshal(codersdk.ChatModelCallConfig{
+		ReasoningEffort: &codersdk.ChatModelReasoningEffortConfig{
+			Default: &reasoningEffort,
+			Max:     &maxReasoningEffort,
+		},
+	})
+	require.NoError(t, err)
+
+	model := &chattest.FakeModel{
+		ProviderName: fantasyopenai.Name,
+		ModelName:    "gpt-4o-mini",
+		GenerateObjectFn: func(_ context.Context, call fantasy.ObjectCall) (*fantasy.ObjectResponse, error) {
+			require.NotNil(t, call.MaxOutputTokens)
+			require.Equal(t, int64(256), *call.MaxOutputTokens)
+			providerOptions, ok := call.ProviderOptions[fantasyopenai.Name].(*fantasyopenai.ResponsesProviderOptions)
+			require.True(t, ok, "%T", call.ProviderOptions[fantasyopenai.Name])
+			require.NotNil(t, providerOptions.ReasoningEffort)
+			require.Equal(t, fantasyopenai.ReasoningEffortHigh, *providerOptions.ReasoningEffort)
+			return &fantasy.ObjectResponse{
+				Object: map[string]any{"title": "Reasoning title"},
+			}, nil
+		},
+	}
+
+	db := dbmock.NewMockStore(gomock.NewController(t))
+	db.EXPECT().GetChatTitleGenerationModelOverride(gomock.Any()).Return("", nil)
+	db.EXPECT().UpdateChatTitleByID(gomock.Any(), database.UpdateChatTitleByIDParams{
+		ID:    chat.ID,
+		Title: "Reasoning title",
+	}).Return(chatWithTitle(chat, "Reasoning title"), nil)
+
+	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true})
+	server := titleOverrideTestServer(db, logger)
+	server.maybeGenerateChatTitle(
+		ctx,
+		chat,
+		messages,
+		fantasyopenai.Name,
+		database.ChatModelConfig{Model: "gpt-4o-mini", Options: modelConfigRaw},
+		model,
+		aiGatewayModelRoute{},
+		modelBuildOptions{},
+		&generatedChatTitle{},
+		logger,
+		nil,
+	)
 }
 
 func Test_titleGenerationPrompt_UsesSlimRules(t *testing.T) {
@@ -489,6 +547,7 @@ func Test_generateManualTitle_UsesTimeout(t *testing.T) {
 		context.Background(),
 		messages,
 		model,
+		nil,
 	)
 	require.NoError(t, err)
 	require.Equal(t, "Refresh title", title)
@@ -525,6 +584,7 @@ func Test_generateManualTitle_TruncatesFirstUserInput(t *testing.T) {
 		context.Background(),
 		messages,
 		model,
+		nil,
 	)
 	require.NoError(t, err)
 }
@@ -558,6 +618,7 @@ func Test_generateManualTitle_ReturnsUsageForEmptyNormalizedTitle(t *testing.T) 
 		context.Background(),
 		messages,
 		model,
+		nil,
 	)
 	require.ErrorContains(t, err, "generated title was empty")
 	require.Equal(t, int64(11), usage.InputTokens)
@@ -663,6 +724,7 @@ func TestGenerateStructuredTitleWithUsage_OpenAICompatibleRequiredToolChoice(t *
 	title, _, err := generateStructuredTitleWithUsage(
 		t.Context(),
 		model,
+		nil,
 		titleGenerationPrompt,
 		"summarize failed workspace build logs",
 	)

@@ -532,7 +532,9 @@ func (server *Server) prepareGeneration(
 		}
 	}
 
+	reasoningEffort := chatprovider.ResolveReasoningEffort(callConfig.ReasoningEffort)
 	providerOptions := chatprovider.ProviderOptionsFromChatModelConfig(model, callConfig.ProviderOptions)
+	providerOptions = chatprovider.ApplyReasoningEffort(model, providerOptions, reasoningEffort)
 
 	activeToolNames := activeToolNamesForTurn(tools, currentPlanMode, chat.ParentChatID, approvedPlanMCPConfigIDs)
 	if isExploreSubagent {

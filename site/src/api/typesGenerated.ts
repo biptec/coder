@@ -2461,7 +2461,6 @@ export interface ChatModel {
 export interface ChatModelAnthropicProviderOptions {
 	readonly send_reasoning?: boolean;
 	readonly thinking?: ChatModelAnthropicThinkingOptions;
-	readonly effort?: string;
 	readonly thinking_display?: string;
 	readonly disable_parallel_tool_use?: boolean;
 	readonly web_search_enabled?: boolean;
@@ -2489,6 +2488,7 @@ export interface ChatModelCallConfig {
 	readonly presence_penalty?: number;
 	readonly frequency_penalty?: number;
 	readonly cost?: ModelCostConfig;
+	readonly reasoning_effort?: ChatModelReasoningEffortConfig;
 	readonly provider_options?: ChatModelProviderOptions;
 }
 
@@ -2506,6 +2506,11 @@ export interface ChatModelConfig {
 	readonly context_limit: number;
 	readonly compression_threshold: number;
 	readonly model_config?: ChatModelCallConfig;
+	/**
+	 * ReasoningEfforts lists selectable reasoning effort values through
+	 * the model's configured maximum.
+	 */
+	readonly reasoning_efforts?: readonly string[];
 	readonly created_at: string;
 	readonly updated_at: string;
 }
@@ -2546,7 +2551,6 @@ export interface ChatModelGoogleThinkingConfig {
  */
 export interface ChatModelOpenAICompatProviderOptions {
 	readonly user?: string;
-	readonly reasoning_effort?: string;
 }
 
 // From codersdk/chats.go
@@ -2562,7 +2566,6 @@ export interface ChatModelOpenAIProviderOptions {
 	readonly max_tool_calls?: number;
 	readonly parallel_tool_calls?: boolean;
 	readonly user?: string;
-	readonly reasoning_effort?: string;
 	readonly reasoning_summary?: string;
 	readonly max_completion_tokens?: number;
 	readonly text_verbosity?: string;
@@ -2673,6 +2676,59 @@ export const ChatModelProviderUnavailableReasons: ChatModelProviderUnavailableRe
 
 // From codersdk/chats.go
 /**
+ * ChatModelReasoningEffortConfig configures per-model reasoning effort
+ * bounds. When configured, Default and Max must both be provided before
+ * storing.
+ */
+export interface ChatModelReasoningEffortConfig {
+	readonly default?: string;
+	readonly max?: string;
+}
+
+// From codersdk/chats.go
+/**
+ * Reasoning effort levels, ordered low to high for clamping and comparison.
+ */
+export const ChatModelReasoningEffortHigh = "high";
+
+// From codersdk/chats.go
+/**
+ * Reasoning effort levels, ordered low to high for clamping and comparison.
+ */
+export const ChatModelReasoningEffortLow = "low";
+
+// From codersdk/chats.go
+/**
+ * Reasoning effort levels, ordered low to high for clamping and comparison.
+ */
+export const ChatModelReasoningEffortMax = "max";
+
+// From codersdk/chats.go
+/**
+ * Reasoning effort levels, ordered low to high for clamping and comparison.
+ */
+export const ChatModelReasoningEffortMedium = "medium";
+
+// From codersdk/chats.go
+/**
+ * Reasoning effort levels, ordered low to high for clamping and comparison.
+ */
+export const ChatModelReasoningEffortMinimal = "minimal";
+
+// From codersdk/chats.go
+/**
+ * Reasoning effort levels, ordered low to high for clamping and comparison.
+ */
+export const ChatModelReasoningEffortNone = "none";
+
+// From codersdk/chats.go
+/**
+ * Reasoning effort levels, ordered low to high for clamping and comparison.
+ */
+export const ChatModelReasoningEffortXHigh = "xhigh";
+
+// From codersdk/chats.go
+/**
  * ChatModelReasoningOptions configures reasoning behavior for model
  * providers that support it.
  */
@@ -2680,7 +2736,6 @@ export interface ChatModelReasoningOptions {
 	readonly enabled?: boolean;
 	readonly exclude?: boolean;
 	readonly max_tokens?: number;
-	readonly effort?: string;
 }
 
 // From codersdk/chats.go

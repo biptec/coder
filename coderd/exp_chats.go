@@ -7491,6 +7491,12 @@ func parseChatModelConfigID(rw http.ResponseWriter, r *http.Request) (uuid.UUID,
 }
 
 func convertChatModelConfig(config database.ChatModelConfig) codersdk.ChatModelConfig {
+	modelConfig := unmarshalChatModelCallConfig(config.Options)
+	var reasoningEffortConfig *codersdk.ChatModelReasoningEffortConfig
+	if modelConfig != nil {
+		reasoningEffortConfig = modelConfig.ReasoningEffort
+	}
+
 	// Active configs always carry a non-null ai_provider_id (CHECK
 	// chat_model_configs_ai_provider_required_when_active).
 	return codersdk.ChatModelConfig{
@@ -7502,15 +7508,14 @@ func convertChatModelConfig(config database.ChatModelConfig) codersdk.ChatModelC
 		IsDefault:            config.IsDefault,
 		ContextLimit:         config.ContextLimit,
 		CompressionThreshold: config.CompressionThreshold,
-		ModelConfig:          unmarshalChatModelCallConfig(config.Options),
+		ModelConfig:          modelConfig,
+		ReasoningEfforts:     chatprovider.SelectableReasoningEfforts(reasoningEffortConfig),
 		CreatedAt:            config.CreatedAt,
 		UpdatedAt:            config.UpdatedAt,
 	}
 }
 
-func marshalChatModelCallConfig(
-	modelConfig *codersdk.ChatModelCallConfig,
-) (json.RawMessage, error) {
+func marshalChatModelCallConfig(modelConfig *codersdk.ChatModelCallConfig) (json.RawMessage, error) {
 	if modelConfig == nil {
 		return json.RawMessage("{}"), nil
 	}
@@ -7551,7 +7556,34 @@ func validateChatModelCallConfig(modelConfig *codersdk.ChatModelCallConfig) erro
 		}
 	}
 
+	if err := validateChatModelReasoningEffortConfig(modelConfig); err != nil {
+		return err
+	}
+
 	return validateChatModelProviderOptions(modelConfig.ProviderOptions)
+}
+
+// validateChatModelReasoningEffortConfig validates the reasoning_effort
+// config. Values must exactly match the global effort scale, and default
+// must not exceed max.
+func validateChatModelReasoningEffortConfig(modelConfig *codersdk.ChatModelCallConfig) error {
+	config := modelConfig.ReasoningEffort
+	if config == nil {
+		return nil
+	}
+	if config.Default == nil || config.Max == nil {
+		return xerrors.New("reasoning_effort.default and reasoning_effort.max must both be set")
+	}
+	if !chatprovider.IsValidReasoningEffort(*config.Default) {
+		return xerrors.New("reasoning_effort.default must be one of none, minimal, low, medium, high, xhigh, max")
+	}
+	if !chatprovider.IsValidReasoningEffort(*config.Max) {
+		return xerrors.New("reasoning_effort.max must be one of none, minimal, low, medium, high, xhigh, max")
+	}
+	if !chatprovider.ReasoningEffortLessOrEqual(*config.Default, *config.Max) {
+		return xerrors.New("reasoning_effort.default must not exceed reasoning_effort.max")
+	}
+	return nil
 }
 
 func validateChatModelProviderOptions(options *codersdk.ChatModelProviderOptions) error {
@@ -7604,6 +7636,7 @@ func isZeroChatModelCallConfig(config *codersdk.ChatModelCallConfig) bool {
 		config.TopK == nil &&
 		config.PresencePenalty == nil &&
 		config.FrequencyPenalty == nil &&
+		config.ReasoningEffort == nil &&
 		isZeroModelCostConfig(config.Cost) &&
 		isZeroChatModelProviderOptions(config.ProviderOptions)
 }
