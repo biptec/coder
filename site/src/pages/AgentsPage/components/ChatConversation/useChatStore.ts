@@ -586,11 +586,16 @@ export const useChatStore = (
 							wsStatusReceivedRef.current = true;
 							store.clearRetryState();
 							store.setChatStatus(nextStatus);
-							// The server's status is authoritative: any parts
-							// suppressed by an optimistic request (queued-message
-							// promote) that arrive after this event belong to the
-							// confirmed state.
-							store.unsuppressStreamParts();
+							// Lift the optimistic promote's part suppression once
+							// the server confirms a state where late frames from
+							// the interrupted turn can no longer arrive. The
+							// running-case promote transitions to "interrupting"
+							// first while the worker drains the old generation;
+							// stale frames are still expected there, so keep
+							// dropping them until the next status.
+							if (nextStatus !== "interrupting") {
+								store.unsuppressStreamParts();
+							}
 							if (nextStatus === "waiting") {
 								discardBufferedParts();
 							}

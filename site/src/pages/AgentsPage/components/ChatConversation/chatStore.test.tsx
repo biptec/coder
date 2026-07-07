@@ -2281,7 +2281,32 @@ describe("useChatStore", () => {
 			expect(result.current.streamState).toBeNull();
 		});
 
-		// The server's status event confirms the promotion and lifts
+		// The running-case promote drains the old generation first:
+		// the backend reports "interrupting" and stale frames can
+		// still arrive, so suppression must hold through it.
+		act(() => {
+			mockSocket.emitData({
+				type: "status",
+				chat_id: chatID,
+				status: { status: "interrupting" },
+			});
+		});
+		act(() => {
+			mockSocket.emitData({
+				type: "message_part",
+				chat_id: chatID,
+				message_part: {
+					role: "assistant",
+					part: { type: "text", text: "still stale" },
+				},
+			});
+		});
+
+		await waitFor(() => {
+			expect(result.current.streamState).toBeNull();
+		});
+
+		// The server's next status confirms the promotion and lifts
 		// the suppression; parts stream again for the new turn.
 		act(() => {
 			mockSocket.emitData({
