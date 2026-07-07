@@ -94,8 +94,6 @@ const exploreDisabledModelConfig = buildModelConfig({
 	context_limit: 200_000,
 });
 
-// Enabled at the config level, but its provider row is disabled, so no
-// selector may offer it.
 const providerDisabledModelConfig = buildModelConfig({
 	id: "model-provider-disabled",
 	ai_provider_id: "provider-openai-disabled",

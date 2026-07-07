@@ -15,10 +15,6 @@ import {
 	SelectValue,
 } from "#/components/Select/Select";
 import { useTemporarySavedState } from "#/components/TemporarySavedState/TemporarySavedState";
-import {
-	filterConfigsWithEnabledProvider,
-	type ProviderInfo,
-} from "#/pages/AgentsPage/utils/modelOptions";
 import { AgentSettingLayout } from "#/pages/AISettingsPage/CoderAgentsPage/components/AgentSettingLayout";
 import { cn } from "#/utils/cn";
 
@@ -37,7 +33,8 @@ interface AdvisorSettingsProps {
 	isAdvisorConfigFetching: boolean;
 	isAdvisorConfigLoadError: boolean;
 	modelConfigs: readonly ChatModelConfig[];
-	providerInfoByID: ReadonlyMap<string, ProviderInfo>;
+	// Subset of modelConfigs whose config and provider are both enabled.
+	enabledModelConfigs: readonly ChatModelConfig[];
 	modelConfigsError: unknown;
 	isLoadingModelConfigs: boolean;
 	isFetchingModelConfigs: boolean;
@@ -129,7 +126,7 @@ export const AdvisorSettings: FC<AdvisorSettingsProps> = ({
 	isAdvisorConfigFetching,
 	isAdvisorConfigLoadError,
 	modelConfigs,
-	providerInfoByID,
+	enabledModelConfigs,
 	modelConfigsError,
 	isLoadingModelConfigs,
 	isFetchingModelConfigs,
@@ -142,12 +139,6 @@ export const AdvisorSettings: FC<AdvisorSettingsProps> = ({
 	const maxOutputTokensId = useId();
 	const { isSavedVisible, showSavedState } = useTemporarySavedState();
 	const hasLoadedAdvisorConfig = advisorConfigData !== undefined;
-	// Offer only models that can actually serve requests: the config and
-	// its provider row must both be enabled.
-	const enabledModelConfigs = filterConfigsWithEnabledProvider(
-		modelConfigs.filter((config) => config.enabled),
-		providerInfoByID,
-	);
 
 	const form = useFormik<AdvisorSettingsFormValues>({
 		enableReinitialize: true,

@@ -117,8 +117,6 @@ export const CoderAgentsPageView: FC<CoderAgentsPageViewProps> = ({
 	isSavingComputerUseProvider,
 	computerUseProviderSaveError,
 }) => {
-	// Offer only models that can actually serve requests: the config and
-	// its provider row must both be enabled.
 	const enabledModelConfigs = filterConfigsWithEnabledProvider(
 		(modelConfigsData ?? []).filter((modelConfig) => modelConfig.enabled),
 		providerInfoByID,
@@ -207,7 +205,7 @@ export const CoderAgentsPageView: FC<CoderAgentsPageViewProps> = ({
 						isAdvisorConfigFetching={isAdvisorConfigFetching}
 						isAdvisorConfigLoadError={isAdvisorConfigLoadError}
 						modelConfigs={modelConfigsData ?? []}
-						providerInfoByID={providerInfoByID}
+						enabledModelConfigs={enabledModelConfigs}
 						modelConfigsError={modelConfigsError}
 						isLoadingModelConfigs={isLoadingModelConfigs}
 						isFetchingModelConfigs={isFetchingModelConfigs}
