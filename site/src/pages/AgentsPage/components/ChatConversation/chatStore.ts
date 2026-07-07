@@ -158,6 +158,12 @@ export type ChatStoreState = {
 	// the running-case promote, where the backend reorders the
 	// queued message to the front before auto-promoting it.
 	suppressedQueuedMessageIDs: ReadonlySet<number>;
+	// Drops incoming message_part events while an optimistic request
+	// (queued-message promote) has cleared the stream but the server
+	// has not yet confirmed the new turn. Late frames from the
+	// interrupted turn would otherwise repopulate the cleared stream.
+	// Lifted by the next authoritative status event.
+	streamPartsSuppressed: boolean;
 	subagentStatusOverrides: Map<string, TypesGen.ChatStatus>;
 };
 
@@ -188,6 +194,8 @@ export type ChatStore = {
 	suppressQueuedMessageID: (id: number) => void;
 	unsuppressQueuedMessageID: (id: number) => void;
 	clearSuppressedQueuedMessageIDs: () => void;
+	suppressStreamParts: () => void;
+	unsuppressStreamParts: () => void;
 	setChatStatus: (status: TypesGen.ChatStatus | null) => void;
 	setStreamState: (streamState: StreamState | null) => void;
 	setStreamError: (reason: ChatDetailError | null) => void;
@@ -215,6 +223,7 @@ const createInitialState = (): ChatStoreState => ({
 	reconnectState: null,
 	queuedMessages: [],
 	suppressedQueuedMessageIDs: new Set(),
+	streamPartsSuppressed: false,
 	subagentStatusOverrides: new Map(),
 });
 
@@ -487,6 +496,20 @@ export const createChatStore = (): ChatStore => {
 				return { ...current, suppressedQueuedMessageIDs: new Set() };
 			});
 		},
+		suppressStreamParts: () => {
+			setState((current) =>
+				current.streamPartsSuppressed
+					? current
+					: { ...current, streamPartsSuppressed: true },
+			);
+		},
+		unsuppressStreamParts: () => {
+			setState((current) =>
+				current.streamPartsSuppressed
+					? { ...current, streamPartsSuppressed: false }
+					: current,
+			);
+		},
 		setChatStatus: (status) => {
 			if (state.chatStatus === status) {
 				return;
@@ -613,6 +636,7 @@ export const createChatStore = (): ChatStore => {
 				state.streamError === null &&
 				state.retryState === null &&
 				state.reconnectState === null &&
+				!state.streamPartsSuppressed &&
 				state.subagentStatusOverrides.size === 0
 			) {
 				return;
@@ -623,6 +647,7 @@ export const createChatStore = (): ChatStore => {
 				streamError: null,
 				retryState: null,
 				reconnectState: null,
+				streamPartsSuppressed: false,
 				subagentStatusOverrides: new Map(),
 			}));
 		},

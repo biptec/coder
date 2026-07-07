@@ -388,7 +388,10 @@ export const useChatStore = (
 		const historyReplacementBuf: TypesGen.ChatMessage[] = [];
 
 		const shouldApplyMessagePart = (): boolean => {
-			return store.getSnapshot().chatStatus !== "waiting";
+			const snapshot = store.getSnapshot();
+			return (
+				snapshot.chatStatus !== "waiting" && !snapshot.streamPartsSuppressed
+			);
 		};
 
 		const schedulePartsFlush = () => {
@@ -583,6 +586,11 @@ export const useChatStore = (
 							wsStatusReceivedRef.current = true;
 							store.clearRetryState();
 							store.setChatStatus(nextStatus);
+							// The server's status is authoritative: any parts
+							// suppressed by an optimistic request (queued-message
+							// promote) that arrive after this event belong to the
+							// confirmed state.
+							store.unsuppressStreamParts();
 							if (nextStatus === "waiting") {
 								discardBufferedParts();
 							}

@@ -577,9 +577,10 @@ describe("applyMessagePart / applyMessageParts", () => {
 // ---------------------------------------------------------------------------
 
 describe("resetTransientState", () => {
-	it("clears streamState, streamError, retryState, reconnectState, and subagentOverrides", () => {
+	it("clears streamState, streamError, retryState, reconnectState, part suppression, and subagentOverrides", () => {
 		const store = createChatStore();
 		store.applyMessagePart({ type: "text", text: "stream" });
+		store.suppressStreamParts();
 		store.setStreamError({
 			kind: "generic",
 			message: "oops",
@@ -606,6 +607,7 @@ describe("resetTransientState", () => {
 		expect(state.streamError).toBeNull();
 		expect(state.retryState).toBeNull();
 		expect(state.reconnectState).toBeNull();
+		expect(state.streamPartsSuppressed).toBe(false);
 		expect(state.subagentStatusOverrides.size).toBe(0);
 	});
 

@@ -2215,6 +2215,99 @@ describe("useChatStore", () => {
 		});
 	});
 
+	it("drops suppressed parts until a status event lifts the suppression", async () => {
+		immediateAnimationFrame();
+
+		const chatID = "chat-parts-suppression";
+		const mockSocket = createMockSocket();
+		mockWatchChatReturn(mockSocket);
+
+		const queryClient = createTestQueryClient();
+		const wrapper = createWrapper(queryClient);
+		const setChatErrorReason = vi.fn();
+		const clearChatErrorReason = vi.fn();
+
+		const { result } = renderHook(
+			() => {
+				const { store } = useChatStore({
+					chatID,
+					chatMessages: [],
+					chatRecord: buildChat(chatID),
+					chatMessagesData: {
+						messages: [],
+						queued_messages: [],
+						has_more: false,
+					},
+					chatQueuedMessages: [],
+					setChatErrorReason,
+					clearChatErrorReason,
+				});
+				return {
+					store,
+					streamState: useChatSelector(store, selectStreamState),
+				};
+			},
+			{ wrapper },
+		);
+
+		await waitFor(() => {
+			expect(watchChat).toHaveBeenCalledWith(chatID, undefined);
+		});
+
+		// Simulate the optimistic queued-message promote: the stream
+		// is cleared and incoming parts are suppressed until the
+		// server confirms via a status event.
+		act(() => {
+			result.current.store.batch(() => {
+				result.current.store.clearStreamState();
+				result.current.store.setChatStatus("running");
+				result.current.store.suppressStreamParts();
+			});
+		});
+
+		// A late frame from the interrupted turn must be dropped.
+		act(() => {
+			mockSocket.emitData({
+				type: "message_part",
+				chat_id: chatID,
+				message_part: {
+					role: "assistant",
+					part: { type: "text", text: "stale frame" },
+				},
+			});
+		});
+
+		await waitFor(() => {
+			expect(result.current.streamState).toBeNull();
+		});
+
+		// The server's status event confirms the promotion and lifts
+		// the suppression; parts stream again for the new turn.
+		act(() => {
+			mockSocket.emitData({
+				type: "status",
+				chat_id: chatID,
+				status: { status: "running" },
+			});
+		});
+		act(() => {
+			mockSocket.emitData({
+				type: "message_part",
+				chat_id: chatID,
+				message_part: {
+					role: "assistant",
+					part: { type: "text", text: "new turn" },
+				},
+			});
+		});
+
+		await waitFor(() => {
+			expect(result.current.streamState?.blocks).toEqual([
+				{ type: "response", text: "new turn" },
+			]);
+		});
+	});
+
 	it("sets chatStatus to error and populates streamError on error event", async () => {
 		immediateAnimationFrame();
 

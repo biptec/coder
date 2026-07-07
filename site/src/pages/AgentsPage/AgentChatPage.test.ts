@@ -248,6 +248,9 @@ describe("runPromoteQueuedMessage", () => {
 		expect(snapshot.queuedMessages.map((m) => m.id)).toEqual([a.id, c.id]);
 		expect(snapshot.suppressedQueuedMessageIDs.has(b.id)).toBe(true);
 		expect(snapshot.chatStatus).toBe("running");
+		// Late frames from the interrupted turn must be dropped until
+		// the server confirms the promotion via a status event.
+		expect(snapshot.streamPartsSuppressed).toBe(true);
 	});
 
 	it("rolls back queue and status, clears suppression, and rethrows on API error", async () => {
@@ -281,6 +284,7 @@ describe("runPromoteQueuedMessage", () => {
 		expect(snapshot.queuedMessages.map((m) => m.id)).toEqual([a.id, b.id]);
 		expect(snapshot.chatStatus).toBe("waiting");
 		expect(snapshot.suppressedQueuedMessageIDs.has(b.id)).toBe(false);
+		expect(snapshot.streamPartsSuppressed).toBe(false);
 	});
 });
 

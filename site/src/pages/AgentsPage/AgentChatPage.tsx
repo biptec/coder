@@ -159,7 +159,10 @@ export const restoreOptimisticRequestSnapshot = (
  * actual user message is delivered via SSE or the messages REST endpoint.
  * Suppress the promoted ID so the transient reordered queue published by
  * the running-case backend does not flash the message back into the
- * visible queue. Roll back queue, status, and suppression on API error.
+ * visible queue. Also suppress incoming stream parts so late frames from
+ * the interrupted turn cannot repopulate the cleared stream before the
+ * server confirms the new turn via a status event. Roll back queue,
+ * status, and both suppressions on API error.
  *
  * @internal Exported for testing.
  */
@@ -176,7 +179,9 @@ export const runPromoteQueuedMessage = async (params: {
 		| "setStreamError"
 		| "setStreamState"
 		| "suppressQueuedMessageID"
+		| "suppressStreamParts"
 		| "unsuppressQueuedMessageID"
+		| "unsuppressStreamParts"
 	>;
 	promoteQueuedMessage: (id: number) => Promise<void>;
 	agentId: string | undefined;
@@ -200,6 +205,7 @@ export const runPromoteQueuedMessage = async (params: {
 		store.clearStreamState();
 		store.clearStreamError();
 		store.setChatStatus("running");
+		store.suppressStreamParts();
 	});
 	if (agentId) {
 		clearChatErrorReason(agentId);
@@ -208,6 +214,7 @@ export const runPromoteQueuedMessage = async (params: {
 		await promoteQueuedMessage(id);
 	} catch (error) {
 		store.unsuppressQueuedMessageID(id);
+		store.unsuppressStreamParts();
 		restoreOptimisticRequestSnapshot(store, previousSnapshot);
 		handleUsageLimitError(error);
 		throw error;
