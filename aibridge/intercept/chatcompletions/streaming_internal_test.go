@@ -111,8 +111,11 @@ func TestStreamingInterception_RelaysUpstreamErrorToClient(t *testing.T) {
 	}
 }
 
-// OpenAI-shaped SSE body for a successful streaming response.
-const streamingSuccessBody = `data: {"id":"chatcmpl-01","object":"chat.completion.chunk","created":1234567890,"model":"gpt-4","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":null}]}
+func TestStreamingInterception_HandlesUpstreamSSEEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	// OpenAI-shaped SSE body for a successful streaming response.
+	const streamingSuccessBody = `data: {"id":"chatcmpl-01","object":"chat.completion.chunk","created":1234567890,"model":"gpt-4","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":null}]}
 
 data: {"id":"chatcmpl-01","object":"chat.completion.chunk","created":1234567890,"model":"gpt-4","choices":[{"index":0,"delta":{"content":"!"},"finish_reason":null}]}
 
@@ -121,9 +124,6 @@ data: {"id":"chatcmpl-01","object":"chat.completion.chunk","created":1234567890,
 data: [DONE]
 
 `
-
-func TestStreamingInterception_HandlesUpstreamSSEEdgeCases(t *testing.T) {
-	t.Parallel()
 
 	validChunkWithoutDone := `data: {"id":"chatcmpl-01","object":"chat.completion.chunk","created":1234567890,"model":"gpt-4","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":null}]}
 
