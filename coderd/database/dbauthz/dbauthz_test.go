@@ -1462,16 +1462,6 @@ func (s *MethodTestSuite) TestChats() {
 		dbm.EXPECT().UpdateChatPlanModeByID(gomock.Any(), arg).Return(chat, nil).AnyTimes()
 		check.Args(arg).Asserts(chat, policy.ActionUpdate).Returns(chat)
 	}))
-	s.Run("UpdateChatStatusPreserveUpdatedAt", s.Mocked(func(dbm *dbmock.MockStore, faker *gofakeit.Faker, check *expects) {
-		chat := testutil.Fake(s.T(), faker, database.Chat{})
-		arg := database.UpdateChatStatusPreserveUpdatedAtParams{
-			ID:     chat.ID,
-			Status: database.ChatStatusRunning,
-		}
-		dbm.EXPECT().GetChatByID(gomock.Any(), chat.ID).Return(chat, nil).AnyTimes()
-		dbm.EXPECT().UpdateChatStatusPreserveUpdatedAt(gomock.Any(), arg).Return(chat, nil).AnyTimes()
-		check.Args(arg).Asserts(chat, policy.ActionUpdate).Returns(chat)
-	}))
 	s.Run("UpdateChatHeartbeats", s.Mocked(func(dbm *dbmock.MockStore, faker *gofakeit.Faker, check *expects) {
 		resultID := uuid.New()
 		arg := database.UpdateChatHeartbeatsParams{
@@ -6848,6 +6838,7 @@ func (s *MethodTestSuite) TestAIBridge() {
 			ID:      uuid.New(),
 			Type:    database.AIProviderTypeOpenai,
 			Name:    "test-provider",
+			Icon:    "",
 			Enabled: true,
 			BaseUrl: "https://api.example.com/",
 		}
@@ -6860,6 +6851,7 @@ func (s *MethodTestSuite) TestAIBridge() {
 		arg := database.UpdateAIProviderParams{
 			ID:      provider.ID,
 			Type:    provider.Type,
+			Icon:    provider.Icon,
 			Enabled: true,
 			BaseUrl: "https://api.example.com/",
 		}
