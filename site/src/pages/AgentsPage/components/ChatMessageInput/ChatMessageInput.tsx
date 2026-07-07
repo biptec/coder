@@ -45,8 +45,13 @@ import { isChatAttachmentFile } from "../../utils/chatAttachments";
 import {
 	filterPersonalSkills,
 	isPersonalSkillTriggerToken,
-	personalSkillTriggerText,
 } from "../../utils/personalSkills";
+import {
+	type ChatSlashCommand,
+	filterChatSlashCommands,
+	type SlashMenuItem,
+	slashMenuItemTriggerText,
+} from "../../utils/slashCommands";
 import {
 	$createFileReferenceNode,
 	FileReferenceNode,
@@ -502,6 +507,12 @@ interface ChatMessageInputProps
 	disabled?: boolean;
 	autoFocus?: boolean;
 	personalSkillsOverride?: readonly TypesGen.UserSkillMetadata[];
+	/**
+	 * Built-in commands offered by the "/" trigger menu ahead of
+	 * personal skills. Selection inserts the command text; the parent
+	 * composer intercepts it at submit time.
+	 */
+	slashCommands?: readonly ChatSlashCommand[];
 	"aria-label"?: string;
 }
 
@@ -568,6 +579,7 @@ const ChatMessageInput = ({
 	disabled,
 	autoFocus,
 	personalSkillsOverride,
+	slashCommands,
 	"aria-label": ariaLabel,
 	ref,
 	...props
@@ -604,23 +616,38 @@ const ChatMessageInput = ({
 		staleTime: 60_000,
 	});
 	const personalSkills = personalSkillsOverride ?? skillsQuery.data ?? [];
+	const availableSlashCommands = slashCommands ?? [];
+	const hasSlashCommands = availableSlashCommands.length > 0;
 	// A stale empty cache with a refetch in flight must not dismiss the menu.
 	const isResolvedEmptySkillsList = hasPersonalSkillsOverride
 		? personalSkills.length === 0
 		: skillsQuery.isSuccess &&
 			!skillsQuery.isFetching &&
 			personalSkills.length === 0;
-	// When the loaded skills list is empty, "/" is plain text. When only
-	// the filtered result is empty, keep the menu open for the no-match
-	// message.
-	const skillsMenuOpen = hasSkillsTrigger && !isResolvedEmptySkillsList;
+	// Without built-in commands, "/" is plain text when the loaded
+	// skills list is empty. When only the filtered result is empty,
+	// keep the menu open for the no-match message.
+	const skillsMenuOpen =
+		hasSkillsTrigger && (hasSlashCommands || !isResolvedEmptySkillsList);
 	const filteredPersonalSkills = skillsTrigger
 		? filterPersonalSkills(personalSkills, skillsTrigger.query)
 		: [];
+	const filteredSlashCommands = skillsTrigger
+		? filterChatSlashCommands(availableSlashCommands, skillsTrigger.query)
+		: [];
+	// Commands come first so partitioned menu groups match selection order.
+	const slashMenuItems: SlashMenuItem[] = [
+		...filteredSlashCommands.map(
+			(command): SlashMenuItem => ({ kind: "command", command }),
+		),
+		...filteredPersonalSkills.map(
+			(skill): SlashMenuItem => ({ kind: "skill", skill }),
+		),
+	];
 	const selectedSkillIndex =
-		filteredPersonalSkills.length === 0
+		slashMenuItems.length === 0
 			? -1
-			: Math.min(skillsMenuSelectedIndex, filteredPersonalSkills.length - 1);
+			: Math.min(skillsMenuSelectedIndex, slashMenuItems.length - 1);
 
 	const handleSkillsTriggerChange = (trigger: ActiveSkillsTrigger | null) => {
 		if (
@@ -640,7 +667,7 @@ const ChatMessageInput = ({
 		setSkillsTrigger(trigger);
 	};
 
-	const replaceActiveSkillsTrigger = (skill: TypesGen.UserSkillMetadata) => {
+	const replaceActiveSkillsTrigger = (item: SlashMenuItem) => {
 		const editor = editorRef.current;
 		const trigger = skillsTrigger;
 		if (!editor || !trigger) {
@@ -680,7 +707,7 @@ const ChatMessageInput = ({
 
 			selection.anchor.set(trigger.nodeKey, trigger.slashOffset, "text");
 			selection.focus.set(trigger.nodeKey, caretOffset, "text");
-			selection.insertText(personalSkillTriggerText(skill));
+			selection.insertText(slashMenuItemTriggerText(item));
 		});
 		setSkillsTrigger(null);
 		setSkillsMenuSelectedIndex(0);
@@ -890,11 +917,11 @@ const ChatMessageInput = ({
 				<InsertTextPlugin onEditorReady={handleEditorReady} />
 				<SkillsTriggerPlugin
 					open={skillsMenuOpen}
-					skills={filteredPersonalSkills}
+					items={slashMenuItems}
 					selectedIndex={selectedSkillIndex}
 					onSelectedIndexChange={setSkillsMenuSelectedIndex}
 					onTriggerChange={handleSkillsTriggerChange}
-					onSkillSelect={replaceActiveSkillsTrigger}
+					onItemSelect={replaceActiveSkillsTrigger}
 				/>
 				<EditableStatePlugin disabled={Boolean(disabled)} />
 				{autoFocus && <AutoFocusPlugin />}
@@ -902,7 +929,7 @@ const ChatMessageInput = ({
 					open={skillsMenuOpen}
 					anchorRect={skillsTrigger?.anchorRect ?? null}
 					query={skillsTrigger?.query ?? ""}
-					skills={filteredPersonalSkills}
+					items={slashMenuItems}
 					isLoading={
 						skillsMenuOpen &&
 						personalSkills.length === 0 &&

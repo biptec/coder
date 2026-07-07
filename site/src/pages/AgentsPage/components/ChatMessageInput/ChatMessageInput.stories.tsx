@@ -2,6 +2,7 @@ import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { type PropsWithChildren, useEffect } from "react";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import type * as TypesGen from "#/api/typesGenerated";
+import { COMPACT_SLASH_COMMAND } from "../../utils/slashCommands";
 import { ChatMessageInput } from "./ChatMessageInput";
 import {
 	expectNoVisibleText,
@@ -227,6 +228,80 @@ export const OutsideClickDismissesTriggerOnRefocus: Story = {
 		await userEvent.click(editor);
 		await expectNoVisibleText("/reviewer");
 		expect(editor.textContent).toBe("/");
+	},
+};
+
+// Built-in commands (e.g. /compact) render in a "Commands" group
+// ahead of personal skills when the parent provides slashCommands.
+export const CommandsGroupWithSkills: Story = {
+	args: {
+		slashCommands: [COMPACT_SLASH_COMMAND],
+	},
+	play: async ({ canvasElement }) => {
+		await typeInEditor(canvasElement, "/");
+		expect(await findVisibleText("Commands")).toBeDefined();
+		expect(await findVisibleText("/compact")).toBeDefined();
+		expect(await findVisibleText("Personal skills")).toBeDefined();
+		expect(await findVisibleText("/reviewer")).toBeDefined();
+	},
+};
+
+// Unlike the skills-only menu, "/" still opens when built-in commands
+// exist and the user has no personal skills.
+export const CommandsOnlyOpensWithEmptySkills: Story = {
+	args: {
+		personalSkillsOverride: [],
+		slashCommands: [COMPACT_SLASH_COMMAND],
+	},
+	play: async ({ canvasElement }) => {
+		await typeInEditor(canvasElement, "/");
+		expect(await findVisibleText("/compact")).toBeDefined();
+		expectNoVisibleTextImmediately("No personal skills found.");
+	},
+};
+
+export const EnterSelectsCommand: Story = {
+	args: {
+		personalSkillsOverride: [],
+		slashCommands: [COMPACT_SLASH_COMMAND],
+	},
+	play: async ({ canvasElement }) => {
+		const editor = await typeInEditor(canvasElement, "/comp");
+		await findVisibleText("/compact");
+		await userEvent.keyboard("{Enter}");
+		await waitFor(() => {
+			expect(editor.textContent).toBe("/compact");
+		});
+	},
+};
+
+// Commands are first in the combined list, so the first ArrowDown
+// moves the highlight from the command into the skills group.
+export const ArrowKeysCrossCommandAndSkillGroups: Story = {
+	args: {
+		slashCommands: [COMPACT_SLASH_COMMAND],
+	},
+	play: async ({ canvasElement }) => {
+		const editor = await typeInEditor(canvasElement, "/");
+		await findVisibleText("/compact");
+		await userEvent.keyboard("{ArrowDown}{Enter}");
+		await waitFor(() => {
+			expect(editor.textContent).toBe("/docs");
+		});
+	},
+};
+
+// A query that matches no command hides the Commands group but keeps
+// matching skills visible.
+export const CommandsFilteredOutBySkillQuery: Story = {
+	args: {
+		slashCommands: [COMPACT_SLASH_COMMAND],
+	},
+	play: async ({ canvasElement }) => {
+		await typeInEditor(canvasElement, "/rev");
+		expect(await findVisibleText("/reviewer")).toBeDefined();
+		await expectNoVisibleText("/compact");
+		expectNoVisibleTextImmediately("Commands");
 	},
 };
 

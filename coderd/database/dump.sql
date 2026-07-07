@@ -2041,6 +2041,7 @@ CREATE TABLE chats (
     context_dirty_since timestamp with time zone,
     context_dirty_resources jsonb,
     context_error text DEFAULT ''::text NOT NULL,
+    compaction_requested_at timestamp with time zone,
     CONSTRAINT chat_acl_only_on_root_chats CHECK ((((parent_chat_id IS NULL) AND (root_chat_id IS NULL)) OR ((user_acl = '{}'::jsonb) AND (group_acl = '{}'::jsonb)))),
     CONSTRAINT chat_group_acl_not_null_jsonb CHECK (((group_acl IS NOT NULL) AND (jsonb_typeof(group_acl) = 'object'::text))),
     CONSTRAINT chat_user_acl_not_null_jsonb CHECK (((user_acl IS NOT NULL) AND (jsonb_typeof(user_acl) = 'object'::text))),
@@ -2061,6 +2062,8 @@ COMMENT ON COLUMN chats.context_dirty_since IS 'Set when an agent push changes t
 COMMENT ON COLUMN chats.context_dirty_resources IS 'Deterministic prefix of resources that changed since the pinned hash. Reserved for the dirty diff; left NULL until the UI phase populates it.';
 
 COMMENT ON COLUMN chats.context_error IS 'Snapshot-level error copied from the pinned snapshot (count cap exceeded, watcher degraded, etc.). Empty when healthy.';
+
+COMMENT ON COLUMN chats.compaction_requested_at IS 'Set when the chat owner manually requests a context compaction. One-shot signal: consumed by the compaction commit and cleared whenever the chat leaves running.';
 
 CREATE TABLE users (
     id uuid NOT NULL,
@@ -2156,7 +2159,8 @@ CREATE VIEW chats_expanded AS
     c.context_aggregate_hash,
     c.context_dirty_since,
     c.context_dirty_resources,
-    c.context_error
+    c.context_error,
+    c.compaction_requested_at
    FROM ((chats c
      LEFT JOIN chats root ON ((root.id = COALESCE(c.root_chat_id, c.parent_chat_id))))
      JOIN visible_users owner ON ((owner.id = c.owner_id)));

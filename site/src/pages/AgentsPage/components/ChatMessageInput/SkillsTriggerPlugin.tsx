@@ -12,8 +12,8 @@ import {
 	type NodeKey,
 } from "lexical";
 import { useEffect, useEffectEvent, useLayoutEffect, useRef } from "react";
-import type * as TypesGen from "#/api/typesGenerated";
 import { parsePersonalSkillTrigger } from "../../utils/personalSkills";
+import type { SlashMenuItem } from "../../utils/slashCommands";
 import type { CaretAnchorRect } from "./PersonalSkillsTriggerMenu";
 
 export type ActiveSkillsTrigger = {
@@ -30,11 +30,11 @@ type DismissedSkillsTrigger = Pick<
 
 type SkillsTriggerPluginProps = {
 	open: boolean;
-	skills: readonly TypesGen.UserSkillMetadata[];
+	items: readonly SlashMenuItem[];
 	selectedIndex: number;
 	onSelectedIndexChange: (index: number) => void;
 	onTriggerChange: (trigger: ActiveSkillsTrigger | null) => void;
-	onSkillSelect: (skill: TypesGen.UserSkillMetadata) => void;
+	onItemSelect: (item: SlashMenuItem) => void;
 };
 
 const currentCaretRect = (): CaretAnchorRect | null => {
@@ -112,11 +112,11 @@ const activeTriggerFromSelection = (): Omit<
 
 export const SkillsTriggerPlugin = ({
 	open,
-	skills,
+	items,
 	selectedIndex,
 	onSelectedIndexChange,
 	onTriggerChange,
-	onSkillSelect,
+	onItemSelect,
 }: SkillsTriggerPluginProps) => {
 	const [editor] = useLexicalComposerContext();
 	const dismissedTriggerRef = useRef<DismissedSkillsTrigger | null>(null);
@@ -177,7 +177,7 @@ export const SkillsTriggerPlugin = ({
 				return false;
 			}
 			event.preventDefault();
-			const count = skills.length;
+			const count = items.length;
 			if (count === 0) {
 				return true;
 			}
@@ -192,9 +192,9 @@ export const SkillsTriggerPlugin = ({
 			return false;
 		}
 		event?.preventDefault();
-		const skill = skills[selectedIndex];
-		if (skill) {
-			onSkillSelect(skill);
+		const item = items[selectedIndex];
+		if (item) {
+			onItemSelect(item);
 		}
 		return true;
 	});
@@ -203,12 +203,12 @@ export const SkillsTriggerPlugin = ({
 		if (!open) {
 			return false;
 		}
-		const skill = skills[selectedIndex];
-		if (!skill) {
+		const item = items[selectedIndex];
+		if (!item) {
 			return false;
 		}
 		event?.preventDefault();
-		onSkillSelect(skill);
+		onItemSelect(item);
 		return true;
 	});
 

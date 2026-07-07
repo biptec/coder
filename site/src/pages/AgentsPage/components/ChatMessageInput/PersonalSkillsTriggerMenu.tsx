@@ -1,5 +1,4 @@
 import { useLayoutEffect, useState } from "react";
-import type * as TypesGen from "#/api/typesGenerated";
 import {
 	Command,
 	CommandEmpty,
@@ -12,7 +11,11 @@ import {
 	PopoverAnchor,
 	PopoverContent,
 } from "#/components/Popover/Popover";
-import { personalSkillTriggerText } from "../../utils/personalSkills";
+import {
+	type SlashMenuItem,
+	slashMenuItemTriggerText,
+	slashMenuItemValue,
+} from "../../utils/slashCommands";
 
 // Prevent zero-height anchors when the browser returns a degenerate caret rect.
 const MIN_ANCHOR_HEIGHT_PX = 16;
@@ -27,19 +30,19 @@ type PersonalSkillsTriggerMenuProps = {
 	open: boolean;
 	anchorRect: CaretAnchorRect | null;
 	query: string;
-	skills: readonly TypesGen.UserSkillMetadata[];
+	items: readonly SlashMenuItem[];
 	isLoading?: boolean;
 	isError?: boolean;
 	selectedIndex: number;
 	onSelectedIndexChange: (index: number) => void;
-	onSelect: (skill: TypesGen.UserSkillMetadata) => void;
+	onSelect: (item: SlashMenuItem) => void;
 	onClose: () => void;
 };
 
 type PersonalSkillsMenuState = {
 	anchorRect: CaretAnchorRect;
 	query: string;
-	skills: readonly TypesGen.UserSkillMetadata[];
+	items: readonly SlashMenuItem[];
 	isLoading?: boolean;
 	isError?: boolean;
 	selectedIndex: number;
@@ -49,7 +52,7 @@ export const PersonalSkillsTriggerMenu = ({
 	open,
 	anchorRect,
 	query,
-	skills,
+	items,
 	isLoading,
 	isError,
 	selectedIndex,
@@ -64,7 +67,7 @@ export const PersonalSkillsTriggerMenu = ({
 		? {
 				anchorRect,
 				query,
-				skills,
+				items,
 				isLoading,
 				isError,
 				selectedIndex,
@@ -72,7 +75,7 @@ export const PersonalSkillsTriggerMenu = ({
 		: null;
 	const menuState = activeMenuState ?? lastOpenMenuState;
 	const menuAnchorRect = menuState?.anchorRect ?? null;
-	const menuSkills = menuState?.skills ?? [];
+	const menuItems = menuState?.items ?? [];
 	const menuSelectedIndex = menuState?.selectedIndex ?? -1;
 
 	useLayoutEffect(() => {
@@ -82,7 +85,7 @@ export const PersonalSkillsTriggerMenu = ({
 		setLastOpenMenuState({
 			anchorRect,
 			query,
-			skills,
+			items,
 			isLoading,
 			isError,
 			selectedIndex,
@@ -94,15 +97,28 @@ export const PersonalSkillsTriggerMenu = ({
 		isLoading,
 		query,
 		selectedIndex,
-		skills,
+		items,
 	]);
 
 	const handleHighlightedValueChange = (value: string) => {
-		const nextIndex = menuSkills.findIndex((skill) => skill.name === value);
+		const nextIndex = menuItems.findIndex(
+			(item) => slashMenuItemValue(item) === value,
+		);
 		if (nextIndex >= 0) {
 			onSelectedIndexChange(nextIndex);
 		}
 	};
+
+	// Groups render per item kind straight from the combined list.
+	// Commands always precede skills in it, so the partitioned groups
+	// match keyboard selection order. Boolean flags (not derived
+	// arrays) keep the component memoizable by the React compiler.
+	const hasCommandItems = menuItems.some((item) => item.kind === "command");
+	const hasSkillItems = menuItems.some((item) => item.kind === "skill");
+	const highlightedItem = menuItems[menuSelectedIndex];
+	const highlightedValue = highlightedItem
+		? slashMenuItemValue(highlightedItem)
+		: "";
 
 	return (
 		<Popover
@@ -140,9 +156,23 @@ export const PersonalSkillsTriggerMenu = ({
 					shouldFilter={false}
 					loop={false}
 					onValueChange={handleHighlightedValueChange}
-					value={menuSkills[menuSelectedIndex]?.name ?? ""}
+					value={highlightedValue}
 				>
 					<CommandList className="max-h-72 border-t-0 mobile-full-width-dropdown-scroll-area">
+						{hasCommandItems && (
+							<CommandGroup heading="Commands">
+								{menuItems.map((item) =>
+									item.kind === "command" ? (
+										<SlashMenuCommandItem
+											key={slashMenuItemValue(item)}
+											item={item}
+											description={item.command.description}
+											onSelect={onSelect}
+										/>
+									) : null,
+								)}
+							</CommandGroup>
+						)}
 						{menuState?.isLoading ? (
 							<CommandItem value="loading" disabled>
 								Loading personal skills...
@@ -151,38 +181,58 @@ export const PersonalSkillsTriggerMenu = ({
 							<CommandItem value="error" disabled>
 								Could not load personal skills. Close and type / again to retry.
 							</CommandItem>
-						) : menuSkills.length === 0 ? (
+						) : hasSkillItems ? (
+							<CommandGroup heading="Personal skills">
+								{menuItems.map((item) =>
+									item.kind === "skill" ? (
+										<SlashMenuCommandItem
+											key={item.skill.id}
+											item={item}
+											description={item.skill.description}
+											onSelect={onSelect}
+										/>
+									) : null,
+								)}
+							</CommandGroup>
+						) : !hasCommandItems ? (
 							<CommandEmpty>
 								{menuState?.query
 									? "No personal skills match that query."
 									: "No personal skills found."}
 							</CommandEmpty>
-						) : (
-							<CommandGroup heading="Personal skills">
-								{menuSkills.map((skill) => (
-									<CommandItem
-										key={skill.id}
-										value={skill.name}
-										className="items-start"
-										onSelect={() => onSelect(skill)}
-									>
-										<div className="min-w-0 space-y-1">
-											<div className="truncate font-mono text-content-primary text-xs">
-												{personalSkillTriggerText(skill)}
-											</div>
-											{skill.description.trim() && (
-												<div className="line-clamp-2 text-content-secondary text-xs leading-snug">
-													{skill.description}
-												</div>
-											)}
-										</div>
-									</CommandItem>
-								))}
-							</CommandGroup>
-						)}
+						) : null}
 					</CommandList>
 				</Command>
 			</PopoverContent>
 		</Popover>
 	);
 };
+
+type SlashMenuCommandItemProps = {
+	item: SlashMenuItem;
+	description: string;
+	onSelect: (item: SlashMenuItem) => void;
+};
+
+const SlashMenuCommandItem = ({
+	item,
+	description,
+	onSelect,
+}: SlashMenuCommandItemProps) => (
+	<CommandItem
+		value={slashMenuItemValue(item)}
+		className="items-start"
+		onSelect={() => onSelect(item)}
+	>
+		<div className="min-w-0 space-y-1">
+			<div className="truncate font-mono text-content-primary text-xs">
+				{slashMenuItemTriggerText(item)}
+			</div>
+			{description.trim() && (
+				<div className="line-clamp-2 text-content-secondary text-xs leading-snug">
+					{description}
+				</div>
+			)}
+		</div>
+	</CommandItem>
+);
