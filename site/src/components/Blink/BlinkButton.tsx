@@ -19,7 +19,7 @@ export const BlinkButton: FC<BlinkButtonProps> = ({
 		<button
 			type="button"
 			onClick={onToggle}
-			aria-label="Open Blink assistant"
+			aria-label={open ? "Close Blink assistant" : "Open Blink assistant"}
 			aria-expanded={open}
 			className={cn(
 				"fixed bottom-6 right-6 z-50",

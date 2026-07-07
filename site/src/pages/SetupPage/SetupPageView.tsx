@@ -1,6 +1,6 @@
 import { isAxiosError } from "axios";
 import { type FormikContextType, useFormik } from "formik";
-import type { FC, ReactNode } from "react";
+import { type FC, type ReactNode, useState } from "react";
 import * as Yup from "yup";
 import { countries } from "#/api/countriesGenerated";
 import type * as TypesGen from "#/api/typesGenerated";
@@ -157,6 +157,7 @@ export const SetupPageView: FC<SetupPageViewProps> = ({
 	isLoading,
 	authMethods,
 }) => {
+	const [blinkEnabled, setBlinkEnabled] = useState(false);
 	const form: FormikContextType<TypesGen.CreateFirstUserRequest> =
 		useFormik<TypesGen.CreateFirstUserRequest>({
 			initialValues: {
@@ -180,7 +181,15 @@ export const SetupPageView: FC<SetupPageViewProps> = ({
 				},
 			},
 			validationSchema,
-			onSubmit,
+			onSubmit: (values) => {
+				// Persist Blink preference alongside form submission.
+				try {
+					localStorage.setItem("blink_enabled", String(blinkEnabled));
+				} catch {
+					// Storage may be unavailable.
+				}
+				onSubmit(values);
+			},
 			validateOnBlur: false,
 			validateOnMount: true,
 		});
@@ -412,17 +421,8 @@ export const SetupPageView: FC<SetupPageViewProps> = ({
 					>
 						<Switch
 							id="blink-toggle"
-							defaultChecked={false}
-							onCheckedChange={(checked) => {
-								try {
-									localStorage.setItem(
-										"blink_enabled",
-										String(checked === true),
-									);
-								} catch {
-									// Storage may be unavailable.
-								}
-							}}
+							checked={blinkEnabled}
+							onCheckedChange={(checked) => setBlinkEnabled(checked === true)}
 							data-testid="blink-toggle"
 							className="mt-0.5"
 						/>

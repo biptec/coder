@@ -192,6 +192,7 @@ export const BlinkPanel: FC<BlinkPanelProps> = ({
 						onChange={(e) => setInputValue(e.target.value)}
 						onKeyDown={handleKeyDown}
 						placeholder="Ask Blink..."
+						aria-label="Message Blink"
 						className={cn(
 							"flex-1 min-w-0",
 							"px-3 py-2 text-sm",

@@ -4,6 +4,8 @@ import {
 	createContext,
 	useCallback,
 	useContext,
+	useEffect,
+	useRef,
 	useState,
 } from "react";
 import type { BlinkMessage } from "./BlinkPanel";
@@ -38,14 +40,29 @@ function writeLocalStorage(key: string, value: string): void {
 	}
 }
 
-export const BlinkProvider: FC<PropsWithChildren<{ forceEnabled?: boolean }>> = ({ children, forceEnabled }) => {
-	const [enabled] = useState(() => forceEnabled || readLocalStorage("blink_enabled", "false") === "true");
+export const BlinkProvider: FC<
+	PropsWithChildren<{ forceEnabled?: boolean }>
+> = ({ children, forceEnabled }) => {
+	const [enabled] = useState(
+		() => forceEnabled || readLocalStorage("blink_enabled", "false") === "true",
+	);
 	const [open, setOpen] = useState(false);
 	const [messages, setMessages] = useState<BlinkMessage[]>([]);
 	const [isThinking, setIsThinking] = useState(false);
 	const [chatId, setChatId] = useState<string | null>(
 		() => readLocalStorage("blink_chat_id", "") || null,
 	);
+
+	// Track pending timeout so we can cancel it on unmount or new chat.
+	const pendingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	useEffect(() => {
+		return () => {
+			if (pendingTimeout.current !== null) {
+				clearTimeout(pendingTimeout.current);
+			}
+		};
+	}, []);
 
 	const toggle = useCallback(() => {
 		setOpen((prev) => !prev);
@@ -66,9 +83,15 @@ export const BlinkProvider: FC<PropsWithChildren<{ forceEnabled?: boolean }>> = 
 		setMessages((prev) => [...prev, userMessage]);
 		setIsThinking(true);
 
+		// Cancel any previously pending response.
+		if (pendingTimeout.current !== null) {
+			clearTimeout(pendingTimeout.current);
+		}
+
 		// Stub: simulate assistant response after a short delay.
 		// This will be wired to createChatMessage later.
-		setTimeout(() => {
+		pendingTimeout.current = setTimeout(() => {
+			pendingTimeout.current = null;
 			const assistantMessage: BlinkMessage = {
 				id: crypto.randomUUID(),
 				role: "assistant",
@@ -82,7 +105,13 @@ export const BlinkProvider: FC<PropsWithChildren<{ forceEnabled?: boolean }>> = 
 	}, []);
 
 	const startNewChat = useCallback(() => {
+		// Cancel any pending stub response.
+		if (pendingTimeout.current !== null) {
+			clearTimeout(pendingTimeout.current);
+			pendingTimeout.current = null;
+		}
 		setMessages([]);
+		setIsThinking(false);
 		const newId = crypto.randomUUID();
 		setChatId(newId);
 		writeLocalStorage("blink_chat_id", newId);

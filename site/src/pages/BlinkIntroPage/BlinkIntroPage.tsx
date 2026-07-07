@@ -1,5 +1,5 @@
-import { type FC, useEffect, useState } from "react";
-import { useNavigate } from "react-router";
+import { type FC, useCallback, useEffect, useState } from "react";
+import { Navigate, useNavigate } from "react-router";
 import { Blink } from "#/components/Blink/Blink";
 import { BlinkProvider, useBlinkContext } from "#/components/Blink/BlinkProvider";
 import { Button } from "#/components/Button/Button";
@@ -8,32 +8,55 @@ import { useAuthContext } from "#/contexts/auth/AuthProvider";
 import { Loader } from "#/components/Loader/Loader";
 import { pageTitle } from "#/utils/page";
 
+function readLS(key: string): string | null {
+	try {
+		return localStorage.getItem(key);
+	} catch {
+		return null;
+	}
+}
+
+function writeLS(key: string, value: string): void {
+	try {
+		localStorage.setItem(key, value);
+	} catch {
+		// Storage may be unavailable.
+	}
+}
+
 /**
  * Shown once after first-user setup when Blink was enabled.
  * Introduces the floating assistant and nudges the user to try it.
- * Dismissable at any time.
  */
 const BlinkIntroContent: FC = () => {
 	const navigate = useNavigate();
 	const { toggle, open } = useBlinkContext();
-	const [pointed, setPointed] = useState(false);
+	const [interacted, setInteracted] = useState(false);
 
-	// Once the user opens Blink from this page, mark the intro as done.
+	// Mark intro complete once the user has opened Blink from this page,
+	// regardless of whether they used "Try Blink" or clicked the button.
 	useEffect(() => {
-		if (open && pointed) {
-			localStorage.setItem("blink_intro_completed", "true");
+		if (open && interacted) {
+			writeLS("blink_intro_completed", "true");
 		}
-	}, [open, pointed]);
+	}, [open, interacted]);
 
-	const handleTryBlink = () => {
-		setPointed(true);
+	// Track any panel open as an interaction.
+	useEffect(() => {
+		if (open) {
+			setInteracted(true);
+		}
+	}, [open]);
+
+	const handleTryBlink = useCallback(() => {
+		setInteracted(true);
 		toggle();
-	};
+	}, [toggle]);
 
-	const handleSkip = () => {
-		localStorage.setItem("blink_intro_completed", "true");
+	const handleSkip = useCallback(() => {
+		writeLS("blink_intro_completed", "true");
 		void navigate("/templates");
-	};
+	}, [navigate]);
 
 	return (
 		<>
@@ -95,21 +118,15 @@ const BlinkIntroContent: FC = () => {
 
 export const BlinkIntroPage: FC = () => {
 	const { isLoading, isSignedIn } = useAuthContext();
-	const navigate = useNavigate();
 
-	// Guard: must be signed in.
-	useEffect(() => {
-		if (!isLoading && !isSignedIn) {
-			void navigate("/login", { replace: true });
-		}
-	}, [isLoading, isSignedIn, navigate]);
+	// Synchronous guards before any render.
+	if (!isLoading && !isSignedIn) {
+		return <Navigate to="/login" replace />;
+	}
 
-	// Guard: only show once.
-	useEffect(() => {
-		if (localStorage.getItem("blink_intro_completed") === "true") {
-			void navigate("/templates", { replace: true });
-		}
-	}, [navigate]);
+	if (readLS("blink_intro_completed") === "true") {
+		return <Navigate to="/templates" replace />;
+	}
 
 	if (isLoading) {
 		return <Loader fullscreen />;
