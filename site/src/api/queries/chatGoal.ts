@@ -3,13 +3,16 @@ import type * as TypesGen from "#/api/typesGenerated";
 export type ChatGoalAction = Exclude<TypesGen.ChatGoalMutationAction, "set">;
 export type CurrentChatGoalStatus = Extract<
 	TypesGen.ChatGoalStatus,
-	"active" | "paused" | "complete"
+	"active" | "paused" | "blocked" | "complete"
 >;
 
 export const isCurrentChatGoalStatus = (
 	status: TypesGen.ChatGoalStatus,
 ): status is CurrentChatGoalStatus =>
-	status === "active" || status === "paused" || status === "complete";
+	status === "active" ||
+	status === "paused" ||
+	status === "blocked" ||
+	status === "complete";
 
 export const currentChatGoal = (
 	goal: TypesGen.ChatGoal | undefined,
@@ -19,6 +22,7 @@ export const currentChatGoal = (
 const CHAT_GOAL_ACTIONS_BY_STATUS = {
 	active: ["pause", "complete", "clear"],
 	paused: ["resume", "clear"],
+	blocked: ["resume", "clear"],
 	complete: ["clear"],
 } as const satisfies Record<CurrentChatGoalStatus, readonly ChatGoalAction[]>;
 
