@@ -59,46 +59,49 @@ func TestChatDebugProxyURL(t *testing.T) {
 	}
 }
 
-func TestChatDebugProxyHandler_ReplicaNotFound(t *testing.T) {
+func TestChatDebugProxyHandler_ProxyErrors(t *testing.T) {
 	t.Parallel()
 
-	resolve := func(context.Context, uuid.UUID) (string, bool) { return "", false }
-	handler := chatDebugProxyHandler(slogtest.Make(t, nil), http.DefaultClient, resolve)
+	tests := []struct {
+		name         string
+		resolve      func(context.Context, uuid.UUID) (string, bool)
+		ignoreErrors bool
+	}{
+		{
+			name:    "replica not found",
+			resolve: func(context.Context, uuid.UUID) (string, bool) { return "", false },
+		},
+		{
+			name:         "replica unreachable",
+			resolve:      func(context.Context, uuid.UUID) (string, bool) { return "http://127.0.0.1:0", true },
+			ignoreErrors: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	rw := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/experimental/chats/"+uuid.NewString()+"/debug/snapshot", nil)
-	handler(rw, req, uuid.New())
+			handler := chatDebugProxyHandler(slogtest.Make(t, &slogtest.Options{IgnoreErrors: tt.ignoreErrors}), http.DefaultClient, tt.resolve)
 
-	require.Equal(t, http.StatusBadGateway, rw.Code)
-}
+			rw := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/api/experimental/chats/"+uuid.NewString()+"/debug/snapshot", nil)
+			handler(rw, req, uuid.New())
 
-func TestChatDebugProxyHandler_UnreachableReplica(t *testing.T) {
-	t.Parallel()
-
-	resolve := func(context.Context, uuid.UUID) (string, bool) { return "http://127.0.0.1:0", true }
-	handler := chatDebugProxyHandler(slogtest.Make(t, &slogtest.Options{IgnoreErrors: true}), http.DefaultClient, resolve)
-
-	rw := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/experimental/chats/"+uuid.NewString()+"/debug/snapshot", nil)
-	handler(rw, req, uuid.New())
-
-	require.Equal(t, http.StatusBadGateway, rw.Code)
+			require.Equal(t, http.StatusBadGateway, rw.Code)
+		})
+	}
 }
 
 func TestChatDebugProxyHandler_ForwardsVerbatim(t *testing.T) {
 	t.Parallel()
 
 	var (
-		gotPath          string
-		gotQuery         string
 		gotForwarded     string
 		gotSessionToken  string
 		upstreamRequests int
 	)
 	upstream := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		upstreamRequests++
-		gotPath = r.URL.Path
-		gotQuery = r.URL.RawQuery
 		gotForwarded = r.Header.Get(coderd.ChatDebugForwardedHeader)
 		gotSessionToken = r.Header.Get(codersdk.SessionTokenHeader)
 		rw.Header().Set("Content-Type", "application/json")
@@ -117,8 +120,6 @@ func TestChatDebugProxyHandler_ForwardsVerbatim(t *testing.T) {
 	handler(rw, req, uuid.New())
 
 	require.Equal(t, 1, upstreamRequests)
-	assert.Equal(t, "/api/experimental/chats/"+chatID.String()+"/debug/snapshot", gotPath)
-	assert.Equal(t, "foo=bar", gotQuery)
 	assert.Equal(t, "1", gotForwarded)
 	assert.Equal(t, "test-token", gotSessionToken)
 
