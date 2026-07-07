@@ -34608,10 +34608,8 @@ WHERE workspace_id = ANY($1 :: uuid[])
 ORDER BY workspace_id, created_at DESC, id DESC
 `
 
-// The id DESC tiebreaker keeps the "latest" pick stable when
-// two rows share the same created_at. dbtime.Now() rounds to microseconds and
-// Windows time.Now() resolution is coarser than that, so back-to-back inserts
-// can otherwise return either row.
+// Tiebreaker: back-to-back inserts can share a created_at on platforms
+// with coarse time.Now() resolution, making the pick non-deterministic.
 func (q *sqlQuerier) GetLatestWorkspaceAppStatusesByWorkspaceIDs(ctx context.Context, ids []uuid.UUID) ([]WorkspaceAppStatus, error) {
 	rows, err := q.db.QueryContext(ctx, getLatestWorkspaceAppStatusesByWorkspaceIDs, pq.Array(ids))
 	if err != nil {

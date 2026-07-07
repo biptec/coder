@@ -118,10 +118,8 @@ ORDER BY created_at DESC, id DESC
 LIMIT 1;
 
 -- name: GetLatestWorkspaceAppStatusesByWorkspaceIDs :many
--- The id DESC tiebreaker keeps the "latest" pick stable when
--- two rows share the same created_at. dbtime.Now() rounds to microseconds and
--- Windows time.Now() resolution is coarser than that, so back-to-back inserts
--- can otherwise return either row.
+-- Tiebreaker: back-to-back inserts can share a created_at on platforms
+-- with coarse time.Now() resolution, making the pick non-deterministic.
 SELECT DISTINCT ON (workspace_id)
   *
 FROM workspace_app_statuses

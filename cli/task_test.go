@@ -283,10 +283,8 @@ type setupCLITaskTestOpts struct {
 
 type setupCLITaskTestOpt func(*setupCLITaskTestOpts)
 
-// withoutInitialAppStatus skips the default "idle" PatchAppStatus at the end
-// of setup. Use this when a test wants to insert its own initial app status,
-// to avoid two InsertWorkspaceAppStatus rows landing with an identical
-// created_at on platforms with coarse time.Now() resolution.
+// withoutInitialAppStatus skips the default idle status, avoiding
+// timestamp collisions on platforms with coarse time.Now() resolution.
 func withoutInitialAppStatus() setupCLITaskTestOpt {
 	return func(o *setupCLITaskTestOpts) { o.skipInitialAppStatus = true }
 }
