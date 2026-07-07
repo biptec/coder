@@ -321,3 +321,64 @@ func TestDeferred_StreamErrorCapturedUnderCanceledContext(t *testing.T) {
 	for range stream { //nolint:revive // draining only; no body needed
 	}
 }
+
+// TestDeferred_StreamNilErrorPartCapturesMinimalStep guards that a stream
+// error part with a nil Error field still qualifies for errors-only
+// capture. shouldCaptureError classifies lastErr, so a nil lastErr must
+// not silently skip capture.
+func TestDeferred_StreamNilErrorPartCapturesMinimalStep(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	db := dbmock.NewMockStore(ctrl)
+	chatID := uuid.New()
+	runID := uuid.New()
+	expectDeferredErrorStep(t, db, runID, chatID)
+
+	inner := &chattest.FakeModel{
+		StreamFn: func(_ context.Context, _ fantasy.Call) (fantasy.StreamResponse, error) {
+			return func(yield func(fantasy.StreamPart) bool) {
+				yield(fantasy.StreamPart{
+					Type:  fantasy.StreamPartTypeError,
+					Error: nil,
+				})
+			}, nil
+		},
+	}
+	model, ctx := deferredModel(t, db, inner, chatID, runID)
+
+	stream, err := model.Stream(ctx, fantasy.Call{})
+	require.NoError(t, err)
+	for range stream { //nolint:revive // draining only; no body needed
+	}
+}
+
+// TestDeferred_StreamObjectNilErrorPartCapturesMinimalStep repeats the
+// previous test for StreamObject: wrapObjectStreamSeq duplicates the
+// same nil-Error branch as wrapStreamSeq.
+func TestDeferred_StreamObjectNilErrorPartCapturesMinimalStep(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	db := dbmock.NewMockStore(ctrl)
+	chatID := uuid.New()
+	runID := uuid.New()
+	expectDeferredErrorStep(t, db, runID, chatID)
+
+	inner := &chattest.FakeModel{
+		StreamObjectFn: func(_ context.Context, _ fantasy.ObjectCall) (fantasy.ObjectStreamResponse, error) {
+			return func(yield func(fantasy.ObjectStreamPart) bool) {
+				yield(fantasy.ObjectStreamPart{
+					Type:  fantasy.ObjectStreamPartTypeError,
+					Error: nil,
+				})
+			}, nil
+		},
+	}
+	model, ctx := deferredModel(t, db, inner, chatID, runID)
+
+	stream, err := model.StreamObject(ctx, fantasy.ObjectCall{})
+	require.NoError(t, err)
+	for range stream { //nolint:revive // draining only; no body needed
+	}
+}

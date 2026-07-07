@@ -627,6 +627,7 @@ func wrapStreamSeq(
 					} else {
 						summary.LastError = "stream error part with nil error"
 						streamError = map[string]string{"error": "stream error part with nil error"}
+						lastErr = xerrors.New("stream error part with nil error")
 					}
 					streamStatus = streamErrorStatus(streamStatus, part.Error)
 				}
@@ -788,6 +789,7 @@ func wrapObjectStreamSeq(
 					} else {
 						summary.LastError = "stream error part with nil error"
 						streamError = map[string]string{"error": "stream error part with nil error"}
+						lastErr = xerrors.New("stream error part with nil error")
 					}
 					streamStatus = streamErrorStatus(streamStatus, part.Error)
 				}
