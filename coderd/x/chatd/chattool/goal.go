@@ -92,6 +92,65 @@ type blockGoalResult struct {
 	Reason  string             `json:"reason"`
 }
 
+// parseGoalIDArg parses the goal_id tool argument shared by the goal
+// mutation tools. ok is false when the argument is missing or malformed.
+func parseGoalIDArg(raw string) (uuid.UUID, bool) {
+	goalIDStr := strings.TrimSpace(raw)
+	if goalIDStr == "" {
+		return uuid.Nil, false
+	}
+	goalID, err := uuid.Parse(goalIDStr)
+	if err != nil {
+		return uuid.Nil, false
+	}
+	return goalID, true
+}
+
+// mutateCurrentActiveGoal runs the transaction shared by the goal
+// mutation tools: it locks the chat row for the fence check, verifies
+// the current goal matches goalID and is active, enforces the combined
+// text payload limit for the extra textLen bytes, applies update, and
+// reloads the chat for post-commit callbacks.
+func mutateCurrentActiveGoal(
+	ctx context.Context,
+	db database.Store,
+	options GoalToolOptions,
+	goalID uuid.UUID,
+	textLen int,
+	update func(tx database.Store) (database.ChatGoal, error),
+) (database.ChatGoal, database.Chat, error) {
+	var updated database.ChatGoal
+	var chat database.Chat
+	err := db.InTx(func(tx database.Store) error {
+		// Lock the chat row first (matching the API mutation paths) so
+		// the fence check and goal update are atomic with respect to
+		// interrupts and worker takeovers.
+		if err := verifyGoalToolFence(ctx, tx, options.ChatID, options.Fence); err != nil {
+			return err
+		}
+		current, err := CurrentChatGoalByRootChatID(ctx, tx, options.RootChatID)
+		if err != nil {
+			return err
+		}
+		if current.ID != goalID {
+			return sql.ErrNoRows
+		}
+		if current.Status != database.ChatGoalStatusActive {
+			return errGoalNotActive
+		}
+		if len(current.Objective)+textLen > codersdk.MaxChatGoalTextPayloadBytes {
+			return errGoalTextPayloadTooLong
+		}
+		updated, err = update(tx)
+		if err != nil {
+			return err
+		}
+		chat, err = tx.GetChatByID(ctx, options.ChatID)
+		return err
+	}, nil)
+	return updated, chat, err
+}
+
 // CurrentChatGoalByRootChatID returns the current goal for rootChatID, or
 // sql.ErrNoRows when no current goal exists.
 func CurrentChatGoalByRootChatID(ctx context.Context, db database.Store, rootChatID uuid.UUID) (database.ChatGoal, error) {
@@ -133,12 +192,8 @@ func CompleteGoal(db database.Store, options GoalToolOptions) fantasy.AgentTool 
 			if !options.IsRootChat {
 				return fantasy.NewTextErrorResponse("complete_goal can only be used from the root chat"), nil
 			}
-			goalIDStr := strings.TrimSpace(args.GoalID)
-			if goalIDStr == "" {
-				return fantasy.NewTextErrorResponse("goal_id is required"), nil
-			}
-			goalID, err := uuid.Parse(goalIDStr)
-			if err != nil {
+			goalID, ok := parseGoalIDArg(args.GoalID)
+			if !ok {
 				return fantasy.NewTextErrorResponse("goal_id is required"), nil
 			}
 			summary := strings.TrimSpace(args.Summary)
@@ -152,32 +207,8 @@ func CompleteGoal(db database.Store, options GoalToolOptions) fantasy.AgentTool 
 				)), nil
 			}
 
-			var completed database.ChatGoal
-			var chat database.Chat
-			if err := db.InTx(func(tx database.Store) error {
-				// Lock the chat row first (matching the API mutation
-				// paths) so the fence check and goal update are atomic
-				// with respect to interrupts and worker takeovers.
-				if err := verifyGoalToolFence(ctx, tx, options.ChatID, options.Fence); err != nil {
-					return err
-				}
-				current, err := CurrentChatGoalByRootChatID(ctx, tx, options.RootChatID)
-				if err != nil {
-					if errors.Is(err, sql.ErrNoRows) {
-						return sql.ErrNoRows
-					}
-					return err
-				}
-				if current.ID != goalID {
-					return sql.ErrNoRows
-				}
-				if current.Status != database.ChatGoalStatusActive {
-					return errGoalNotActive
-				}
-				if len(current.Objective)+len(summary) > codersdk.MaxChatGoalTextPayloadBytes {
-					return errGoalTextPayloadTooLong
-				}
-				completed, err = tx.CompleteChatGoalByID(ctx, database.CompleteChatGoalByIDParams{
+			completed, chat, err := mutateCurrentActiveGoal(ctx, db, options, goalID, len(summary), func(tx database.Store) (database.ChatGoal, error) {
+				return tx.CompleteChatGoalByID(ctx, database.CompleteChatGoalByIDParams{
 					RootChatID: options.RootChatID,
 					ID:         goalID,
 					CompletionSummary: sql.NullString{
@@ -187,12 +218,8 @@ func CompleteGoal(db database.Store, options GoalToolOptions) fantasy.AgentTool 
 					CompletedByUserID: uuid.NullUUID{},
 					CompletedByAgent:  true,
 				})
-				if err != nil {
-					return err
-				}
-				chat, err = tx.GetChatByID(ctx, options.ChatID)
-				return err
-			}, nil); err != nil {
+			})
+			if err != nil {
 				switch {
 				case errors.Is(err, sql.ErrNoRows):
 					return fantasy.NewTextErrorResponse("current active goal does not match goal_id"), nil
@@ -235,12 +262,8 @@ func BlockGoal(db database.Store, options GoalToolOptions) fantasy.AgentTool {
 			if !options.IsRootChat {
 				return fantasy.NewTextErrorResponse("block_goal can only be used from the root chat"), nil
 			}
-			goalIDStr := strings.TrimSpace(args.GoalID)
-			if goalIDStr == "" {
-				return fantasy.NewTextErrorResponse("goal_id is required"), nil
-			}
-			goalID, err := uuid.Parse(goalIDStr)
-			if err != nil {
+			goalID, ok := parseGoalIDArg(args.GoalID)
+			if !ok {
 				return fantasy.NewTextErrorResponse("goal_id is required"), nil
 			}
 			reason := strings.TrimSpace(args.Reason)
@@ -254,39 +277,14 @@ func BlockGoal(db database.Store, options GoalToolOptions) fantasy.AgentTool {
 				)), nil
 			}
 
-			var blocked database.ChatGoal
-			var chat database.Chat
-			if err := db.InTx(func(tx database.Store) error {
-				// Lock the chat row first (matching the API mutation
-				// paths) so the fence check and goal update are atomic
-				// with respect to interrupts and worker takeovers.
-				if err := verifyGoalToolFence(ctx, tx, options.ChatID, options.Fence); err != nil {
-					return err
-				}
-				current, err := CurrentChatGoalByRootChatID(ctx, tx, options.RootChatID)
-				if err != nil {
-					return err
-				}
-				if current.ID != goalID {
-					return sql.ErrNoRows
-				}
-				if current.Status != database.ChatGoalStatusActive {
-					return errGoalNotActive
-				}
-				if len(current.Objective)+len(reason) > codersdk.MaxChatGoalTextPayloadBytes {
-					return errGoalTextPayloadTooLong
-				}
-				blocked, err = tx.BlockChatGoalByID(ctx, database.BlockChatGoalByIDParams{
+			blocked, chat, err := mutateCurrentActiveGoal(ctx, db, options, goalID, len(reason), func(tx database.Store) (database.ChatGoal, error) {
+				return tx.BlockChatGoalByID(ctx, database.BlockChatGoalByIDParams{
 					RootChatID:    options.RootChatID,
 					ID:            goalID,
 					BlockedReason: reason,
 				})
-				if err != nil {
-					return err
-				}
-				chat, err = tx.GetChatByID(ctx, options.ChatID)
-				return err
-			}, nil); err != nil {
+			})
+			if err != nil {
 				switch {
 				case errors.Is(err, sql.ErrNoRows):
 					return fantasy.NewTextErrorResponse("current active goal does not match goal_id"), nil
