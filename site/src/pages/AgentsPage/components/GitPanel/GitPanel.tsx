@@ -221,6 +221,26 @@ export const GitPanel: FC<GitPanelProps> = ({
 		spinTimerRef.current = setTimeout(() => setSpinning(false), 1000);
 	};
 
+	// The PR title renders truncated with a hover tooltip for the
+	// full text. Skip the tooltip when the title already fits so we
+	// don't show a redundant popover.
+	const prTitleRef = useRef<HTMLSpanElement>(null);
+	const [isPrTitleTruncated, setIsPrTitleTruncated] = useState(false);
+	useEffect(() => {
+		const el = prTitleRef.current;
+		if (!el || !prTitle) {
+			setIsPrTitleTruncated(false);
+			return;
+		}
+		const check = () => {
+			setIsPrTitleTruncated(el.scrollWidth > el.clientWidth);
+		};
+		check();
+		const observer = new ResizeObserver(check);
+		observer.observe(el);
+		return () => observer.disconnect();
+	}, [prTitle]);
+
 	const remoteItem: ViewItem | null = showRemoteTab
 		? prTab
 			? {
@@ -354,12 +374,13 @@ export const GitPanel: FC<GitPanelProps> = ({
 			</div>
 			{/* PR title row: shown below the switcher when the chat has a PR
 			   with a known title. Truncated, with the full title in a
-			   hover tooltip. */}
+			   hover tooltip only when the visible text is actually cut off. */}
 			{prTab && prTitle && (
 				<div className="flex shrink-0 items-center px-3 pb-1">
-					<Tooltip>
+					<Tooltip open={isPrTitleTruncated ? undefined : false}>
 						<TooltipTrigger asChild>
 							<span
+								ref={prTitleRef}
 								className="min-w-0 truncate text-sm font-medium text-content-primary"
 								data-testid="git-panel-pr-title"
 							>
