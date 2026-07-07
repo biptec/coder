@@ -492,12 +492,14 @@ const ViewSwitcher: FC<ViewSwitcherProps> = ({
 							key={item.id}
 							onSelect={() => onSelect(item)}
 							className={cn(
-								"flex w-full items-center gap-2 py-1.5 pr-2 text-xs",
+								"flex items-center gap-2 rounded-sm px-2 py-1.5 text-xs",
 								// Local (Working) items are visually nested
-								// under the remote/PR entry above them, so
+								// under the remote/PR entry above them. Using
+								// `ml-4 mt-0.5` shifts both the row and its
+								// highlight background off the left edge, so
 								// the grouping still reads once we track
 								// multiple PRs per chat.
-								item.kind === "local" ? "pl-6" : "pl-2",
+								item.kind === "local" ? "ml-4 mt-0.5" : "w-full",
 								isActive && "bg-surface-secondary text-content-primary",
 							)}
 						>
