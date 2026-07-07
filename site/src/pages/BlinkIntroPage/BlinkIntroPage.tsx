@@ -10,6 +10,7 @@ import { ProductLogo } from "#/components/Icons/ProductLogo";
 import { Loader } from "#/components/Loader/Loader";
 import { useAuthContext } from "#/contexts/auth/AuthProvider";
 import { pageTitle } from "#/utils/page";
+import { BlinkProviderSetup } from "./BlinkProviderSetup";
 
 function readLS(key: string): string | null {
 	try {
@@ -31,7 +32,9 @@ function writeLS(key: string, value: string): void {
  * Shown once after first-user setup when Blink was enabled.
  * Introduces the floating assistant and nudges the user to try it.
  */
-const BlinkIntroContent: FC = () => {
+const BlinkIntroContent: FC<{ providerConfigured: boolean }> = ({
+	providerConfigured,
+}) => {
 	const navigate = useNavigate();
 	const { toggle, open } = useBlinkContext();
 
@@ -70,6 +73,12 @@ const BlinkIntroContent: FC = () => {
 							workspaces, manage users, and answer questions about your
 							deployment.
 						</p>
+						{!providerConfigured && (
+							<p className="text-xs text-content-secondary m-0 leading-relaxed max-w-sm">
+								Note: no AI provider is configured yet, so Blink can't respond
+								until one is added in Admin settings &gt; AI.
+							</p>
+						)}
 					</header>
 
 					{/* Visual pointer toward the floating button */}
@@ -114,6 +123,11 @@ const BlinkIntroContent: FC = () => {
 export const BlinkIntroPage: FC = () => {
 	const { isLoading, isSignedIn } = useAuthContext();
 
+	// The flow has two steps: configure an AI provider so Blink can
+	// actually respond, then meet Blink itself.
+	const [step, setStep] = useState<"provider" | "intro">("provider");
+	const [providerConfigured, setProviderConfigured] = useState(false);
+
 	// Capture the completion flag once on mount. Re-reading it on every
 	// render would yank the user off the page as soon as the flag is
 	// written mid-session (e.g. right after they open the panel).
@@ -133,9 +147,28 @@ export const BlinkIntroPage: FC = () => {
 		return <Loader fullscreen />;
 	}
 
+	if (step === "provider") {
+		return (
+			<>
+				<title>{pageTitle("Set up Blink")}</title>
+				<div className="grow basis-0 min-h-screen flex justify-center items-center py-12">
+					<div className="flex flex-col items-center w-full max-w-[480px] px-4">
+						<BlinkProviderSetup
+							onComplete={() => {
+								setProviderConfigured(true);
+								setStep("intro");
+							}}
+							onSkip={() => setStep("intro")}
+						/>
+					</div>
+				</div>
+			</>
+		);
+	}
+
 	return (
 		<BlinkProvider forceEnabled>
-			<BlinkIntroContent />
+			<BlinkIntroContent providerConfigured={providerConfigured} />
 		</BlinkProvider>
 	);
 };
