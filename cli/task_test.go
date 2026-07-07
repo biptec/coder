@@ -286,7 +286,7 @@ type setupCLITaskTestOpt func(*setupCLITaskTestOpts)
 // withoutInitialAppStatus skips the default "idle" PatchAppStatus at the end
 // of setup. Use this when a test wants to insert its own initial app status,
 // to avoid two InsertWorkspaceAppStatus rows landing with an identical
-// created_at on platforms with coarse time.Now() resolution (see DEVEX-381).
+// created_at on platforms with coarse time.Now() resolution.
 func withoutInitialAppStatus() setupCLITaskTestOpt {
 	return func(o *setupCLITaskTestOpts) { o.skipInitialAppStatus = true }
 }

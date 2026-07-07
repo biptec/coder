@@ -597,11 +597,10 @@ type sqlcQuerier interface {
 	GetLatestCryptoKeyByFeature(ctx context.Context, feature CryptoKeyFeature) (CryptoKey, error)
 	GetLatestWorkspaceAgentContextSnapshot(ctx context.Context, workspaceAgentID uuid.UUID) (WorkspaceAgentContextSnapshot, error)
 	GetLatestWorkspaceAppStatusByAppID(ctx context.Context, appID uuid.UUID) (WorkspaceAppStatus, error)
-	// NOTE(jakehwll): the id DESC tiebreaker keeps the "latest" pick stable when
+	// The id DESC tiebreaker keeps the "latest" pick stable when
 	// two rows share the same created_at. dbtime.Now() rounds to microseconds and
 	// Windows time.Now() resolution is coarser than that, so back-to-back inserts
-	// can otherwise return either row (see coder/coder#25648, DEVEX-381).
-	// Matches the tiebreaker in GetLatestWorkspaceAppStatusByAppID above.
+	// can otherwise return either row.
 	GetLatestWorkspaceAppStatusesByWorkspaceIDs(ctx context.Context, ids []uuid.UUID) ([]WorkspaceAppStatus, error)
 	GetLatestWorkspaceBuildByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) (WorkspaceBuild, error)
 	GetLatestWorkspaceBuildWithStatusByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) (GetLatestWorkspaceBuildWithStatusByWorkspaceIDRow, error)

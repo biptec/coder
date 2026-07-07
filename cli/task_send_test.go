@@ -311,8 +311,7 @@ func Test_TaskSend(t *testing.T) {
 		// resolution is coarser than dbtime.Now()'s microsecond rounding,
 		// so two back-to-back inserts can land with an identical
 		// created_at and GetLatestWorkspaceAppStatusesByWorkspaceIDs
-		// would pick either row. See DEVEX-381 for the full flake
-		// analysis and Spike's coder/coder#21332 for prior art.
+		// would pick either row.
 		setupCtx := testutil.Context(t, testutil.WaitLong)
 		setup := setupCLITaskTest(setupCtx, t, fakeAgentAPITaskSendOK(t, "some task input", "some task response"), withoutInitialAppStatus())
 
