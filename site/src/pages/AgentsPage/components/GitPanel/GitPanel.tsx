@@ -285,7 +285,7 @@ export const GitPanel: FC<GitPanelProps> = ({
 	return (
 		<div className="flex h-full flex-col">
 			{/* Toolbar */}
-			<div className="flex shrink-0 items-center gap-2 border-0 border-b border-solid border-border-default px-3 py-1.5">
+			<div className="flex shrink-0 items-center gap-2 px-3 pt-1.5 pb-1">
 				<div className="min-w-0 flex-1">
 					<ViewSwitcher
 						items={items}
@@ -356,7 +356,7 @@ export const GitPanel: FC<GitPanelProps> = ({
 			   with a known title. Truncated, with the full title in a
 			   hover tooltip. */}
 			{prTab && prTitle && (
-				<div className="flex shrink-0 items-center px-3 pt-1.5 pb-1">
+				<div className="flex shrink-0 items-center px-3 pb-1">
 					<Tooltip>
 						<TooltipTrigger asChild>
 							<span
