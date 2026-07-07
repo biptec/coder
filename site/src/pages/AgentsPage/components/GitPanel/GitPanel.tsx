@@ -465,7 +465,7 @@ const ViewSwitcher: FC<ViewSwitcherProps> = ({
 				</span>
 				<span className="whitespace-nowrap">{activeItem.stateLabel}</span>
 			</span>
-			<span className="inline-flex min-w-0 items-center gap-1 px-1.5 text-content-primary">
+			<span className="inline-flex min-w-0 items-center gap-1 pl-1.5 pr-1 text-content-primary">
 				<span className="truncate">{activeItem.triggerIdentifier}</span>
 				{!isSingleItem && (
 					<ChevronDownIcon className="size-3 shrink-0 opacity-70" />
