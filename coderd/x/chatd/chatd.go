@@ -4771,13 +4771,13 @@ func (p *Server) updateLastTurnSummary(
 
 const (
 	// Completed user turns before the first summary is generated.
-	summaryInitialTurnThreshold   = 1
+	summaryInitialTurnThreshold = 1
 	// New completed user turns before the summary is regenerated (since the last summary).
-	summaryStaleTurnThreshold = 3
-	summaryMinTranscriptRunes   = 200
-	chatSummaryWorkTimeout      = 120 * time.Second
-	chatSummaryGenerateTimeout  = 60 * time.Second
-	chatSummaryWriteTimeout     = 5 * time.Second
+	summaryStaleTurnThreshold  = 3
+	summaryMinTranscriptRunes  = 200
+	chatSummaryWorkTimeout     = 120 * time.Second
+	chatSummaryGenerateTimeout = 60 * time.Second
+	chatSummaryWriteTimeout    = 5 * time.Second
 )
 
 // maybeGenerateChatSummaryAsync launches best-effort whole-chat summary
