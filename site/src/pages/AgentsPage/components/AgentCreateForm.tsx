@@ -20,6 +20,7 @@ import {
 	hasConfiguredModelsInCatalog,
 	hasUserFixableProviders,
 } from "../utils/modelOptions";
+import { pickReasoningEffort } from "../utils/reasoningEffort";
 import {
 	formatUsageLimitMessage,
 	isChatUsageLimitExceededResponse,
@@ -47,6 +48,7 @@ export type CreateChatOptions = {
 	fileIDs?: string[];
 	workspaceId?: string;
 	model?: string;
+	reasoningEffort?: string;
 	mcpServerIds?: string[];
 	organizationId: string;
 	planMode?: TypesGen.ChatPlanMode;
@@ -238,6 +240,20 @@ export const AgentCreateForm: FC<AgentCreateFormProps> = ({
 		}
 		return selectedModel || undefined;
 	})();
+	// Per-turn reasoning effort for the first message. The user's
+	// explicit selection wins when supported by the displayed model,
+	// otherwise it falls back to the model default.
+	const [selectedReasoningEffort, setSelectedReasoningEffort] = useState("");
+	const selectedModelOption = modelOptions.find(
+		(option) => option.id === selectedModel,
+	);
+	const effectiveReasoningEffort = selectedModelOption
+		? pickReasoningEffort(
+				selectedReasoningEffort,
+				selectedModelOption.reasoningEfforts ?? [],
+				selectedModelOption.reasoningEffortDefault,
+			)
+		: undefined;
 	const initialOrg =
 		organizations.find((o) => o.is_default) ?? organizations[0];
 	const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
@@ -367,6 +383,7 @@ export const AgentCreateForm: FC<AgentCreateFormProps> = ({
 			fileIDs,
 			workspaceId: effectiveWorkspaceId ?? undefined,
 			model: submittedModel,
+			reasoningEffort: effectiveReasoningEffort,
 			organizationId,
 			mcpServerIds:
 				effectiveMCPServerIds.length > 0
@@ -529,6 +546,8 @@ export const AgentCreateForm: FC<AgentCreateFormProps> = ({
 						onModelChange={handleModelChange}
 						modelOptions={modelOptions}
 						modelSelectorPlaceholder={modelSelectorPlaceholder}
+						reasoningEffort={effectiveReasoningEffort}
+						onReasoningEffortChange={setSelectedReasoningEffort}
 						isModelCatalogLoading={isModelCatalogLoading}
 						hasModelOptions={hasModelOptions}
 						planModeEnabled={planModeEnabled}

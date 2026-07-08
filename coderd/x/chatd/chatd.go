@@ -2896,7 +2896,6 @@ type chatMessage struct {
 	contextLimit        int64
 	totalCostMicros     int64
 	runtimeMs           int64
-	reasoningEffort     string
 }
 
 type userChatMessage struct {
@@ -2957,7 +2956,7 @@ func appendMessageFields(
 	params.CreatedBy = append(params.CreatedBy, msg.createdBy)
 	params.APIKeyID = append(params.APIKeyID, apiKeyID)
 	params.ModelConfigID = append(params.ModelConfigID, msg.modelConfigID)
-	params.ReasoningEffort = append(params.ReasoningEffort, msg.reasoningEffort)
+	params.ReasoningEffort = append(params.ReasoningEffort, "")
 	params.Role = append(params.Role, msg.role)
 	params.Content = append(params.Content, string(msg.content.RawMessage))
 	params.ContentVersion = append(params.ContentVersion, msg.contentVersion)
