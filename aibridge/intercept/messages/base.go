@@ -114,19 +114,32 @@ func (i *interceptionBase) CorrelatingToolCallID() *string {
 	return i.reqPayload.correlatingToolCallID()
 }
 
+// isBedrockMantle reports whether the interception targets the Bedrock mantle
+// transport, which speaks the native Messages wire format and is a passthrough.
+func (i *interceptionBase) isBedrockMantle() bool {
+	return i.bedrock != nil && i.bedrock.Cfg.Endpoint == aibconfig.BedrockEndpointMantle
+}
+
+// isBedrockInvokeModel reports whether the interception targets the Bedrock
+// InvokeModel transport, the default when a Bedrock runtime is configured
+// without the mantle endpoint.
+func (i *interceptionBase) isBedrockInvokeModel() bool {
+	return i.bedrock != nil && i.bedrock.Cfg.Endpoint != aibconfig.BedrockEndpointMantle
+}
+
 func (i *interceptionBase) Model() string {
 	if len(i.reqPayload) == 0 {
 		return "coder-aibridge-unknown"
 	}
 
-	if i.bedrock != nil {
-		// Mantle is a passthrough: the client sends the (mantle-legal) model in
-		// the body and the gateway does not remap it, so report the client's
-		// model for recording/audit. The InvokeModel path substitutes the
-		// operator-configured model.
-		if i.bedrock.Cfg.Endpoint == aibconfig.BedrockEndpointMantle {
-			return i.reqPayload.model()
-		}
+	// Mantle is a passthrough: the client sends the (mantle-legal) model in the
+	// body and the gateway does not remap it, so report the client's model for
+	// recording/audit. The InvokeModel path substitutes the operator-configured
+	// model.
+	if i.isBedrockMantle() {
+		return i.reqPayload.model()
+	}
+	if i.isBedrockInvokeModel() {
 		model := i.bedrock.Cfg.Model
 		if i.isSmallFastModel() {
 			model = i.bedrock.Cfg.SmallFastModel
@@ -257,15 +270,25 @@ func (i *interceptionBase) newMessagesService(ctx context.Context, opts ...optio
 		opts = append(opts, option.WithMiddleware(mw))
 	}
 
-	if i.bedrock != nil {
+	if i.isBedrockInvokeModel() {
 		ctx, cancel := context.WithTimeout(ctx, time.Second*30)
 		defer cancel()
-		bedrockOpts, err := i.withAWSBedrockOptions(ctx)
+		bedrockOpts, err := i.withAWSInvokeModelOptions(ctx)
 		if err != nil {
 			return anthropic.MessageService{}, err
 		}
 		opts = append(opts, bedrockOpts...)
 		i.augmentRequestForBedrock()
+	}
+
+	if i.isBedrockMantle() {
+		ctx, cancel := context.WithTimeout(ctx, time.Second*30)
+		defer cancel()
+		bedrockOpts, err := i.withAWSMantleOptions(ctx)
+		if err != nil {
+			return anthropic.MessageService{}, err
+		}
+		opts = append(opts, bedrockOpts...)
 	}
 
 	return anthropic.NewMessageService(opts...), nil
@@ -279,16 +302,15 @@ func (i *interceptionBase) withBody() option.RequestOption {
 	return option.WithRequestBody("application/json", []byte(i.reqPayload))
 }
 
-// withAWSBedrockOptions returns request options for authenticating with AWS Bedrock.
+// withAWSInvokeModelOptions returns request options for the AWS Bedrock
+// InvokeModel transport (bedrock-runtime), which rewrites the request into the
+// InvokeModel shape and decodes a binary eventstream response.
 //
 // Credentials come from i.bedrock.Creds. It is a shared credentials cache, so the per-request Retrieve()
 // below is served from that cache and does not re-resolve or re-assume on every request.
-func (i *interceptionBase) withAWSBedrockOptions(ctx context.Context) ([]option.RequestOption, error) {
+func (i *interceptionBase) withAWSInvokeModelOptions(ctx context.Context) ([]option.RequestOption, error) {
 	if i.bedrock == nil {
 		return nil, xerrors.New("nil bedrock runtime")
-	}
-	if i.bedrock.Cfg.Endpoint == aibconfig.BedrockEndpointMantle {
-		return i.withAWSMantleOptions(ctx)
 	}
 	cfg := i.bedrock.Cfg
 	if cfg.Region == "" && cfg.BaseURL == "" {
@@ -415,12 +437,6 @@ func (i *interceptionBase) withAWSMantleOptions(ctx context.Context) ([]option.R
 // adaptive (Opus 4.7+).
 func (i *interceptionBase) augmentRequestForBedrock() {
 	if i.bedrock == nil {
-		return
-	}
-	// Mantle is a passthrough: the client (Claude Code in mantle mode) already
-	// emits mantle-legal requests, so the gateway forwards the body unchanged,
-	// no model remap, thinking conversion, beta filtering, or field stripping.
-	if i.bedrock.Cfg.Endpoint == aibconfig.BedrockEndpointMantle {
 		return
 	}
 

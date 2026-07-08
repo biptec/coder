@@ -183,7 +183,7 @@ func TestAWSBedrockValidation(t *testing.T) {
 					Creds: credentials.NewStaticCredentialsProvider("test-key", "test-secret", ""),
 				},
 			}
-			opts, err := base.withAWSBedrockOptions(context.Background())
+			opts, err := base.withAWSInvokeModelOptions(context.Background())
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -198,12 +198,12 @@ func TestAWSBedrockValidation(t *testing.T) {
 
 // TestAWSBedrockOptionsRequireRuntime verifies that option assembly fails when
 // the Bedrock runtime was not set. This should never happen in practice, since
-// withAWSBedrockOptions is only called when i.bedrock != nil.
+// withAWSInvokeModelOptions is only called when i.bedrock != nil.
 func TestAWSBedrockOptionsRequireRuntime(t *testing.T) {
 	t.Parallel()
 
 	base := &interceptionBase{}
-	_, err := base.withAWSBedrockOptions(context.Background())
+	_, err := base.withAWSInvokeModelOptions(context.Background())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "nil bedrock runtime")
 }
@@ -1127,15 +1127,13 @@ func TestWriteUpstreamError(t *testing.T) {
 	}
 }
 
-// TestAugmentRequestForBedrockMantle verifies the mantle transport is a pure
-// passthrough: augmentRequestForBedrock leaves the body untouched (no model
-// remap, thinking conversion, beta filtering, or field stripping) and Model()
-// reports the client's model. The client emits mantle-legal requests.
-func TestAugmentRequestForBedrockMantle(t *testing.T) {
+// TestBedrockMantleIsPassthrough verifies the mantle transport is dispatched as
+// a pure passthrough: the interception reports mantle (not InvokeModel), so the
+// call site skips augmentRequestForBedrock and forwards the body unchanged, and
+// Model() reports the client's model. The client emits mantle-legal requests.
+func TestBedrockMantleIsPassthrough(t *testing.T) {
 	t.Parallel()
 
-	betas := "interleaved-thinking-2025-05-14,context-management-2025-06-27,advisor-tool-2026-03-01"
-	clientHeaders := http.Header{"Anthropic-Beta": {betas}}
 	i := &interceptionBase{
 		reqPayload: mustMessagesPayload(t,
 			`{"model":"anthropic.claude-opus-4-8","max_tokens":10000,"thinking":{"type":"adaptive"},"metadata":{"user_id":"u123"},"context_management":{"type":"auto"}}`),
@@ -1145,16 +1143,13 @@ func TestAugmentRequestForBedrockMantle(t *testing.T) {
 				Endpoint: config.BedrockEndpointMantle,
 			},
 		},
-		clientHeaders: clientHeaders,
-		logger:        slog.Make(),
+		logger: slog.Make(),
 	}
 
-	i.augmentRequestForBedrock()
-
-	require.Equal(t, "anthropic.claude-opus-4-8", gjson.GetBytes(i.reqPayload, "model").String())
-	require.True(t, gjson.GetBytes(i.reqPayload, "context_management").Exists())
-	require.True(t, gjson.GetBytes(i.reqPayload, "metadata").Exists())
-	require.Equal(t, []string{betas}, clientHeaders.Values("Anthropic-Beta"))
+	// Mantle dispatches to the passthrough path, not InvokeModel, so
+	// augmentRequestForBedrock is never called and the body is not remapped.
+	require.True(t, i.isBedrockMantle())
+	require.False(t, i.isBedrockInvokeModel())
 	require.Equal(t, "anthropic.claude-opus-4-8", i.Model())
 }
 
@@ -1195,7 +1190,7 @@ func TestAWSMantleOptionsValidation(t *testing.T) {
 					Creds: credentials.NewStaticCredentialsProvider("test-key", "test-secret", ""),
 				},
 			}
-			opts, err := base.withAWSBedrockOptions(context.Background())
+			opts, err := base.withAWSMantleOptions(context.Background())
 			if tt.errorMsg != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errorMsg)
