@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AIProvider } from "#/api/typesGenerated";
 import {
 	MockAIProviderAnthropic,
+	MockAIProviderAnthropicWIF,
 	MockAIProviderBedrock,
 	MockAIProviderCopilot,
 	MockAIProviderOpenAI,
@@ -17,9 +18,19 @@ import {
 	getProviderDisplayType,
 	hasBedrockStoredCredentials,
 	isBedrockProvider,
+	isWIFProvider,
 	providerFormValuesToCreate,
 	providerFormValuesToUpdate,
 } from "./providerFormApiMap";
+
+const wifFields = {
+	wifEnabled: false,
+	federationRuleId: "",
+	organizationId: "",
+	identityTokenFile: "",
+	serviceAccountId: "",
+	workspaceId: "",
+};
 
 const baseOpenAIFormValues: ProviderFormValues = {
 	type: "openai",
@@ -33,6 +44,7 @@ const baseOpenAIFormValues: ProviderFormValues = {
 	accessKeySecret: "",
 	roleArn: "",
 	apiKey: "sk-test",
+	...wifFields,
 	enabled: true,
 };
 
@@ -48,6 +60,7 @@ const baseBedrockFormValues: ProviderFormValues = {
 	accessKeySecret: "secret",
 	roleArn: "",
 	apiKey: "",
+	...wifFields,
 	enabled: true,
 };
 
@@ -63,6 +76,28 @@ const baseCopilotFormValues: ProviderFormValues = {
 	accessKeySecret: "",
 	roleArn: "",
 	apiKey: "",
+	...wifFields,
+	enabled: true,
+};
+
+const baseAnthropicWIFFormValues: ProviderFormValues = {
+	type: "anthropic",
+	name: "anthropic-wif",
+	displayName: "Anthropic WIF",
+	icon: "",
+	baseUrl: "https://api.anthropic.com",
+	model: "",
+	smallFastModel: "",
+	accessKey: "",
+	accessKeySecret: "",
+	roleArn: "",
+	apiKey: "",
+	wifEnabled: true,
+	federationRuleId: "fdrl_01ABCDEFGHIJKLMNOPQRSTUV",
+	organizationId: "11111111-2222-3333-4444-555555555555",
+	identityTokenFile: "/var/run/secrets/anthropic/token",
+	serviceAccountId: "svac_01ABCDEFGHIJKLMNOPQRSTUV",
+	workspaceId: "",
 	enabled: true,
 };
 
@@ -176,6 +211,28 @@ describe("isBedrockProvider", () => {
 			settings: settings({ _type: "copilot", _version: 1 }),
 		};
 		expect(isBedrockProvider(provider)).toBe(false);
+	});
+});
+
+describe("isWIFProvider", () => {
+	it("recognises an anthropic provider with wif settings", () => {
+		expect(isWIFProvider(MockAIProviderAnthropicWIF)).toBe(true);
+	});
+
+	it("rejects an anthropic provider whose settings are null", () => {
+		expect(isWIFProvider(MockAIProviderAnthropic)).toBe(false);
+	});
+
+	it("rejects a bedrock-typed provider", () => {
+		expect(isWIFProvider(MockAIProviderBedrock)).toBe(false);
+	});
+
+	it("rejects an anthropic provider carrying a different discriminator", () => {
+		const provider: AIProvider = {
+			...MockAIProviderAnthropic,
+			settings: settings({ _type: "bedrock", _version: 1 }),
+		};
+		expect(isWIFProvider(provider)).toBe(false);
 	});
 });
 
@@ -514,6 +571,63 @@ describe("providerFormValuesToCreate", () => {
 			expect(req.display_name).toBeUndefined();
 		});
 	});
+
+	describe("Anthropic WIF", () => {
+		it("maps to anthropic with wif settings and no api_keys", () => {
+			const req = providerFormValuesToCreate(baseAnthropicWIFFormValues);
+			expect(req.type).toBe("anthropic");
+			expect(req.api_keys).toBeUndefined();
+			const s = req.settings as unknown as Record<string, unknown>;
+			expect(s._type).toBe("wif");
+			expect(s._version).toBe(1);
+			expect(s.federation_rule_id).toBe("fdrl_01ABCDEFGHIJKLMNOPQRSTUV");
+			expect(s.organization_id).toBe("11111111-2222-3333-4444-555555555555");
+			expect(s.identity_token_file).toBe("/var/run/secrets/anthropic/token");
+			expect(s.service_account_id).toBe("svac_01ABCDEFGHIJKLMNOPQRSTUV");
+		});
+
+		it("omits the optional workspace and service account when blank", () => {
+			const req = providerFormValuesToCreate({
+				...baseAnthropicWIFFormValues,
+				serviceAccountId: "",
+				workspaceId: "",
+			});
+			const s = req.settings as unknown as Record<string, unknown>;
+			expect(s.service_account_id).toBeUndefined();
+			expect(s.workspace_id).toBeUndefined();
+		});
+
+		it("includes the workspace ID when provided", () => {
+			const req = providerFormValuesToCreate({
+				...baseAnthropicWIFFormValues,
+				workspaceId: "wrkspc_01ABCDEFGHIJKLMNOPQRSTUV",
+			});
+			const s = req.settings as unknown as Record<string, unknown>;
+			expect(s.workspace_id).toBe("wrkspc_01ABCDEFGHIJKLMNOPQRSTUV");
+		});
+
+		it("trims whitespace around the WIF fields", () => {
+			const req = providerFormValuesToCreate({
+				...baseAnthropicWIFFormValues,
+				federationRuleId: "  fdrl_trim  ",
+				identityTokenFile: "  /tmp/token  ",
+			});
+			const s = req.settings as unknown as Record<string, unknown>;
+			expect(s.federation_rule_id).toBe("fdrl_trim");
+			expect(s.identity_token_file).toBe("/tmp/token");
+		});
+
+		it("falls back to the api key path when wifEnabled is false", () => {
+			const req = providerFormValuesToCreate({
+				...baseAnthropicWIFFormValues,
+				wifEnabled: false,
+				apiKey: "sk-ant-test",
+			});
+			expect(req.type).toBe("anthropic");
+			expect(req.settings).toBeUndefined();
+			expect(req.api_keys).toEqual(["sk-ant-test"]);
+		});
+	});
 });
 
 describe("providerFormValuesToUpdate", () => {
@@ -687,6 +801,34 @@ describe("providerFormValuesToUpdate", () => {
 			expect(req.base_url).toBe("https://api.business.githubcopilot.com");
 		});
 	});
+
+	describe("Anthropic WIF", () => {
+		it("patches wif settings and never sends api_keys", () => {
+			const req = providerFormValuesToUpdate(
+				baseAnthropicWIFFormValues,
+				MockAIProviderAnthropicWIF,
+			);
+			expect(req.api_keys).toBeUndefined();
+			const s = req.settings as unknown as Record<string, unknown>;
+			expect(s._type).toBe("wif");
+			expect(s.federation_rule_id).toBe("fdrl_01ABCDEFGHIJKLMNOPQRSTUV");
+			expect(s.identity_token_file).toBe("/var/run/secrets/anthropic/token");
+		});
+
+		it("clears settings and sets api_keys when migrating WIF back to a key", () => {
+			const req = providerFormValuesToUpdate(
+				{
+					...baseAnthropicWIFFormValues,
+					wifEnabled: false,
+					apiKey: "sk-ant-new",
+				},
+				MockAIProviderAnthropicWIF,
+			);
+			expect(req.api_keys).toEqual([{ api_key: "sk-ant-new" }]);
+			// The empty-object clear form drops the stored WIF settings.
+			expect(req.settings).toEqual({});
+		});
+	});
 });
 
 describe("aiProviderToFormValues", () => {
@@ -777,6 +919,17 @@ describe("aiProviderToFormValues", () => {
 		expect(values.name).toBe(MockAIProviderCopilot.name);
 		expect(values.baseUrl).toBe(MockAIProviderCopilot.base_url);
 		expect(values.apiKey).toBeUndefined();
+	});
+
+	it("seeds WIF form values from settings", () => {
+		const values = aiProviderToFormValues(MockAIProviderAnthropicWIF);
+		expect(values.type).toBe("anthropic");
+		expect(values.wifEnabled).toBe(true);
+		expect(values.federationRuleId).toBe("fdrl_01ABCDEFGHIJKLMNOPQRSTUV");
+		expect(values.organizationId).toBe("11111111-2222-3333-4444-555555555555");
+		expect(values.identityTokenFile).toBe("/var/run/secrets/anthropic/token");
+		expect(values.serviceAccountId).toBe("svac_01ABCDEFGHIJKLMNOPQRSTUV");
+		expect(values.workspaceId).toBe("");
 	});
 
 	it("falls back to the slug when display_name is empty", () => {

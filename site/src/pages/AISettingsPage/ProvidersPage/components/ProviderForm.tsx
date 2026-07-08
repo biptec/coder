@@ -12,6 +12,7 @@ import { Form, FormFields } from "#/components/Form/Form";
 import { FormField } from "#/components/FormField/FormField";
 import { Label } from "#/components/Label/Label";
 import { Link as DocsLink } from "#/components/Link/Link";
+import { RadioGroup, RadioGroupItem } from "#/components/RadioGroup/RadioGroup";
 import { Spinner } from "#/components/Spinner/Spinner";
 import { useUnsavedChangesPrompt } from "#/hooks/useUnsavedChangesPrompt";
 import { IconPickerField } from "#/pages/AISettingsPage/MCPServersPage/components/IconPickerField";
@@ -31,6 +32,14 @@ export type ProviderFormValues = {
 	accessKeySecret: string;
 	roleArn: string;
 	apiKey: string;
+	// wifEnabled selects Workload Identity Federation for an Anthropic
+	// provider instead of a static API key. Ignored for other types.
+	wifEnabled: boolean;
+	federationRuleId: string;
+	organizationId: string;
+	identityTokenFile: string;
+	serviceAccountId: string;
+	workspaceId: string;
 	enabled: boolean;
 };
 
@@ -74,6 +83,12 @@ const defaultInitialValues: ProviderFormValues = {
 	accessKeySecret: "",
 	roleArn: "",
 	apiKey: "",
+	wifEnabled: false,
+	federationRuleId: "",
+	organizationId: "",
+	identityTokenFile: "",
+	serviceAccountId: "",
+	workspaceId: "",
 	enabled: true,
 };
 
@@ -146,6 +161,65 @@ const makeOpenAiAnthropicSchema = (editing: boolean) =>
 		enabled: Yup.boolean(),
 	});
 
+// WIF exchanges the OIDC identity token and minted access token over the
+// endpoint, so cleartext http is refused except for loopback hosts. This
+// mirrors codersdk.ValidateAIProviderWIFBaseURL so a form that validates
+// here is not rejected by the server.
+const WIF_INSECURE_URL_MESSAGE =
+	"WIF requires an https endpoint; http is allowed for loopback hosts only.";
+
+const isSecureWIFUrl = (raw: string | undefined): boolean => {
+	if (!raw || raw.trim() === "") {
+		// The required rule reports the empty case.
+		return true;
+	}
+	let parsed: URL;
+	try {
+		parsed = new URL(raw.trim());
+	} catch {
+		// The url() rule reports malformed input.
+		return true;
+	}
+	if (parsed.protocol === "https:") {
+		return true;
+	}
+	if (parsed.protocol === "http:") {
+		const host = parsed.hostname.toLowerCase();
+		return host === "localhost" || host === "127.0.0.1" || host === "::1";
+	}
+	return false;
+};
+
+// Anthropic Workload Identity Federation replaces the API key with a
+// federation rule reference plus the path to the OIDC identity token
+// file. federation_rule_id, organization_id, and identity_token_file are
+// required (matching codersdk.AIProviderWIFSettings.IsConfigured); the
+// service account and workspace IDs are optional.
+const makeAnthropicWIFSchema = (editing: boolean) =>
+	Yup.object({
+		type: Yup.string()
+			.oneOf(["anthropic"] as const)
+			.required(),
+		name: makeNameSchema(editing),
+		displayName: makeDisplayNameSchema(editing),
+		icon: Yup.string(),
+		baseUrl: Yup.string()
+			.url("Endpoint must be a valid URL")
+			.matches(HTTP_SCHEME_REGEX, "Endpoint must use http or https.")
+			.test("wif-secure-url", WIF_INSECURE_URL_MESSAGE, isSecureWIFUrl)
+			.required("Endpoint is required"),
+		federationRuleId: Yup.string()
+			.trim()
+			.required("Federation rule ID is required"),
+		organizationId: Yup.string().trim().required("Organization ID is required"),
+		identityTokenFile: Yup.string()
+			.trim()
+			.required("Identity token file is required"),
+		serviceAccountId: Yup.string(),
+		workspaceId: Yup.string(),
+		enabled: Yup.boolean(),
+	});
+
 const credentialFilled = (value: string | undefined): boolean => {
 	if (!value) return false;
 	const trimmed = value.trim();
@@ -213,38 +287,43 @@ const makeCopilotSchema = (editing: boolean) =>
 	});
 
 const getProviderFormSchema = (editing: boolean) =>
-	Yup.lazy((value: { type?: AIProviderType } | undefined) => {
-		switch (value?.type) {
-			case "openai":
-			case "anthropic":
-			case "azure":
-			case "google":
-			case "openai-compat":
-			case "openrouter":
-			case "vercel":
-				return makeOpenAiAnthropicSchema(editing);
-			case "bedrock":
-				return makeBedrockSchema(editing);
-			case "copilot":
-				return makeCopilotSchema(editing);
-			default:
-				return Yup.object({
-					type: Yup.string()
-						.oneOf([
-							"openai",
-							"anthropic",
-							"bedrock",
-							"azure",
-							"copilot",
-							"google",
-							"openai-compat",
-							"openrouter",
-							"vercel",
-						])
-						.required(),
-				});
-		}
-	});
+	Yup.lazy(
+		(value: { type?: AIProviderType; wifEnabled?: boolean } | undefined) => {
+			switch (value?.type) {
+				case "anthropic":
+					return value?.wifEnabled
+						? makeAnthropicWIFSchema(editing)
+						: makeOpenAiAnthropicSchema(editing);
+				case "openai":
+				case "azure":
+				case "google":
+				case "openai-compat":
+				case "openrouter":
+				case "vercel":
+					return makeOpenAiAnthropicSchema(editing);
+				case "bedrock":
+					return makeBedrockSchema(editing);
+				case "copilot":
+					return makeCopilotSchema(editing);
+				default:
+					return Yup.object({
+						type: Yup.string()
+							.oneOf([
+								"openai",
+								"anthropic",
+								"bedrock",
+								"azure",
+								"copilot",
+								"google",
+								"openai-compat",
+								"openrouter",
+								"vercel",
+							])
+							.required(),
+					});
+			}
+		},
+	);
 
 type ProviderFormProps = {
 	editing?: boolean;
@@ -458,6 +537,99 @@ export const ProviderForm: FC<ProviderFormProps> = ({
 								requires a GitHub external authentication provider to be
 								configured.
 							</p>
+						) : typeSelectValue === "anthropic" ? (
+							<>
+								<div className="flex flex-col gap-2">
+									<Label htmlFor="wif-auth-method">Authentication method</Label>
+									<RadioGroup
+										id="wif-auth-method"
+										value={form.values.wifEnabled ? "wif" : "apikey"}
+										onValueChange={(value) => {
+											void form.setFieldValue("wifEnabled", value === "wif");
+										}}
+									>
+										<label
+											htmlFor="wif-auth-apikey"
+											className="flex items-center gap-2 text-sm"
+										>
+											<RadioGroupItem value="apikey" id="wif-auth-apikey" />
+											API key
+										</label>
+										<label
+											htmlFor="wif-auth-wif"
+											className="flex items-center gap-2 text-sm"
+										>
+											<RadioGroupItem value="wif" id="wif-auth-wif" />
+											Workload Identity Federation
+										</label>
+									</RadioGroup>
+								</div>
+								{form.values.wifEnabled ? (
+									<>
+										<div className="grid grid-cols-2 items-start gap-4">
+											<FormField
+												required
+												field={getFieldHelpers("federationRuleId")}
+												label="Federation rule ID"
+												className="w-full"
+												placeholder="fdrl_..."
+											/>
+											<FormField
+												required
+												field={getFieldHelpers("organizationId")}
+												label="Organization ID"
+												className="w-full"
+												placeholder="00000000-0000-0000-0000-000000000000"
+											/>
+										</div>
+										<FormField
+											required
+											field={getFieldHelpers("identityTokenFile")}
+											label="Identity token file"
+											description="Absolute path to the file holding the OIDC identity token (JWT). Re-read on every token exchange."
+											className="w-full"
+											placeholder="/var/run/secrets/anthropic/token"
+										/>
+										<div className="grid grid-cols-2 items-start gap-4">
+											<FormField
+												field={getFieldHelpers("serviceAccountId")}
+												label="Service account ID"
+												className="w-full"
+												placeholder="svac_..."
+											/>
+											<FormField
+												field={getFieldHelpers("workspaceId")}
+												label="Workspace ID"
+												className="w-full"
+												placeholder="wrkspc_... or default"
+											/>
+										</div>
+										<p className="text-xs text-content-secondary m-0">
+											Service account ID is required for SERVICE_ACCOUNT-target
+											federation rules. Workspace ID is required when the rule
+											is enabled for more than one workspace.{" "}
+											<DocsLink
+												size="sm"
+												href={docs("/ai-coder/ai-gateway/providers")}
+												target="_blank"
+												rel="noreferrer"
+											>
+												View docs
+											</DocsLink>
+										</p>
+									</>
+								) : (
+									<CredentialField
+										required
+										label="API key"
+										helpers={getFieldHelpers("apiKey")}
+										onBlur={() => handleCredentialBlur("apiKey")}
+										onFocus={() => handleCredentialFocus("apiKey")}
+										autoComplete="new-password"
+										placeholder={apiKeyPlaceholder(form.values.type)}
+									/>
+								)}
+							</>
 						) : (
 							<CredentialField
 								required

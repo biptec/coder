@@ -390,6 +390,92 @@ export const EditOpenAiAnthropicNoSavedKey: Story = {
 	},
 };
 
+// Selecting WIF on an Anthropic provider hides the API key field and
+// reveals the federation inputs, and the create payload carries them.
+export const AddAnthropicWIF: Story = {
+	args: {
+		initialValues: { type: "anthropic" },
+	},
+	play: async ({ canvasElement, args }) => {
+		const canvas = within(canvasElement);
+
+		// The API key field shows by default.
+		await canvas.findByRole("textbox", { name: /api key/i });
+
+		const wifRadio = canvas.getByRole("radio", {
+			name: /workload identity federation/i,
+		});
+		await userEvent.click(wifRadio);
+
+		// The API key field is replaced by the WIF inputs.
+		expect(
+			canvas.queryByRole("textbox", { name: /api key/i }),
+		).not.toBeInTheDocument();
+		await userEvent.type(
+			canvas.getByLabelText(/federation rule id/i),
+			"fdrl_01ABCDEFGHIJKLMNOPQRSTUV",
+		);
+		await userEvent.type(
+			canvas.getByLabelText(/organization id/i),
+			"11111111-2222-3333-4444-555555555555",
+		);
+		await userEvent.type(
+			canvas.getByLabelText(/identity token file/i),
+			"/var/run/secrets/anthropic/token",
+		);
+
+		const submitButton = canvas.getByRole("button", {
+			name: /add provider/i,
+		});
+		await waitFor(() => expect(submitButton).toBeEnabled());
+		await userEvent.click(submitButton);
+
+		await waitFor(() =>
+			expect(args.onSubmit).toHaveBeenCalledWith(
+				expect.objectContaining({
+					type: "anthropic",
+					wifEnabled: true,
+					federationRuleId: "fdrl_01ABCDEFGHIJKLMNOPQRSTUV",
+					organizationId: "11111111-2222-3333-4444-555555555555",
+					identityTokenFile: "/var/run/secrets/anthropic/token",
+				}),
+			),
+		);
+	},
+};
+
+// Editing a stored WIF provider seeds the federation inputs and never
+// shows the API key field.
+export const EditAnthropicWIF: Story = {
+	args: {
+		editing: true,
+		initialValues: {
+			type: "anthropic",
+			wifEnabled: true,
+			name: "anthropic-wif",
+			displayName: "Anthropic WIF",
+			baseUrl: "https://api.anthropic.com",
+			federationRuleId: "fdrl_01ABCDEFGHIJKLMNOPQRSTUV",
+			organizationId: "11111111-2222-3333-4444-555555555555",
+			identityTokenFile: "/var/run/secrets/anthropic/token",
+			serviceAccountId: "svac_01ABCDEFGHIJKLMNOPQRSTUV",
+			enabled: true,
+		},
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const federationRuleId =
+			await canvas.findByLabelText(/federation rule id/i);
+		expect(federationRuleId).toHaveValue("fdrl_01ABCDEFGHIJKLMNOPQRSTUV");
+		expect(canvas.getByLabelText(/identity token file/i)).toHaveValue(
+			"/var/run/secrets/anthropic/token",
+		);
+		expect(
+			canvas.queryByRole("textbox", { name: /api key/i }),
+		).not.toBeInTheDocument();
+	},
+};
+
 export const Submitting: Story = {
 	args: {
 		isLoading: true,
@@ -428,7 +514,9 @@ export const CredentialFocusClear: Story = {
 	},
 	play: async ({ canvasElement, args }) => {
 		const canvas = within(canvasElement);
-		const apiKeyInput = await canvas.findByLabelText(/api key/i);
+		const apiKeyInput = await canvas.findByRole("textbox", {
+			name: /api key/i,
+		});
 
 		expect(apiKeyInput).toHaveProperty("type", "text");
 		expect(apiKeyInput).toHaveValue("sk-ant-***\u2026***ABCD");
@@ -492,7 +580,9 @@ export const FailedSubmitKeepsCredential: Story = {
 	},
 	play: async ({ canvasElement, args }) => {
 		const canvas = within(canvasElement);
-		const apiKeyInput = await canvas.findByLabelText(/api key/i);
+		const apiKeyInput = await canvas.findByRole("textbox", {
+			name: /api key/i,
+		});
 
 		await userEvent.click(apiKeyInput);
 		await waitFor(() => expect(apiKeyInput).toHaveValue(""));
@@ -547,7 +637,9 @@ export const ExternalLoadingKeepsCredential: Story = {
 	},
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		const apiKeyInput = await canvas.findByLabelText(/api key/i);
+		const apiKeyInput = await canvas.findByRole("textbox", {
+			name: /api key/i,
+		});
 		const submitButton = canvas.getByRole("button", {
 			name: /update provider/i,
 		});

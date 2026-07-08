@@ -5616,6 +5616,33 @@ export const MockAIProviderCopilot: TypesGen.AIProvider = {
 	updated_at: "2026-05-14T10:00:00Z",
 };
 
+/**
+ * WIF providers come over the wire with `type: "anthropic"` and a
+ * `settings._type: "wif"` discriminator. `isWIFProvider` checks both the
+ * type and the settings discriminator. The federation config is not
+ * secret, so it round-trips back to the edit form.
+ */
+export const MockAIProviderAnthropicWIF: TypesGen.AIProvider = {
+	id: "d4a1f6b2-9c3e-4f58-8a17-2c6e0b9d4e51",
+	type: "anthropic",
+	name: "anthropic-wif",
+	display_name: "Anthropic WIF",
+	icon: "",
+	base_url: "https://api.anthropic.com",
+	enabled: true,
+	api_keys: [],
+	settings: {
+		_type: "wif",
+		_version: 1,
+		federation_rule_id: "fdrl_01ABCDEFGHIJKLMNOPQRSTUV",
+		organization_id: "11111111-2222-3333-4444-555555555555",
+		identity_token_file: "/var/run/secrets/anthropic/token",
+		service_account_id: "svac_01ABCDEFGHIJKLMNOPQRSTUV",
+	} as unknown as TypesGen.AIProviderSettings,
+	created_at: "2026-05-14T10:00:00Z",
+	updated_at: "2026-05-14T10:00:00Z",
+};
+
 export const MockAIProviders: TypesGen.AIProvider[] = [
 	MockAIProviderOpenAI,
 	MockAIProviderAnthropic,

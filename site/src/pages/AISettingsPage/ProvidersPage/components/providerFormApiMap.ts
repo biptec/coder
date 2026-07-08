@@ -4,6 +4,7 @@ import type {
 	AIProviderKeyMutation,
 	AIProviderSettings,
 	AIProviderType,
+	AIProviderWIFSettings,
 	CreateAIProviderRequest,
 	UpdateAIProviderRequest,
 } from "#/api/typesGenerated";
@@ -34,13 +35,23 @@ const sanitizeCredential = (
 const BEDROCK_SETTINGS_TYPE = "bedrock";
 const BEDROCK_SETTINGS_VERSION = 1;
 
+// WIF settings share the same discriminated-envelope shape as Bedrock.
+const WIF_SETTINGS_TYPE = "wif";
+const WIF_SETTINGS_VERSION = 1;
+
 type BedrockSettingsWire = AIProviderBedrockSettings & {
 	_type: typeof BEDROCK_SETTINGS_TYPE;
 	_version: typeof BEDROCK_SETTINGS_VERSION;
 };
 
+type WifSettingsWire = AIProviderWIFSettings & {
+	_type: typeof WIF_SETTINGS_TYPE;
+	_version: typeof WIF_SETTINGS_VERSION;
+};
+
 type SettingsWire = AIProviderSettings &
-	Partial<AIProviderBedrockSettings> & {
+	Partial<AIProviderBedrockSettings> &
+	Partial<AIProviderWIFSettings> & {
 		_type?: string;
 		_version?: number;
 	};
@@ -54,6 +65,17 @@ export const isBedrockProvider = (provider: AIProvider): boolean => {
 	}
 	const s = provider.settings as SettingsWire | null;
 	return s !== null && s._type === BEDROCK_SETTINGS_TYPE;
+};
+
+// WIF providers are anthropic rows identified by the settings
+// discriminator. As with Bedrock, the generated type marks settings as
+// non-null but Go serializes zero settings as JSON `null`.
+export const isWIFProvider = (provider: AIProvider): boolean => {
+	if (provider.type !== "anthropic") {
+		return false;
+	}
+	const s = provider.settings as SettingsWire | null;
+	return s !== null && s._type === WIF_SETTINGS_TYPE;
 };
 
 // Server-generated STS external ID; read-only.
@@ -131,6 +153,22 @@ const buildBedrockSettings = (
 	...(roleArn ? { role_arn: roleArn } : {}),
 });
 
+const buildWIFSettings = (
+	federationRuleId: string,
+	organizationId: string,
+	identityTokenFile: string,
+	serviceAccountId: string,
+	workspaceId: string,
+): WifSettingsWire => ({
+	_type: WIF_SETTINGS_TYPE,
+	_version: WIF_SETTINGS_VERSION,
+	federation_rule_id: federationRuleId,
+	organization_id: organizationId,
+	identity_token_file: identityTokenFile,
+	...(serviceAccountId ? { service_account_id: serviceAccountId } : {}),
+	...(workspaceId ? { workspace_id: workspaceId } : {}),
+});
+
 // Bedrock credentials live in `settings`; openai/anthropic keys go in
 // `api_keys`. `display_name` is omitted when blank so the server stores
 // NULL and the UI falls back to `name`.
@@ -168,6 +206,21 @@ export const providerFormValuesToCreate = (
 		return { type: "copilot", ...base };
 	}
 
+	if (values.type === "anthropic" && values.wifEnabled) {
+		const settings = buildWIFSettings(
+			values.federationRuleId.trim(),
+			values.organizationId.trim(),
+			values.identityTokenFile.trim(),
+			values.serviceAccountId.trim(),
+			values.workspaceId.trim(),
+		);
+		return {
+			type: "anthropic",
+			...base,
+			settings: settings as AIProviderSettings,
+		};
+	}
+
 	const apiKey = sanitizeCredential(values.apiKey);
 	// `""` is unreachable here (Yup blocks it, Bedrock and Copilot branched
 	// out), but the union still includes it; narrow so TS stays honest.
@@ -200,6 +253,17 @@ export const providerFormValuesToUpdate = (
 		return base;
 	}
 
+	if (values.type === "anthropic" && values.wifEnabled) {
+		const settings = buildWIFSettings(
+			values.federationRuleId.trim(),
+			values.organizationId.trim(),
+			values.identityTokenFile.trim(),
+			values.serviceAccountId.trim(),
+			values.workspaceId.trim(),
+		);
+		return { ...base, settings: settings as AIProviderSettings };
+	}
+
 	if (values.type !== "bedrock") {
 		// If the user didn't touch the input, the form still holds the seeded
 		// mask and sanitizes to `""` (no rotation).
@@ -212,6 +276,16 @@ export const providerFormValuesToUpdate = (
 			newApiKey === ""
 				? existingProvider.api_keys.map((k) => ({ id: k.id }))
 				: [{ api_key: newApiKey }];
+		// Migrating a stored WIF provider back to a bearer key clears the
+		// type-specific settings. A literal {} is the explicit-clear form the
+		// server distinguishes from "leave untouched" (omitted/null).
+		if (isWIFProvider(existingProvider)) {
+			return {
+				...base,
+				api_keys: apiKeys,
+				settings: {} as AIProviderSettings,
+			};
+		}
 		return { ...base, api_keys: apiKeys };
 	}
 
@@ -244,6 +318,23 @@ export const aiProviderToFormValues = (
 	provider: AIProvider,
 ): Partial<ProviderFormValues> => {
 	const displayName = provider.display_name || provider.name;
+	if (isWIFProvider(provider)) {
+		const s = (provider.settings as SettingsWire | null) ?? {};
+		return {
+			type: "anthropic",
+			wifEnabled: true,
+			name: provider.name,
+			displayName,
+			icon: provider.icon || (getProviderIcon("anthropic") ?? ""),
+			baseUrl: provider.base_url,
+			federationRuleId: s.federation_rule_id ?? "",
+			organizationId: s.organization_id ?? "",
+			identityTokenFile: s.identity_token_file ?? "",
+			serviceAccountId: s.service_account_id ?? "",
+			workspaceId: s.workspace_id ?? "",
+			enabled: provider.enabled,
+		};
+	}
 	if (isBedrockProvider(provider)) {
 		const s = (provider.settings as SettingsWire | null) ?? {};
 		return {
