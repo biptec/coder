@@ -593,7 +593,16 @@ export const useChatStore = (
 							// first while the worker drains the old generation;
 							// stale frames are still expected there, so keep
 							// dropping them until the next status.
-							if (nextStatus !== "interrupting") {
+							if (
+								nextStatus !== "interrupting" &&
+								store.getSnapshot().streamPartsSuppressed
+							) {
+								// Parts are never buffered while suppressed, so
+								// anything still buffered predates the promote and
+								// belongs to the interrupted turn. Drop it before
+								// lifting suppression, or the pending coalesced
+								// flush would apply it to the cleared stream.
+								discardBufferedParts();
 								store.unsuppressStreamParts();
 							}
 							if (nextStatus === "waiting") {

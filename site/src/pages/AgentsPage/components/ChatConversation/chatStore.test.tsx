@@ -2333,6 +2333,107 @@ describe("useChatStore", () => {
 		});
 	});
 
+	it("discards parts buffered before the promote when suppression lifts", async () => {
+		immediateAnimationFrame();
+
+		const chatID = "chat-parts-buffered-before-promote";
+		const mockSocket = createMockSocket();
+		mockWatchChatReturn(mockSocket);
+
+		const queryClient = createTestQueryClient();
+		const wrapper = createWrapper(queryClient);
+		const setChatErrorReason = vi.fn();
+		const clearChatErrorReason = vi.fn();
+
+		const { result } = renderHook(
+			() => {
+				const { store } = useChatStore({
+					chatID,
+					chatMessages: [],
+					chatRecord: buildChat(chatID),
+					chatMessagesData: {
+						messages: [],
+						queued_messages: [],
+						has_more: false,
+					},
+					chatQueuedMessages: [],
+					setChatErrorReason,
+					clearChatErrorReason,
+				});
+				return {
+					store,
+					streamState: useChatSelector(store, selectStreamState),
+				};
+			},
+			{ wrapper },
+		);
+
+		await waitFor(() => {
+			expect(watchChat).toHaveBeenCalledWith(chatID, undefined);
+		});
+
+		// A frame from the current turn is accepted into the parts
+		// buffer; its coalesced flush is now pending.
+		act(() => {
+			mockSocket.emitData({
+				type: "message_part",
+				chat_id: chatID,
+				message_part: {
+					role: "assistant",
+					part: { type: "text", text: "stale frame" },
+				},
+			});
+		});
+
+		// The promote runs before the flush fires: the stream is
+		// cleared and suppression starts with the stale frame still
+		// buffered.
+		act(() => {
+			result.current.store.batch(() => {
+				result.current.store.clearStreamState();
+				result.current.store.setChatStatus("running");
+				result.current.store.suppressStreamParts();
+			});
+		});
+
+		// The server confirms and lifts suppression before the
+		// pending flush runs. The buffered pre-promote frame must be
+		// discarded, not applied to the cleared stream.
+		act(() => {
+			mockSocket.emitData({
+				type: "status",
+				chat_id: chatID,
+				status: { status: "running" },
+			});
+		});
+
+		// Drain the pending coalesced flush deterministically: it was
+		// scheduled before this timer, so it has fired by the time
+		// this one resolves.
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+		expect(result.current.streamState).toBeNull();
+
+		// Parts for the new turn stream normally after the lift.
+		act(() => {
+			mockSocket.emitData({
+				type: "message_part",
+				chat_id: chatID,
+				message_part: {
+					role: "assistant",
+					part: { type: "text", text: "new turn" },
+				},
+			});
+		});
+
+		await waitFor(() => {
+			expect(result.current.streamState?.blocks).toEqual([
+				{ type: "response", text: "new turn" },
+			]);
+		});
+	});
+
 	it("sets chatStatus to error and populates streamError on error event", async () => {
 		immediateAnimationFrame();
 
