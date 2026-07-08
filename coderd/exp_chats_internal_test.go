@@ -3,11 +3,75 @@ package coderd
 import (
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/coder/coder/v2/coderd/database"
 	"github.com/coder/coder/v2/codersdk"
 )
+
+// TestResolveChatStartVersion covers the RequireActiveVersion
+// auto-update behavior for chat-initiated workspace starts, including
+// the DEREM-16/17 regression cases previously covered end-to-end.
+func TestResolveChatStartVersion(t *testing.T) {
+	t.Parallel()
+
+	v1 := uuid.New()
+	v2 := uuid.New()
+
+	tests := []struct {
+		name          string
+		transition    codersdk.WorkspaceTransition
+		latestVersion uuid.UUID
+		activeVersion uuid.UUID
+		wantVersion   uuid.UUID
+		wantUpdated   bool
+	}{
+		{
+			name:          "StartVersionMismatchBumps",
+			transition:    codersdk.WorkspaceTransitionStart,
+			latestVersion: v1,
+			activeVersion: v2,
+			wantVersion:   v2,
+			wantUpdated:   true,
+		},
+		{
+			name:          "StartVersionMatchPinsWithoutUpdate",
+			transition:    codersdk.WorkspaceTransitionStart,
+			latestVersion: v1,
+			activeVersion: v1,
+			wantVersion:   v1,
+			wantUpdated:   false,
+		},
+		{
+			name:          "StopIgnoresActiveVersion",
+			transition:    codersdk.WorkspaceTransitionStop,
+			latestVersion: v1,
+			activeVersion: v2,
+			wantVersion:   uuid.Nil,
+			wantUpdated:   false,
+		},
+		{
+			name:          "DeleteIgnoresActiveVersion",
+			transition:    codersdk.WorkspaceTransitionDelete,
+			latestVersion: v1,
+			activeVersion: v2,
+			wantVersion:   uuid.Nil,
+			wantUpdated:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			req := codersdk.CreateWorkspaceBuildRequest{Transition: tt.transition}
+			got, updated := resolveChatStartVersion(req, tt.latestVersion, tt.activeVersion)
+			require.Equal(t, tt.wantVersion, got.TemplateVersionID)
+			require.Equal(t, tt.wantUpdated, updated)
+			require.Equal(t, tt.transition, got.Transition)
+		})
+	}
+}
 
 func TestValidateChatModelProviderOptions_AnthropicThinkingDisplay(t *testing.T) {
 	t.Parallel()
