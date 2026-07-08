@@ -1238,6 +1238,9 @@ func TestSearchChats(t *testing.T) {
 		Query                 string
 		Expected              database.GetChatsParams
 		ExpectedErrorContains string
+		// ExpectedErrorCount, when non-zero, asserts the exact number of
+		// validation errors.
+		ExpectedErrorCount int
 	}{
 		{
 			Name:  "Empty",
@@ -1642,6 +1645,7 @@ func TestSearchChats(t *testing.T) {
 			Name:                  "SearchRepeated",
 			Query:                 "search:foo search:bar",
 			ExpectedErrorContains: `search: Query param "search" provided more than once`,
+			ExpectedErrorCount:    1,
 		},
 		{
 			Name:                  "SearchConflictsWithTitle",
@@ -1659,7 +1663,7 @@ func TestSearchChats(t *testing.T) {
 			ExpectedErrorContains: `search: "search" cannot be combined with "pr"`,
 		},
 		{
-			Name:                  "SearchConflictOrderIndependent",
+			Name:                  "SearchConflictsOrderIndependent",
 			Query:                 "title:bar search:foo",
 			ExpectedErrorContains: `search: "search" cannot be combined with "title"`,
 		},
@@ -1669,8 +1673,7 @@ func TestSearchChats(t *testing.T) {
 			ExpectedErrorContains: `search: "search" cannot be combined with "title", "pr"`,
 		},
 		{
-			// A trailing colon is rejected by the tokenizer before the
-			// search filter is parsed.
+			// The tokenizer rejects trailing colons before search validation runs.
 			Name:                  "SearchBareKey",
 			Query:                 "search:",
 			ExpectedErrorContains: "cannot start or end with ':'",
@@ -1678,7 +1681,8 @@ func TestSearchChats(t *testing.T) {
 		{
 			Name:                  "SearchEmptyQuoted",
 			Query:                 `search:""`,
-			ExpectedErrorContains: `search: Query param "search" cannot be empty`,
+			ExpectedErrorContains: `search: Query param "search" is required and cannot be empty`,
+			ExpectedErrorCount:    1,
 		},
 	}
 
@@ -1689,6 +1693,9 @@ func TestSearchChats(t *testing.T) {
 			values, errs := searchquery.Chats(c.Query)
 			if c.ExpectedErrorContains != "" {
 				require.True(t, len(errs) > 0, "expect some errors")
+				if c.ExpectedErrorCount > 0 {
+					require.Len(t, errs, c.ExpectedErrorCount, "expected exact error count")
+				}
 				var s strings.Builder
 				for _, err := range errs {
 					_, _ = s.WriteString(fmt.Sprintf("%s: %s\n", err.Field, err.Detail))

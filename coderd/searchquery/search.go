@@ -519,8 +519,8 @@ func Tasks(ctx context.Context, db database.Store, query string, actorID uuid.UU
 //     ownership scope; created_by_me returns only chats the caller owns,
 //     shared_with_me returns only chats shared with the caller, all returns
 //     both)
-//   - search: full-text search over chat content; single-valued and
-//     mutually exclusive with title, pr_title, and pr
+//   - search: full-text search over chat content; mutually exclusive
+//     with title, pr_title, and pr
 func Chats(query string) (database.GetChatsParams, []codersdk.ValidationError) {
 	filter := database.GetChatsParams{
 		// Default to hiding archived chats and chats not owned by the caller.
@@ -608,17 +608,10 @@ func Chats(query string) (database.GetChatsParams, []codersdk.ValidationError) {
 		}
 	}
 
-	// search: performs full-text search and cannot be combined with the
-	// substring filters it replaces. Empty values are rejected because
-	// they would match nothing meaningful.
+	// search is mutually exclusive with the substring filters.
 	if values.Has("search") {
-		search := parser.String(values, "", "search")
-		if search == "" {
-			parser.Errors = append(parser.Errors, codersdk.ValidationError{
-				Field:  "search",
-				Detail: `Query param "search" cannot be empty`,
-			})
-		} else {
+		parser.RequiredNotEmpty("search")
+		if search := parser.String(values, "", "search"); search != "" {
 			var conflicts []string
 			if filter.TitleQuery != "" {
 				conflicts = append(conflicts, `"title"`)
