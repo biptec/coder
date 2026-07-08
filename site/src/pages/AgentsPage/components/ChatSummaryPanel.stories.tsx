@@ -18,12 +18,14 @@ type MockRequestOptions = {
 	cost?: TypesGen.ChatCost;
 	summary?: string | null;
 	chatError?: boolean;
+	parentChatId?: string;
 };
 
 const mockRequests = ({
 	cost = mockCost,
 	summary = null,
 	chatError,
+	parentChatId,
 }: MockRequestOptions = {}) => {
 	if (chatError) {
 		spyOn(API.experimental, "getChat").mockRejectedValue(
@@ -33,6 +35,7 @@ const mockRequests = ({
 		spyOn(API.experimental, "getChat").mockResolvedValue({
 			...MockChat,
 			summary,
+			...(parentChatId ? { parent_chat_id: parentChatId } : {}),
 		});
 	}
 
@@ -72,6 +75,20 @@ export const WithSummary: Story = {
 				canvas.getByText(/traced it to a cache-layer race/),
 			).toBeInTheDocument();
 			expect(canvas.getByText("$1.25")).toBeInTheDocument();
+		});
+	},
+};
+
+// A running subagent has no summary yet; its report is persisted as the
+// summary when it completes, so the empty state reads as pending.
+export const SubagentSummaryPending: Story = {
+	beforeEach: () => mockRequests({ parentChatId: "parent-chat-id" }),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await waitFor(() => {
+			expect(
+				canvas.getByText("Summary pending agent completion."),
+			).toBeInTheDocument();
 		});
 	},
 };

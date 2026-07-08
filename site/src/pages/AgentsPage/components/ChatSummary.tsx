@@ -15,6 +15,8 @@ interface ChatSummaryProps {
 	costError?: boolean;
 	/** Assistant messages with usage but no model pricing; when > 0 the cost is partial and a note is shown. */
 	unpricedMessagesWithUsageCount?: number;
+	/** Subagent summaries are the agent's final report, persisted when it completes, so the empty state reads as pending rather than absent. */
+	isSubagent?: boolean;
 }
 
 export const ChatSummary: FC<ChatSummaryProps> = ({
@@ -25,6 +27,7 @@ export const ChatSummary: FC<ChatSummaryProps> = ({
 	isCostLoading,
 	costError,
 	unpricedMessagesWithUsageCount,
+	isSubagent,
 }) => {
 	const trimmedSummary = summary?.trim();
 	const hasUnpricedMessages =
@@ -42,7 +45,7 @@ export const ChatSummary: FC<ChatSummaryProps> = ({
 				</p>
 			) : (
 				<p className="m-0 font-sans text-sm font-normal leading-6 text-content-secondary">
-					No summary yet.
+					{isSubagent ? "Summary pending agent completion." : "No summary yet."}
 				</p>
 			)}
 

@@ -46,6 +46,18 @@ export const NoSummary: Story = {
 	},
 };
 
+// A subagent's summary is its final report, persisted when it
+// completes, so an empty summary means the agent is still working.
+export const SubagentSummaryPending: Story = {
+	args: { summary: null, isSubagent: true },
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			canvas.getByText("Summary pending agent completion."),
+		).toBeInTheDocument();
+	},
+};
+
 export const CostLoading: Story = {
 	args: { isCostLoading: true, costMicros: undefined },
 	play: async ({ canvasElement }) => {
@@ -85,7 +97,9 @@ export const PartialCost: Story = {
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
 		await expect(
-			canvas.getByText("Excludes 3 messages without model pricing."),
+			canvas.getByText(
+				"Excludes 3 messages with usage but without model pricing.",
+			),
 		).toBeInTheDocument();
 	},
 };
