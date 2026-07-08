@@ -576,8 +576,6 @@ export const DisabledProviderModelsHidden: Story = {
 	play: async ({ canvasElement }) => {
 		const body = within(canvasElement.ownerDocument.body);
 
-		// The subagent override selectors must not offer the enabled config
-		// whose provider row is disabled.
 		const generalSection = await getSection(canvasElement, "General model");
 		const generalTrigger = within(generalSection).getByRole("combobox", {
 			name: "Use chat default",
@@ -591,7 +589,6 @@ export const DisabledProviderModelsHidden: Story = {
 		).not.toBeInTheDocument();
 		await userEvent.keyboard("{Escape}");
 
-		// The advisor model select must hide it as well.
 		const advisorSection = await getSection(canvasElement, "Advisor");
 		const advisorTrigger = within(advisorSection).getByRole("combobox", {
 			name: "Advisor model",
