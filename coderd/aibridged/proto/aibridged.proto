@@ -218,4 +218,7 @@ message AIProviderKindBedrock {
   string small_fast_model = 5;
   string role_arn = 6;
   string external_id = 7;
+  // endpoint selects the Bedrock transport ("invoke-model" or "mantle").
+  // Empty means invoke-model.
+  string endpoint = 8;
 }
