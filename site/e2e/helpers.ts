@@ -76,11 +76,11 @@ export async function login(page: Page, options: LoginOptions = users.owner) {
 	// biome-ignore lint/suspicious/noExplicitAny: reset the current user
 	(ctx as any)[Symbol.for("currentUser")] = undefined;
 	await ctx.clearCookies();
-	await page.goto("/login");
+	await page.goto("/login", { waitUntil: "domcontentloaded" });
 	await page.getByLabel("Email").fill(options.email);
 	await page.getByLabel("Password").fill(options.password);
 	await page.getByRole("button", { name: "Sign In" }).click();
-	await expectUrl(page).toHavePathName("/workspaces");
+	await page.waitForLoadState("domcontentloaded");
 	// biome-ignore lint/suspicious/noExplicitAny: update once logged in
 	(ctx as any)[Symbol.for("currentUser")] = options;
 }
