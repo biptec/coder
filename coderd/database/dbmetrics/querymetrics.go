@@ -537,6 +537,14 @@ func (m queryMetricsStore) DeleteChatQueuedMessageReturningCount(ctx context.Con
 	return r0, r1
 }
 
+func (m queryMetricsStore) DeleteChatToolCallExecutions(ctx context.Context, arg database.DeleteChatToolCallExecutionsParams) error {
+	start := time.Now()
+	r0 := m.s.DeleteChatToolCallExecutions(ctx, arg)
+	m.queryLatencies.WithLabelValues("DeleteChatToolCallExecutions").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "DeleteChatToolCallExecutions").Inc()
+	return r0
+}
+
 func (m queryMetricsStore) DeleteChatUsageLimitGroupOverride(ctx context.Context, groupID uuid.UUID) error {
 	start := time.Now()
 	r0 := m.s.DeleteChatUsageLimitGroupOverride(ctx, groupID)
@@ -734,6 +742,14 @@ func (m queryMetricsStore) DeleteOldChatFiles(ctx context.Context, arg database.
 	r0, r1 := m.s.DeleteOldChatFiles(ctx, arg)
 	m.queryLatencies.WithLabelValues("DeleteOldChatFiles").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "DeleteOldChatFiles").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) DeleteOldChatToolCallExecutions(ctx context.Context, beforeTime time.Time) (int64, error) {
+	start := time.Now()
+	r0, r1 := m.s.DeleteOldChatToolCallExecutions(ctx, beforeTime)
+	m.queryLatencies.WithLabelValues("DeleteOldChatToolCallExecutions").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "DeleteOldChatToolCallExecutions").Inc()
 	return r0, r1
 }
 
@@ -1774,6 +1790,22 @@ func (m queryMetricsStore) GetChatTitleGenerationModelOverride(ctx context.Conte
 	r0, r1 := m.s.GetChatTitleGenerationModelOverride(ctx)
 	m.queryLatencies.WithLabelValues("GetChatTitleGenerationModelOverride").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetChatTitleGenerationModelOverride").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) GetChatToolCallExecution(ctx context.Context, arg database.GetChatToolCallExecutionParams) (database.ChatToolCallExecution, error) {
+	start := time.Now()
+	r0, r1 := m.s.GetChatToolCallExecution(ctx, arg)
+	m.queryLatencies.WithLabelValues("GetChatToolCallExecution").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetChatToolCallExecution").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) GetChatToolCallExecutions(ctx context.Context, arg database.GetChatToolCallExecutionsParams) ([]database.ChatToolCallExecution, error) {
+	start := time.Now()
+	r0, r1 := m.s.GetChatToolCallExecutions(ctx, arg)
+	m.queryLatencies.WithLabelValues("GetChatToolCallExecutions").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetChatToolCallExecutions").Inc()
 	return r0, r1
 }
 
@@ -4089,6 +4121,14 @@ func (m queryMetricsStore) InsertChatQueuedMessageWithCreator(ctx context.Contex
 	return r0, r1
 }
 
+func (m queryMetricsStore) InsertChatToolCallExecution(ctx context.Context, arg database.InsertChatToolCallExecutionParams) (database.ChatToolCallExecution, error) {
+	start := time.Now()
+	r0, r1 := m.s.InsertChatToolCallExecution(ctx, arg)
+	m.queryLatencies.WithLabelValues("InsertChatToolCallExecution").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "InsertChatToolCallExecution").Inc()
+	return r0, r1
+}
+
 func (m queryMetricsStore) InsertCryptoKey(ctx context.Context, arg database.InsertCryptoKeyParams) (database.CryptoKey, error) {
 	start := time.Now()
 	r0, r1 := m.s.InsertCryptoKey(ctx, arg)
@@ -5238,6 +5278,14 @@ func (m queryMetricsStore) UpdateChatTitleByID(ctx context.Context, arg database
 	r0, r1 := m.s.UpdateChatTitleByID(ctx, arg)
 	m.queryLatencies.WithLabelValues("UpdateChatTitleByID").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "UpdateChatTitleByID").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) UpdateChatToolCallExecutionProcess(ctx context.Context, arg database.UpdateChatToolCallExecutionProcessParams) (database.ChatToolCallExecution, error) {
+	start := time.Now()
+	r0, r1 := m.s.UpdateChatToolCallExecutionProcess(ctx, arg)
+	m.queryLatencies.WithLabelValues("UpdateChatToolCallExecutionProcess").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "UpdateChatToolCallExecutionProcess").Inc()
 	return r0, r1
 }
 
