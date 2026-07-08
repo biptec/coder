@@ -1054,12 +1054,6 @@ func countSentenceTerminators(text string) int {
 // can keep the link text and drop the URL.
 var markdownLinkRe = regexp.MustCompile(`!?\[([^\]]*)\]\([^)]*\)`)
 
-// subagentReportSummarySnippet reduces a subagent's final report to a
-// short plain-text summary comparable in length to the generated 1-3
-// sentence summaries root chats get: markdown scaffolding is stripped,
-// the first content paragraph is selected (agent reports lead with the
-// conclusion), and the result is bounded by sentence and rune caps.
-// Returns "" when the report has no prose content.
 func subagentReportSummarySnippet(report string) string {
 	paragraph := firstReportParagraph(report)
 	if paragraph == "" {
@@ -1072,12 +1066,6 @@ func subagentReportSummarySnippet(report string) string {
 	)
 }
 
-// firstReportParagraph returns the first run of contiguous prose lines
-// in a markdown report, joined with spaces. Code fences, headings,
-// horizontal rules, and table rows never contribute text; they end an
-// in-progress paragraph like a blank line does. List markers and
-// blockquote prefixes are stripped so reports that lead with bullets
-// still produce a snippet.
 func firstReportParagraph(report string) string {
 	var paragraph []string
 	inFence := false
@@ -1111,9 +1099,6 @@ func firstReportParagraph(report string) string {
 	return strings.TrimSpace(strings.Join(paragraph, " "))
 }
 
-// isMarkdownStructureLine reports whether a trimmed line is markdown
-// scaffolding (heading, horizontal rule, or table row) that carries no
-// prose for a summary snippet.
 func isMarkdownStructureLine(trimmed string) bool {
 	if strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "|") {
 		return true
@@ -1132,9 +1117,6 @@ func isMarkdownStructureLine(trimmed string) bool {
 	return false
 }
 
-// stripLineMarkers removes leading blockquote, list, and task-list
-// markers from a trimmed markdown line, iterating so nested prefixes
-// like "> - [x] item" reduce to the item text.
 func stripLineMarkers(trimmed string) string {
 	for {
 		next := trimmed
@@ -1172,19 +1154,12 @@ func trimListMarker(line string) (string, bool) {
 	return line, false
 }
 
-// stripInlineMarkdown removes inline emphasis, code, and link syntax
-// while keeping the visible text. Single '*' and '_' are left alone so
-// identifiers like snake_case survive.
 func stripInlineMarkdown(text string) string {
 	text = markdownLinkRe.ReplaceAllString(text, "$1")
 	replacer := strings.NewReplacer("**", "", "__", "", "~~", "", "`", "")
 	return strings.TrimSpace(replacer.Replace(text))
 }
 
-// boundSnippetSentences keeps whole sentences (using the same
-// terminator rules as countSentenceTerminators) until either cap is
-// reached. Text without a terminator inside the rune cap is truncated
-// with an ellipsis.
 func boundSnippetSentences(text string, maxSentences, maxRunes int) string {
 	runes := []rune(text)
 	sentences := 0

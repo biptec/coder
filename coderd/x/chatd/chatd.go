@@ -4962,8 +4962,6 @@ func (p *Server) updateChatSummary(
 	p.publishChatPubsubEvent(updatedChat, codersdk.ChatWatchEventKindChatSummaryChange, nil)
 }
 
-// storeSubagentReportSummaryAsync persists a completed subagent turn's
-// final report as the chat summary in the background.
 func (p *Server) storeSubagentReportSummaryAsync(
 	ctx context.Context,
 	chat database.Chat,
@@ -4980,11 +4978,6 @@ func (p *Server) storeSubagentReportSummaryAsync(
 	}
 }
 
-// storeSubagentReportSummary derives the whole-chat summary from the
-// subagent's final report (the latest visible assistant message, the
-// same text the parent receives on await). Subagent chats skip generated
-// summaries, so this gives them a summary without an extra generation
-// call. Best-effort; never clears an existing summary.
 func (p *Server) storeSubagentReportSummary(
 	ctx context.Context,
 	chat database.Chat,
