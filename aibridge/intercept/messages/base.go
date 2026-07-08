@@ -300,8 +300,7 @@ func (i *interceptionBase) withBody() option.RequestOption {
 }
 
 // withBedrockInvokeModelOptions returns request options for the AWS Bedrock
-// InvokeModel transport (bedrock-runtime), which rewrites the request into the
-// InvokeModel shape and decodes a binary eventstream response.
+// InvokeModel transport.
 //
 // Credentials come from i.bedrock.Creds. It is a shared credentials cache, so the per-request Retrieve()
 // below is served from that cache and does not re-resolve or re-assume on every request.
@@ -353,10 +352,7 @@ func (i *interceptionBase) withBedrockInvokeModelOptions(ctx context.Context) ([
 // endpoint (bedrock-mantle.{region}.api.aws/anthropic/v1/messages). It speaks
 // the native Messages wire format, so this middleware only SigV4-signs the
 // request (service "bedrock-mantle") and forwards it; the response is plain
-// SSE. Unlike the InvokeModel transport (bedrock.WithConfig) it does not
-// rewrite the request into the InvokeModel shape or decode a binary
-// eventstream. The client supplies a Bedrock-legal request, so no model,
-// thinking, beta, or field translation is applied.
+// SSE.
 func (i *interceptionBase) withBedrockMantleOptions(ctx context.Context) ([]option.RequestOption, error) {
 	cfg := i.bedrock.Cfg
 	// Region is mandatory for mantle: it scopes the SigV4 signature and forms
@@ -374,18 +370,7 @@ func (i *interceptionBase) withBedrockMantleOptions(ctx context.Context) ([]opti
 	}
 
 	region := cfg.Region
-
-	// The mantle Messages API lives under the /anthropic path. WithBaseURL
-	// appends a trailing slash so the SDK's relative "v1/messages" resolves to
-	// "/anthropic/v1/messages" rather than replacing the /anthropic segment.
-	baseURL := cfg.BaseURL
-	if baseURL == "" {
-		baseURL = fmt.Sprintf("https://bedrock-mantle.%s.api.aws", region)
-	}
-	baseURL = strings.TrimRight(baseURL, "/")
-	if !strings.HasSuffix(baseURL, "/anthropic") {
-		baseURL += "/anthropic"
-	}
+	baseURL := cfg.BaseURL + "/anthropic"
 
 	signer := v4.NewSigner()
 	var out []option.RequestOption
