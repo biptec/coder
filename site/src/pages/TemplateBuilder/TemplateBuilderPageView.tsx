@@ -78,9 +78,12 @@ export const TemplateBuilderPageView: FC<TemplateBuilderPageViewProps> = ({
 	// normalization effect below.
 	const baseConsumed = useRef(false);
 	const [state, dispatch] = useReducer(wizardReducer, null, () => {
-		const init = initWizardState(searchParams.get("base"), basesData);
-		baseConsumed.current = init.baseConsumed;
-		return init.state;
+		const { state, baseConsumed: consumed } = initWizardState(
+			searchParams.get("base"),
+			basesData,
+		);
+		baseConsumed.current = consumed;
+		return state;
 	});
 	const modulesQuery = useQuery(templateBuilderModules(state.selectedBase?.id));
 
