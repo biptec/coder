@@ -121,13 +121,10 @@ func (i *interceptionBase) isBedrockMantle() bool {
 }
 
 // isBedrockInvokeModel reports whether the interception targets the Bedrock
-// InvokeModel transport. An unset endpoint ("") means InvokeModel (the
-// documented default). Matching explicitly, rather than "!= mantle", keeps a
-// future third transport from being silently treated as InvokeModel.
+// InvokeModel transport.
 func (i *interceptionBase) isBedrockInvokeModel() bool {
 	return i.bedrock != nil &&
-		(i.bedrock.Cfg.Endpoint == aibconfig.BedrockEndpointInvokeModel ||
-			i.bedrock.Cfg.Endpoint == "")
+		(i.bedrock.Cfg.Endpoint == aibconfig.BedrockEndpointInvokeModel || i.bedrock.Cfg.Endpoint == "")
 }
 
 func (i *interceptionBase) Model() string {
@@ -135,13 +132,10 @@ func (i *interceptionBase) Model() string {
 		return "coder-aibridge-unknown"
 	}
 
-	// Mantle is a passthrough: the client sends the (mantle-legal) model in the
-	// body and the gateway does not remap it, so report the client's model for
-	// recording/audit. The InvokeModel path substitutes the operator-configured
-	// model.
-	if i.isBedrockMantle() {
-		return i.reqPayload.model()
-	}
+	// InvokeModel is the only transport that remaps the model: it replaces the
+	// client's model with the operator-configured one. Every other case (mantle
+	// passthrough, non-Bedrock providers) returns the model the client sent in
+	// the body.
 	if i.isBedrockInvokeModel() {
 		model := i.bedrock.Cfg.Model
 		if i.isSmallFastModel() {
@@ -276,18 +270,18 @@ func (i *interceptionBase) newMessagesService(ctx context.Context, opts ...optio
 	if i.isBedrockInvokeModel() {
 		ctx, cancel := context.WithTimeout(ctx, time.Second*30)
 		defer cancel()
-		bedrockOpts, err := i.withAWSInvokeModelOptions(ctx)
+		bedrockOpts, err := i.withBedrockInvokeModelOptions(ctx)
 		if err != nil {
 			return anthropic.MessageService{}, err
 		}
 		opts = append(opts, bedrockOpts...)
-		i.augmentRequestForBedrock()
+		i.augmentRequestForBedrockInvokeModel()
 	}
 
 	if i.isBedrockMantle() {
 		ctx, cancel := context.WithTimeout(ctx, time.Second*30)
 		defer cancel()
-		bedrockOpts, err := i.withAWSMantleOptions(ctx)
+		bedrockOpts, err := i.withBedrockMantleOptions(ctx)
 		if err != nil {
 			return anthropic.MessageService{}, err
 		}
@@ -305,13 +299,13 @@ func (i *interceptionBase) withBody() option.RequestOption {
 	return option.WithRequestBody("application/json", []byte(i.reqPayload))
 }
 
-// withAWSInvokeModelOptions returns request options for the AWS Bedrock
+// withBedrockInvokeModelOptions returns request options for the AWS Bedrock
 // InvokeModel transport (bedrock-runtime), which rewrites the request into the
 // InvokeModel shape and decodes a binary eventstream response.
 //
 // Credentials come from i.bedrock.Creds. It is a shared credentials cache, so the per-request Retrieve()
 // below is served from that cache and does not re-resolve or re-assume on every request.
-func (i *interceptionBase) withAWSInvokeModelOptions(ctx context.Context) ([]option.RequestOption, error) {
+func (i *interceptionBase) withBedrockInvokeModelOptions(ctx context.Context) ([]option.RequestOption, error) {
 	if i.bedrock == nil {
 		return nil, xerrors.New("nil bedrock runtime")
 	}
@@ -355,7 +349,7 @@ func (i *interceptionBase) withAWSInvokeModelOptions(ctx context.Context) ([]opt
 	return out, nil
 }
 
-// withAWSMantleOptions returns request options for the AWS Bedrock mantle
+// withBedrockMantleOptions returns request options for the AWS Bedrock mantle
 // endpoint (bedrock-mantle.{region}.api.aws/anthropic/v1/messages). It speaks
 // the native Messages wire format, so this middleware only SigV4-signs the
 // request (service "bedrock-mantle") and forwards it; the response is plain
@@ -363,7 +357,7 @@ func (i *interceptionBase) withAWSInvokeModelOptions(ctx context.Context) ([]opt
 // rewrite the request into the InvokeModel shape or decode a binary
 // eventstream. The client supplies a Bedrock-legal request, so no model,
 // thinking, beta, or field translation is applied.
-func (i *interceptionBase) withAWSMantleOptions(ctx context.Context) ([]option.RequestOption, error) {
+func (i *interceptionBase) withBedrockMantleOptions(ctx context.Context) ([]option.RequestOption, error) {
 	cfg := i.bedrock.Cfg
 	// Region is mandatory for mantle: it scopes the SigV4 signature and forms
 	// the default endpoint host, and is still required behind a custom base URL.
@@ -434,11 +428,11 @@ func (i *interceptionBase) withAWSMantleOptions(ctx context.Context) ([]option.R
 	return out, nil
 }
 
-// augmentRequestForBedrock will change the model used for the request since AWS Bedrock doesn't support
+// augmentRequestForBedrockInvokeModel will change the model used for the request since AWS Bedrock doesn't support
 // Anthropics' model names. It also converts adaptive thinking to enabled with a budget for models that
 // don't support adaptive thinking natively, or enabled thinking to adaptive for models that only support
 // adaptive (Opus 4.7+).
-func (i *interceptionBase) augmentRequestForBedrock() {
+func (i *interceptionBase) augmentRequestForBedrockInvokeModel() {
 	if i.bedrock == nil {
 		return
 	}

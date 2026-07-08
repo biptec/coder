@@ -183,7 +183,7 @@ func TestAWSBedrockValidation(t *testing.T) {
 					Creds: credentials.NewStaticCredentialsProvider("test-key", "test-secret", ""),
 				},
 			}
-			opts, err := base.withAWSInvokeModelOptions(context.Background())
+			opts, err := base.withBedrockInvokeModelOptions(context.Background())
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -198,12 +198,12 @@ func TestAWSBedrockValidation(t *testing.T) {
 
 // TestAWSBedrockOptionsRequireRuntime verifies that option assembly fails when
 // the Bedrock runtime was not set. This should never happen in practice, since
-// withAWSInvokeModelOptions is only called when i.bedrock != nil.
+// withBedrockInvokeModelOptions is only called when i.bedrock != nil.
 func TestAWSBedrockOptionsRequireRuntime(t *testing.T) {
 	t.Parallel()
 
 	base := &interceptionBase{}
-	_, err := base.withAWSInvokeModelOptions(context.Background())
+	_, err := base.withBedrockInvokeModelOptions(context.Background())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "nil bedrock runtime")
 }
@@ -800,7 +800,7 @@ func TestAugmentRequestForBedrock_AdaptiveThinking(t *testing.T) {
 				logger:        slog.Make(),
 			}
 
-			i.augmentRequestForBedrock()
+			i.augmentRequestForBedrockInvokeModel()
 
 			thinkingType := gjson.GetBytes(i.reqPayload, "thinking.type")
 			if tc.expectThinkingType == "" {
@@ -1129,7 +1129,7 @@ func TestWriteUpstreamError(t *testing.T) {
 
 // TestBedrockMantleIsPassthrough verifies the mantle transport is dispatched as
 // a pure passthrough: the interception reports mantle (not InvokeModel), so the
-// call site skips augmentRequestForBedrock and forwards the body unchanged, and
+// call site skips augmentRequestForBedrockInvokeModel and forwards the body unchanged, and
 // Model() reports the client's model. The client emits mantle-legal requests.
 func TestBedrockMantleIsPassthrough(t *testing.T) {
 	t.Parallel()
@@ -1147,7 +1147,7 @@ func TestBedrockMantleIsPassthrough(t *testing.T) {
 	}
 
 	// Mantle dispatches to the passthrough path, not InvokeModel, so
-	// augmentRequestForBedrock is never called and the body is not remapped.
+	// augmentRequestForBedrockInvokeModel is never called and the body is not remapped.
 	require.True(t, i.isBedrockMantle())
 	require.False(t, i.isBedrockInvokeModel())
 	require.Equal(t, "anthropic.claude-opus-4-8", i.Model())
@@ -1190,7 +1190,7 @@ func TestAWSMantleOptionsValidation(t *testing.T) {
 					Creds: credentials.NewStaticCredentialsProvider("test-key", "test-secret", ""),
 				},
 			}
-			opts, err := base.withAWSMantleOptions(context.Background())
+			opts, err := base.withBedrockMantleOptions(context.Background())
 			if tt.errorMsg != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errorMsg)
