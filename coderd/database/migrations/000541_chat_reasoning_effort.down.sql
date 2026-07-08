@@ -7,6 +7,10 @@ UPDATE chat_model_configs
 SET options = options - 'reasoning_effort'
 WHERE options ? 'reasoning_effort';
 
+ALTER TABLE chats DROP CONSTRAINT IF EXISTS chats_last_reasoning_effort_check;
+ALTER TABLE chat_messages DROP CONSTRAINT IF EXISTS chat_messages_reasoning_effort_check;
+ALTER TABLE chat_queued_messages DROP CONSTRAINT IF EXISTS chat_queued_messages_reasoning_effort_check;
+
 ALTER TABLE chats DROP COLUMN last_reasoning_effort;
 ALTER TABLE chat_messages DROP COLUMN reasoning_effort;
 ALTER TABLE chat_queued_messages DROP COLUMN reasoning_effort;

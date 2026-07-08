@@ -532,7 +532,14 @@ func (server *Server) prepareGeneration(
 		}
 	}
 
-	reasoningEffort := chatprovider.ResolveReasoningEffort(callConfig.ReasoningEffort)
+	var requestedEffort *string
+	if chat.LastReasoningEffort.Valid {
+		requestedEffort = &chat.LastReasoningEffort.String
+	}
+	reasoningEffort := chatprovider.ResolveReasoningEffort(
+		requestedEffort,
+		callConfig.ReasoningEffort,
+	)
 	providerOptions := chatprovider.ProviderOptionsFromChatModelConfig(model, callConfig.ProviderOptions)
 	providerOptions = chatprovider.ApplyReasoningEffort(model, providerOptions, reasoningEffort)
 

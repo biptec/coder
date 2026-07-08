@@ -1578,6 +1578,12 @@ export interface Chat {
 	readonly parent_chat_id?: string;
 	readonly root_chat_id?: string;
 	readonly last_model_config_id: string;
+	/**
+	 * LastReasoningEffort is the reasoning effort carried by the most
+	 * recent message that set one. Used to initialize the effort
+	 * selector for subsequent turns.
+	 */
+	readonly last_reasoning_effort?: string;
 	readonly title: string;
 	readonly status: ChatStatus;
 	readonly plan_mode?: ChatPlanMode;
@@ -3568,6 +3574,13 @@ export interface CreateChatMessageRequest {
 	 * nil: no change, ptr to "plan": enable, ptr to "": clear.
 	 */
 	readonly plan_mode?: ChatPlanMode;
+	/**
+	 * ReasoningEffort is the user-selected reasoning effort for the
+	 * turn triggered by this message. Clamped to the model config's
+	 * max effort at generation time. Ignored when the model config
+	 * has no reasoning effort configured.
+	 */
+	readonly reasoning_effort?: string;
 }
 
 // From codersdk/chats.go
@@ -3622,6 +3635,13 @@ export interface CreateChatRequest {
 	readonly system_prompt?: string;
 	readonly workspace_id?: string;
 	readonly model_config_id?: string;
+	/**
+	 * ReasoningEffort is the user-selected reasoning effort for the
+	 * first turn. Clamped to the model config's max effort at
+	 * generation time. Ignored when the model config has no
+	 * reasoning effort configured.
+	 */
+	readonly reasoning_effort?: string;
 	readonly mcp_server_ids?: readonly string[];
 	readonly labels?: Record<string, string>;
 	/**
@@ -4595,6 +4615,12 @@ export interface EditChatMessageRequest {
 	 * When nil the original message's model is preserved.
 	 */
 	readonly model_config_id?: string;
+	/**
+	 * ReasoningEffort, when set, overrides the reasoning effort for
+	 * the replacement user message. When nil the original message's
+	 * reasoning effort is preserved.
+	 */
+	readonly reasoning_effort?: string;
 }
 
 // From codersdk/chats.go

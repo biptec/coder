@@ -398,6 +398,12 @@ func (p *Server) newAdvisorRuntime(
 	}
 
 	advisorCallConfig.MaxOutputTokens = ptr.Ref(maxOutputTokens)
+	// The advisor has no per-turn effort selection; its model config's
+	// default effort applies.
+	advisorReasoningEffort := chatprovider.ResolveReasoningEffort(
+		nil,
+		advisorCallConfig.ReasoningEffort,
+	)
 	providerOptions := chatprovider.ProviderOptionsFromChatModelConfig(
 		advisorModel,
 		advisorCallConfig.ProviderOptions,
@@ -405,7 +411,7 @@ func (p *Server) newAdvisorRuntime(
 	providerOptions = chatprovider.ApplyReasoningEffort(
 		advisorModel,
 		providerOptions,
-		chatprovider.ResolveReasoningEffort(advisorCallConfig.ReasoningEffort),
+		advisorReasoningEffort,
 	)
 
 	rt, err := chatadvisor.NewRuntime(chatadvisor.RuntimeConfig{
@@ -1127,15 +1133,19 @@ func (e *UsageLimitExceededError) Error() string {
 
 // CreateOptions controls chat creation in the shared chat mutation path.
 type CreateOptions struct {
-	OrganizationID     uuid.UUID
-	OwnerID            uuid.UUID
-	WorkspaceID        uuid.NullUUID
-	BuildID            uuid.NullUUID
-	AgentID            uuid.NullUUID
-	ParentChatID       uuid.NullUUID
-	RootChatID         uuid.NullUUID
-	Title              string
-	ModelConfigID      uuid.UUID
+	OrganizationID uuid.UUID
+	OwnerID        uuid.UUID
+	WorkspaceID    uuid.NullUUID
+	BuildID        uuid.NullUUID
+	AgentID        uuid.NullUUID
+	ParentChatID   uuid.NullUUID
+	RootChatID     uuid.NullUUID
+	Title          string
+	ModelConfigID  uuid.UUID
+	// ReasoningEffort is the user-selected reasoning effort carried
+	// by the initial user message. Nil when the user did not select
+	// one.
+	ReasoningEffort    *string
 	ChatMode           database.NullChatMode
 	PlanMode           database.NullChatPlanMode
 	ClientType         database.ChatClientType
@@ -1166,10 +1176,13 @@ type SendMessageOptions struct {
 	CreatedBy     uuid.UUID
 	Content       []codersdk.ChatMessagePart
 	ModelConfigID uuid.UUID
-	APIKeyID      string
-	BusyBehavior  SendMessageBusyBehavior
-	PlanMode      *database.NullChatPlanMode
-	MCPServerIDs  *[]uuid.UUID
+	// ReasoningEffort is the user-selected reasoning effort for the
+	// turn. Nil when the user did not select one.
+	ReasoningEffort *string
+	APIKeyID        string
+	BusyBehavior    SendMessageBusyBehavior
+	PlanMode        *database.NullChatPlanMode
+	MCPServerIDs    *[]uuid.UUID
 }
 
 // SendMessageResult contains the outcome of user message processing.
@@ -1191,6 +1204,10 @@ type EditMessageOptions struct {
 	// the replacement user message. When set to uuid.Nil the
 	// original message's model is preserved.
 	ModelConfigID uuid.UUID
+	// ReasoningEffort, when non-nil, overrides the reasoning effort
+	// for the replacement user message. When nil the original
+	// message's reasoning effort is preserved.
+	ReasoningEffort *string
 }
 
 // EditMessageResult contains the replacement user message and chat status.
@@ -1304,7 +1321,7 @@ func (p *Server) CreateChat(ctx context.Context, opts CreateOptions) (database.C
 		initialMessages = append(initialMessages, systemMessage(userPromptContent, opts.ModelConfigID))
 	}
 	initialMessages = append(initialMessages, systemMessage(workspaceAwarenessContent, opts.ModelConfigID))
-	initialMessages = append(initialMessages, userMessageWithAPIKeyID(userContent, opts.ModelConfigID, opts.OwnerID, opts.APIKeyID))
+	initialMessages = append(initialMessages, userMessageWithAPIKeyID(userContent, opts.ModelConfigID, opts.OwnerID, opts.APIKeyID, opts.ReasoningEffort))
 
 	result, err := chatstate.CreateChat(ctx, p.db, p.pubsub, chatstate.CreateChatInput{
 		OrganizationID:    opts.OrganizationID,
@@ -1451,7 +1468,7 @@ func (p *Server) SendMessage(
 		// Queue capacity is enforced inside tx.SendMessage; this
 		// wrapper only propagates the typed error.
 		sendResult, err := tx.SendMessage(chatstate.SendMessageInput{
-			Message:      userMessageWithAPIKeyID(content, modelConfigID, messageCreatedBy, opts.APIKeyID),
+			Message:      userMessageWithAPIKeyID(content, modelConfigID, messageCreatedBy, opts.APIKeyID, opts.ReasoningEffort),
 			BusyBehavior: busyBehaviorToChatState(busyBehavior),
 		})
 		if err != nil {
@@ -1659,12 +1676,18 @@ func (p *Server) EditMessage(
 			modelOverride = uuid.NullUUID{UUID: opts.ModelConfigID, Valid: true}
 		}
 
+		var reasoningEffortOverride sql.NullString
+		if opts.ReasoningEffort != nil && *opts.ReasoningEffort != "" {
+			reasoningEffortOverride = sql.NullString{String: *opts.ReasoningEffort, Valid: true}
+		}
+
 		editResult, err := tx.EditMessage(chatstate.EditMessageInput{
-			MessageID:             opts.EditedMessageID,
-			CreatedBy:             opts.CreatedBy,
-			Content:               content,
-			ModelConfigIDOverride: modelOverride,
-			APIKeyID:              sql.NullString{String: opts.APIKeyID, Valid: opts.APIKeyID != ""},
+			MessageID:               opts.EditedMessageID,
+			CreatedBy:               opts.CreatedBy,
+			Content:                 content,
+			ModelConfigIDOverride:   modelOverride,
+			ReasoningEffortOverride: reasoningEffortOverride,
+			APIKeyID:                sql.NullString{String: opts.APIKeyID, Valid: opts.APIKeyID != ""},
 		})
 		if err != nil {
 			if errors.Is(err, chatstate.ErrEditedMessageNotUser) {
@@ -2804,6 +2827,7 @@ func recordManualTitleUsage(
 				CreatedBy:           []uuid.UUID{chat.OwnerID},
 				APIKeyID:            []string{activeAPIKeyID},
 				ModelConfigID:       []uuid.UUID{modelConfig.ID},
+				ReasoningEffort:     []string{""},
 				Role:                []database.ChatMessageRole{database.ChatMessageRoleAssistant},
 				Content:             []string{content},
 				ContentVersion:      []int16{chatprompt.CurrentContentVersion},
@@ -2872,6 +2896,7 @@ type chatMessage struct {
 	contextLimit        int64
 	totalCostMicros     int64
 	runtimeMs           int64
+	reasoningEffort     string
 }
 
 type userChatMessage struct {
@@ -2932,6 +2957,7 @@ func appendMessageFields(
 	params.CreatedBy = append(params.CreatedBy, msg.createdBy)
 	params.APIKeyID = append(params.APIKeyID, apiKeyID)
 	params.ModelConfigID = append(params.ModelConfigID, msg.modelConfigID)
+	params.ReasoningEffort = append(params.ReasoningEffort, msg.reasoningEffort)
 	params.Role = append(params.Role, msg.role)
 	params.Content = append(params.Content, string(msg.content.RawMessage))
 	params.ContentVersion = append(params.ContentVersion, msg.contentVersion)

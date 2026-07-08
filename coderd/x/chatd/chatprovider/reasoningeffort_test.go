@@ -21,26 +21,31 @@ func TestResolveReasoningEffort(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		config *codersdk.ChatModelReasoningEffortConfig
-		want   *string
+		name      string
+		requested *string
+		config    *codersdk.ChatModelReasoningEffortConfig
+		want      *string
 	}{
-		{name: "NilConfig"},
-		{name: "DefaultUsed", config: effortConfig("medium", "high"), want: ptr.Ref("medium")},
+		{name: "NilConfigIgnoresRequested", requested: ptr.Ref("high")},
+		{name: "DefaultUsedWhenNoRequested", config: effortConfig("medium", "high"), want: ptr.Ref("medium")},
+		{name: "RequestedWinsOverDefault", requested: ptr.Ref("high"), config: effortConfig("medium", "high"), want: ptr.Ref("high")},
+		{name: "RequestedWinsWithoutMax", requested: ptr.Ref("high"), config: effortConfig("medium", ""), want: ptr.Ref("high")},
+		{name: "RequestedClampedToMax", requested: ptr.Ref("xhigh"), config: effortConfig("low", "medium"), want: ptr.Ref("medium")},
 		{name: "DefaultClampedToMax", config: effortConfig("xhigh", "medium"), want: ptr.Ref("medium")},
-		{name: "InvalidDefaultReturnsNil", config: effortConfig(" HIGH ", "high")},
-		{name: "InvalidMaxReturnsNil", config: effortConfig("high", " HIGH ")},
+		{name: "InvalidRequestedFallsBackToDefault", requested: ptr.Ref(" HIGH "), config: effortConfig("low", "high"), want: ptr.Ref("low")},
+		{name: "InvalidMaxReturnsNil", requested: ptr.Ref("medium"), config: effortConfig("low", " HIGH ")},
 		{name: "EmptyConfigReturnsNil", config: &codersdk.ChatModelReasoningEffortConfig{}},
-		{name: "MaxSupported", config: effortConfig("max", "max"), want: ptr.Ref("max")},
-		{name: "NoneSupported", config: effortConfig("none", "xhigh"), want: ptr.Ref("none")},
-		{name: "MaxOnlyConfigReturnsNil", config: effortConfig("", "medium")},
+		{name: "MaxSupported", requested: ptr.Ref("max"), config: effortConfig("medium", "max"), want: ptr.Ref("max")},
+		{name: "NoneSupported", requested: ptr.Ref("none"), config: effortConfig("medium", "xhigh"), want: ptr.Ref("none")},
+		{name: "MaxOnlyConfigClampsRequested", requested: ptr.Ref("xhigh"), config: effortConfig("", "medium"), want: ptr.Ref("medium")},
+		{name: "MaxOnlyConfigWithoutRequestedReturnsNil", config: effortConfig("", "medium")},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := chatprovider.ResolveReasoningEffort(tt.config)
+			got := chatprovider.ResolveReasoningEffort(tt.requested, tt.config)
 			if tt.want == nil {
 				require.Nil(t, got)
 				return

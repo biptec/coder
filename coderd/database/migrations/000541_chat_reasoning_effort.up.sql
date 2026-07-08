@@ -7,6 +7,16 @@ ALTER TABLE chat_messages ADD COLUMN reasoning_effort text;
 ALTER TABLE chat_queued_messages ADD COLUMN reasoning_effort text;
 
 -- Reserved for follow-up per-turn reasoning effort support.
+ALTER TABLE chats
+    ADD CONSTRAINT chats_last_reasoning_effort_check
+    CHECK (last_reasoning_effort IS NULL OR last_reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'));
+ALTER TABLE chat_messages
+    ADD CONSTRAINT chat_messages_reasoning_effort_check
+    CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'));
+ALTER TABLE chat_queued_messages
+    ADD CONSTRAINT chat_queued_messages_reasoning_effort_check
+    CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'));
+
 COMMENT ON COLUMN chats.last_reasoning_effort IS 'Stores the most recent message effort once per-turn selection is wired.';
 COMMENT ON COLUMN chat_messages.reasoning_effort IS 'Stores the selected effort for the turn triggered by this message.';
 COMMENT ON COLUMN chat_queued_messages.reasoning_effort IS 'Stores the selected effort until the queued row is promoted.';

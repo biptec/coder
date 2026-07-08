@@ -1918,7 +1918,8 @@ CREATE TABLE chat_messages (
     provider_response_id text,
     api_key_id text,
     revision bigint NOT NULL,
-    reasoning_effort text
+    reasoning_effort text,
+    CONSTRAINT chat_messages_reasoning_effort_check CHECK (((reasoning_effort IS NULL) OR (reasoning_effort = ANY (ARRAY['none'::text, 'minimal'::text, 'low'::text, 'medium'::text, 'high'::text, 'xhigh'::text, 'max'::text]))))
 );
 
 COMMENT ON COLUMN chat_messages.reasoning_effort IS 'Stores the selected effort for the turn triggered by this message.';
@@ -1969,7 +1970,8 @@ CREATE TABLE chat_queued_messages (
     api_key_id text,
     "position" bigint DEFAULT nextval('chat_queued_messages_position_seq'::regclass) NOT NULL,
     created_by uuid NOT NULL,
-    reasoning_effort text
+    reasoning_effort text,
+    CONSTRAINT chat_queued_messages_reasoning_effort_check CHECK (((reasoning_effort IS NULL) OR (reasoning_effort = ANY (ARRAY['none'::text, 'minimal'::text, 'low'::text, 'medium'::text, 'high'::text, 'xhigh'::text, 'max'::text]))))
 );
 
 COMMENT ON COLUMN chat_queued_messages.reasoning_effort IS 'Stores the selected effort until the queued row is promoted.';
@@ -2051,6 +2053,7 @@ CREATE TABLE chats (
     CONSTRAINT chat_acl_only_on_root_chats CHECK ((((parent_chat_id IS NULL) AND (root_chat_id IS NULL)) OR ((user_acl = '{}'::jsonb) AND (group_acl = '{}'::jsonb)))),
     CONSTRAINT chat_group_acl_not_null_jsonb CHECK (((group_acl IS NOT NULL) AND (jsonb_typeof(group_acl) = 'object'::text))),
     CONSTRAINT chat_user_acl_not_null_jsonb CHECK (((user_acl IS NOT NULL) AND (jsonb_typeof(user_acl) = 'object'::text))),
+    CONSTRAINT chats_last_reasoning_effort_check CHECK (((last_reasoning_effort IS NULL) OR (last_reasoning_effort = ANY (ARRAY['none'::text, 'minimal'::text, 'low'::text, 'medium'::text, 'high'::text, 'xhigh'::text, 'max'::text])))),
     CONSTRAINT chats_pin_order_archived_check CHECK (((pin_order = 0) OR (archived = false))),
     CONSTRAINT chats_pin_order_parent_check CHECK (((pin_order = 0) OR (parent_chat_id IS NULL)))
 );

@@ -1235,12 +1235,22 @@ func (api *API) postChats(rw http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	chatReasoningEffort := req.ReasoningEffort
+	if chatReasoningEffort != nil && !chatprovider.IsValidReasoningEffort(*chatReasoningEffort) {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
+			Message: "Invalid reasoning_effort value.",
+			Detail:  "Must be one of none, minimal, low, medium, high, xhigh, max.",
+		})
+		return
+	}
+
 	chat, err := api.chatDaemon.CreateChat(ctx, chatd.CreateOptions{
 		OrganizationID:     req.OrganizationID,
 		OwnerID:            apiKey.UserID,
 		WorkspaceID:        workspaceSelection.WorkspaceID,
 		Title:              title,
 		ModelConfigID:      modelConfigID,
+		ReasoningEffort:    chatReasoningEffort,
 		PlanMode:           planModeToNullChatPlanMode(req.PlanMode),
 		ClientType:         clientType,
 		SystemPrompt:       req.SystemPrompt,
@@ -3154,17 +3164,27 @@ func (api *API) postChatMessages(rw http.ResponseWriter, r *http.Request) {
 		modelConfigID = *req.ModelConfigID
 	}
 
+	reasoningEffort := req.ReasoningEffort
+	if reasoningEffort != nil && !chatprovider.IsValidReasoningEffort(*reasoningEffort) {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
+			Message: "Invalid reasoning_effort value.",
+			Detail:  "Must be one of none, minimal, low, medium, high, xhigh, max.",
+		})
+		return
+	}
+
 	sendResult, sendErr := api.chatDaemon.SendMessage(
 		ctx,
 		chatd.SendMessageOptions{
-			ChatID:        chatID,
-			CreatedBy:     apiKey.UserID,
-			Content:       contentBlocks,
-			ModelConfigID: modelConfigID,
-			APIKeyID:      apiKey.ID,
-			BusyBehavior:  busyBehavior,
-			PlanMode:      sendPlanMode,
-			MCPServerIDs:  req.MCPServerIDs,
+			ChatID:          chatID,
+			CreatedBy:       apiKey.UserID,
+			Content:         contentBlocks,
+			ModelConfigID:   modelConfigID,
+			ReasoningEffort: reasoningEffort,
+			APIKeyID:        apiKey.ID,
+			BusyBehavior:    busyBehavior,
+			PlanMode:        sendPlanMode,
+			MCPServerIDs:    req.MCPServerIDs,
 		},
 	)
 	if sendErr != nil {
@@ -3312,6 +3332,15 @@ func (api *API) patchChatMessage(rw http.ResponseWriter, r *http.Request) {
 		editModelConfigID = *req.ModelConfigID
 	}
 
+	editReasoningEffort := req.ReasoningEffort
+	if editReasoningEffort != nil && !chatprovider.IsValidReasoningEffort(*editReasoningEffort) {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
+			Message: "Invalid reasoning_effort value.",
+			Detail:  "Must be one of none, minimal, low, medium, high, xhigh, max.",
+		})
+		return
+	}
+
 	editResult, editErr := api.chatDaemon.EditMessage(ctx, chatd.EditMessageOptions{
 		ChatID:          chat.ID,
 		CreatedBy:       apiKey.UserID,
@@ -3319,6 +3348,7 @@ func (api *API) patchChatMessage(rw http.ResponseWriter, r *http.Request) {
 		Content:         contentBlocks,
 		APIKeyID:        apiKey.ID,
 		ModelConfigID:   editModelConfigID,
+		ReasoningEffort: editReasoningEffort,
 	})
 	if editErr != nil {
 		if maybeWriteLimitErr(ctx, rw, editErr) {
