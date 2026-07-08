@@ -608,7 +608,6 @@ func Chats(query string) (database.GetChatsParams, []codersdk.ValidationError) {
 		}
 	}
 
-	// search is mutually exclusive with the substring filters.
 	if values.Has("search") {
 		parser.RequiredNotEmpty("search")
 		if search := parser.String(values, "", "search"); search != "" {

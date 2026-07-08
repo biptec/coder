@@ -1238,8 +1238,7 @@ func TestSearchChats(t *testing.T) {
 		Query                 string
 		Expected              database.GetChatsParams
 		ExpectedErrorContains string
-		// ExpectedErrorCount, when non-zero, asserts the exact number of
-		// validation errors.
+		// When non-zero, asserts the exact number of validation errors.
 		ExpectedErrorCount int
 	}{
 		{
