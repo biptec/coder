@@ -4989,6 +4989,55 @@ func (q *sqlQuerier) GetChatFileByID(ctx context.Context, id uuid.UUID) (ChatFil
 	return i, err
 }
 
+const getChatFileDataPrefixesByIDs = `-- name: GetChatFileDataPrefixesByIDs :many
+SELECT id, owner_id, organization_id, substr(data, 1, $1::int) AS data_prefix
+FROM chat_files
+WHERE id = ANY($2::uuid[])
+`
+
+type GetChatFileDataPrefixesByIDsParams struct {
+	PrefixBytes int32       `db:"prefix_bytes" json:"prefix_bytes"`
+	IDs         []uuid.UUID `db:"ids" json:"ids"`
+}
+
+type GetChatFileDataPrefixesByIDsRow struct {
+	ID             uuid.UUID `db:"id" json:"id"`
+	OwnerID        uuid.UUID `db:"owner_id" json:"owner_id"`
+	OrganizationID uuid.UUID `db:"organization_id" json:"organization_id"`
+	DataPrefix     []byte    `db:"data_prefix" json:"data_prefix"`
+}
+
+// GetChatFileDataPrefixesByIDs returns a bounded prefix of each
+// file's content, keeping full blobs out of server memory. Owner and
+// organization columns support row-level authorization.
+func (q *sqlQuerier) GetChatFileDataPrefixesByIDs(ctx context.Context, arg GetChatFileDataPrefixesByIDsParams) ([]GetChatFileDataPrefixesByIDsRow, error) {
+	rows, err := q.db.QueryContext(ctx, getChatFileDataPrefixesByIDs, arg.PrefixBytes, pq.Array(arg.IDs))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetChatFileDataPrefixesByIDsRow
+	for rows.Next() {
+		var i GetChatFileDataPrefixesByIDsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OwnerID,
+			&i.OrganizationID,
+			&i.DataPrefix,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getChatFileMetadataByChatID = `-- name: GetChatFileMetadataByChatID :many
 SELECT cf.id, cf.owner_id, cf.organization_id, cf.name, cf.mimetype, cf.created_at
 FROM chat_files cf
@@ -11640,55 +11689,6 @@ func (q *sqlQuerier) UpdateChatMCPServerIDs(ctx context.Context, arg UpdateChatM
 		&i.ContextDirtySince,
 		&i.ContextDirtyResources,
 		&i.ContextError,
-	)
-	return i, err
-}
-
-const updateChatMessageByID = `-- name: UpdateChatMessageByID :one
-UPDATE
-    chat_messages
-SET
-    model_config_id = COALESCE($1::uuid, model_config_id),
-    content = $2::jsonb
-WHERE
-    id = $3::bigint
-RETURNING
-    id, chat_id, model_config_id, created_at, role, content, visibility, input_tokens, output_tokens, total_tokens, reasoning_tokens, cache_creation_tokens, cache_read_tokens, context_limit, compressed, created_by, content_version, total_cost_micros, runtime_ms, deleted, provider_response_id, api_key_id, revision
-`
-
-type UpdateChatMessageByIDParams struct {
-	ModelConfigID uuid.NullUUID         `db:"model_config_id" json:"model_config_id"`
-	Content       pqtype.NullRawMessage `db:"content" json:"content"`
-	ID            int64                 `db:"id" json:"id"`
-}
-
-func (q *sqlQuerier) UpdateChatMessageByID(ctx context.Context, arg UpdateChatMessageByIDParams) (ChatMessage, error) {
-	row := q.db.QueryRowContext(ctx, updateChatMessageByID, arg.ModelConfigID, arg.Content, arg.ID)
-	var i ChatMessage
-	err := row.Scan(
-		&i.ID,
-		&i.ChatID,
-		&i.ModelConfigID,
-		&i.CreatedAt,
-		&i.Role,
-		&i.Content,
-		&i.Visibility,
-		&i.InputTokens,
-		&i.OutputTokens,
-		&i.TotalTokens,
-		&i.ReasoningTokens,
-		&i.CacheCreationTokens,
-		&i.CacheReadTokens,
-		&i.ContextLimit,
-		&i.Compressed,
-		&i.CreatedBy,
-		&i.ContentVersion,
-		&i.TotalCostMicros,
-		&i.RuntimeMs,
-		&i.Deleted,
-		&i.ProviderResponseID,
-		&i.APIKeyID,
-		&i.Revision,
 	)
 	return i, err
 }
