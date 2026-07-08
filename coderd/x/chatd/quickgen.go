@@ -803,7 +803,7 @@ func generateManualTitle(
 	ctx context.Context,
 	messages []database.ChatMessage,
 	fallbackModel fantasy.LanguageModel,
-) (string, fantasy.Usage, error) {
+) (string, error) {
 	turns := extractManualTitleTurns(messages)
 	selected := selectManualTitleTurnIndexes(turns)
 
@@ -811,7 +811,7 @@ func generateManualTitle(
 		return turn.role == string(database.ChatMessageRoleUser)
 	})
 	if firstUserIndex == -1 {
-		return "", fantasy.Usage{}, nil
+		return "", nil
 	}
 	firstUserText := truncateRunes(turns[firstUserIndex].text, maxLatestUserMessageRunes)
 
@@ -830,17 +830,17 @@ func generateManualTitle(
 		userInput = strings.TrimSpace(firstUserText)
 	}
 
-	title, usage, err := generateStructuredTitleWithUsage(
+	title, _, err := generateStructuredTitleWithUsage(
 		titleCtx,
 		fallbackModel,
 		systemPrompt,
 		userInput,
 	)
 	if err != nil {
-		return "", usage, err
+		return "", err
 	}
 
-	return title, usage, nil
+	return title, nil
 }
 
 const turnStatusLabelPrompt = "You write compact chat status labels for a sidebar or push notification. " +
