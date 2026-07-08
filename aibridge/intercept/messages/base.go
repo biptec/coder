@@ -76,6 +76,9 @@ var bedrockSupportedBetaFlags = map[string]bool{
 // traffic as Coder-associated Bedrock usage.
 const bedrockPRMUserAgent = "sdk-ua-app-id/APN_1.1%2Fpc_cdfmjwn8i6u8l9fwz8h82e4w3%24"
 
+// bedrockMantleSigningService is the AWS SigV4 service name for mantle.
+const bedrockMantleSigningService = "bedrock-mantle"
+
 func appendBedrockPRMUserAgent(req *http.Request) {
 	if ua := req.Header.Get("User-Agent"); ua != "" {
 		req.Header.Set("User-Agent", ua+" "+bedrockPRMUserAgent)
@@ -379,6 +382,13 @@ func (i *interceptionBase) withBedrockMantleOptions(ctx context.Context) ([]opti
 	out = append(out, option.WithMiddleware(func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
 		appendBedrockPRMUserAgent(req)
 
+		creds, err := i.bedrock.Creds.Retrieve(req.Context())
+		if err != nil {
+			return nil, err
+		}
+
+		// SigV4 requires a payload hash, so read the body to hash it and then
+		// restore it for the downstream HTTP client to send.
 		var body []byte
 		if req.Body != nil {
 			var err error
@@ -391,12 +401,8 @@ func (i *interceptionBase) withBedrockMantleOptions(ctx context.Context) ([]opti
 			req.ContentLength = int64(len(body))
 		}
 
-		creds, err := i.bedrock.Creds.Retrieve(req.Context())
-		if err != nil {
-			return nil, err
-		}
 		hash := sha256.Sum256(body)
-		if err := signer.SignHTTP(req.Context(), creds, req, hex.EncodeToString(hash[:]), "bedrock-mantle", cfg.Region, time.Now()); err != nil {
+		if err := signer.SignHTTP(req.Context(), creds, req, hex.EncodeToString(hash[:]), bedrockMantleSigningService, cfg.Region, time.Now()); err != nil {
 			return nil, err
 		}
 		return next(req)
