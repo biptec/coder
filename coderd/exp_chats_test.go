@@ -10474,7 +10474,7 @@ func assertChatCostSummary(t *testing.T, summary codersdk.ChatCostSummary, model
 
 	require.Equal(t, int64(1000), summary.TotalCostMicros)
 	require.Equal(t, int64(2), summary.PricedMessageCount)
-	require.Equal(t, int64(0), summary.UnpricedMessagesWithUsageCount)
+	require.Equal(t, int64(0), summary.UnpricedMessagesHavingUsageCount)
 	require.Equal(t, int64(200), summary.TotalInputTokens)
 	require.Equal(t, int64(100), summary.TotalOutputTokens)
 	require.Equal(t, int64(4000), summary.TotalRuntimeMs)
@@ -10597,7 +10597,7 @@ func TestGetChatCost(t *testing.T) {
 		require.Equal(t, f.ChatID, cost.ChatID)
 		require.Equal(t, int64(1000), cost.TotalCostMicros)
 		require.Equal(t, int64(2), cost.PricedMessageCount)
-		require.Equal(t, int64(0), cost.UnpricedMessagesWithUsageCount)
+		require.Equal(t, int64(0), cost.UnpricedMessagesHavingUsageCount)
 	})
 
 	t.Run("RollsUpSubtree", func(t *testing.T) {
@@ -10711,7 +10711,7 @@ func TestGetChatCost(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, int64(400), cost.TotalCostMicros)
 		require.Equal(t, int64(1), cost.PricedMessageCount)
-		require.Equal(t, int64(1), cost.UnpricedMessagesWithUsageCount)
+		require.Equal(t, int64(1), cost.UnpricedMessagesHavingUsageCount)
 	})
 
 	t.Run("MemberCannotReadOtherUsersChat", func(t *testing.T) {
@@ -10762,7 +10762,7 @@ func TestGetChatCost(t *testing.T) {
 		require.Equal(t, chat.ID, cost.ChatID)
 		require.Equal(t, int64(0), cost.TotalCostMicros)
 		require.Equal(t, int64(0), cost.PricedMessageCount)
-		require.Equal(t, int64(0), cost.UnpricedMessagesWithUsageCount)
+		require.Equal(t, int64(0), cost.UnpricedMessagesHavingUsageCount)
 	})
 
 	t.Run("ExcludesNonAssistantMessages", func(t *testing.T) {
@@ -10797,7 +10797,7 @@ func TestGetChatCost(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, int64(600), cost.TotalCostMicros)
 		require.Equal(t, int64(1), cost.PricedMessageCount)
-		require.Equal(t, int64(0), cost.UnpricedMessagesWithUsageCount)
+		require.Equal(t, int64(0), cost.UnpricedMessagesHavingUsageCount)
 	})
 }
 
@@ -10994,7 +10994,7 @@ func TestChatCostSummary_UnpricedMessages(t *testing.T) {
 
 	require.Equal(t, int64(500), summary.TotalCostMicros)
 	require.Equal(t, int64(1), summary.PricedMessageCount)
-	require.Equal(t, int64(1), summary.UnpricedMessagesWithUsageCount)
+	require.Equal(t, int64(1), summary.UnpricedMessagesHavingUsageCount)
 	require.Equal(t, int64(300), summary.TotalInputTokens)
 	require.Equal(t, int64(125), summary.TotalOutputTokens)
 }

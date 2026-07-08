@@ -14,7 +14,7 @@ interface ChatSummaryProps {
 	isCostLoading?: boolean;
 	costError?: boolean;
 	/** Assistant messages with usage but no model pricing; when > 0 the cost is partial and a note is shown. */
-	unpricedMessagesWithUsageCount?: number;
+	unpricedMessagesHavingUsageCount?: number;
 	/** Subagent summaries are the agent's final report, persisted when it completes, so the empty state reads as pending rather than absent. */
 	isSubagent?: boolean;
 }
@@ -26,7 +26,7 @@ export const ChatSummary: FC<ChatSummaryProps> = ({
 	costMicros,
 	isCostLoading,
 	costError,
-	unpricedMessagesWithUsageCount,
+	unpricedMessagesHavingUsageCount,
 	isSubagent,
 }) => {
 	const trimmedSummary = summary?.trim();
@@ -34,8 +34,8 @@ export const ChatSummary: FC<ChatSummaryProps> = ({
 		!isCostLoading &&
 		!costError &&
 		costMicros != null &&
-		unpricedMessagesWithUsageCount != null &&
-		unpricedMessagesWithUsageCount > 0;
+		unpricedMessagesHavingUsageCount != null &&
+		unpricedMessagesHavingUsageCount > 0;
 
 	return (
 		<div className="flex flex-col gap-4">
@@ -71,8 +71,8 @@ export const ChatSummary: FC<ChatSummaryProps> = ({
 
 			{hasUnpricedMessages && (
 				<p className="m-0 text-xs italic text-content-secondary">
-					Excludes {unpricedMessagesWithUsageCount} message
-					{unpricedMessagesWithUsageCount === 1 ? "" : "s"} with usage but
+					Excludes {unpricedMessagesHavingUsageCount} message
+					{unpricedMessagesHavingUsageCount === 1 ? "" : "s"} with usage but
 					without model pricing.
 				</p>
 			)}

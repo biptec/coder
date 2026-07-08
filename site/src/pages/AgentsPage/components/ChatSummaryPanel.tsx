@@ -30,8 +30,8 @@ export const ChatSummaryPanel: FC<ChatSummaryPanelProps> = ({
 				createdAt={chatData.created_at}
 				updatedAt={chatData.updated_at}
 				costMicros={costQuery.data?.total_cost_micros}
-				unpricedMessagesWithUsageCount={
-					costQuery.data?.unpriced_messages_with_usage_count
+				unpricedMessagesHavingUsageCount={
+					costQuery.data?.unpriced_messages_having_usage_count
 				}
 				isCostLoading={costQuery.isLoading}
 				costError={costQuery.isError}

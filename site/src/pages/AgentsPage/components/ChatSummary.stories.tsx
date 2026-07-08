@@ -93,7 +93,7 @@ export const CostError: Story = {
 };
 
 export const PartialCost: Story = {
-	args: { costMicros: 0, unpricedMessagesWithUsageCount: 3 },
+	args: { costMicros: 0, unpricedMessagesHavingUsageCount: 3 },
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
 		await expect(

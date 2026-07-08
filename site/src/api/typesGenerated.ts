@@ -1862,7 +1862,7 @@ export interface ChatCost {
 	readonly chat_id: string;
 	readonly total_cost_micros: number;
 	readonly priced_message_count: number;
-	readonly unpriced_messages_with_usage_count: number;
+	readonly unpriced_messages_having_usage_count: number;
 }
 
 // From codersdk/chats.go
@@ -1908,7 +1908,7 @@ export interface ChatCostSummary {
 	readonly end_date: string;
 	readonly total_cost_micros: number;
 	readonly priced_message_count: number;
-	readonly unpriced_messages_with_usage_count: number;
+	readonly unpriced_messages_having_usage_count: number;
 	readonly total_input_tokens: number;
 	readonly total_output_tokens: number;
 	readonly total_cache_read_tokens: number;

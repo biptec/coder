@@ -11,7 +11,7 @@ const mockCost: TypesGen.ChatCost = {
 	chat_id: MockChat.id,
 	total_cost_micros: 1_250_000,
 	priced_message_count: 8,
-	unpriced_messages_with_usage_count: 0,
+	unpriced_messages_having_usage_count: 0,
 };
 
 type MockRequestOptions = {

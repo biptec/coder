@@ -203,7 +203,7 @@ const meta: Meta<typeof AgentChatPageView> = {
 			chat_id: AGENT_ID,
 			total_cost_micros: 0,
 			priced_message_count: 0,
-			unpriced_messages_with_usage_count: 0,
+			unpriced_messages_having_usage_count: 0,
 		});
 	},
 	decorators: [withAuthProvider, withDashboardProvider, withProxyProvider()],

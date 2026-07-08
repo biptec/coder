@@ -2169,7 +2169,7 @@ SELECT
                 OR cm.cache_creation_tokens IS NOT NULL
                 OR cm.cache_read_tokens IS NOT NULL
             )
-    )::bigint AS unpriced_messages_with_usage_count,
+    )::bigint AS unpriced_messages_having_usage_count,
     COALESCE(SUM(cm.input_tokens), 0)::bigint AS total_input_tokens,
     COALESCE(SUM(cm.output_tokens), 0)::bigint AS total_output_tokens,
     COALESCE(SUM(cm.cache_read_tokens), 0)::bigint AS total_cache_read_tokens,
@@ -2296,7 +2296,7 @@ WITH RECURSIVE target AS (
                     OR cm.cache_creation_tokens IS NOT NULL
                     OR cm.cache_read_tokens IS NOT NULL
                 )
-        )::bigint AS unpriced_messages_with_usage_count
+        )::bigint AS unpriced_messages_having_usage_count
     FROM chat_messages cm
     JOIN subtree s ON s.id = cm.chat_id
     WHERE cm.role = 'assistant'
@@ -2305,7 +2305,7 @@ SELECT
     t.chat_id,
     costs.total_cost_micros,
     costs.priced_message_count,
-    costs.unpriced_messages_with_usage_count
+    costs.unpriced_messages_having_usage_count
 FROM target t
 CROSS JOIN costs;
 

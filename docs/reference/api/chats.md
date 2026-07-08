@@ -1303,7 +1303,7 @@ Experimental: this endpoint is subject to change.
   "chat_id": "efc9fe20-a1e5-4a8c-9c48-f1b30c1e4f86",
   "priced_message_count": 0,
   "total_cost_micros": 0,
-  "unpriced_messages_with_usage_count": 0
+  "unpriced_messages_having_usage_count": 0
 }
 ```
 

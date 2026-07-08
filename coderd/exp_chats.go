@@ -1454,18 +1454,18 @@ func (api *API) chatCostSummary(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	response := codersdk.ChatCostSummary{
-		StartDate:                      startDate,
-		EndDate:                        endDate,
-		TotalCostMicros:                summary.TotalCostMicros,
-		PricedMessageCount:             summary.PricedMessageCount,
-		UnpricedMessagesWithUsageCount: summary.UnpricedMessagesWithUsageCount,
-		TotalInputTokens:               summary.TotalInputTokens,
-		TotalOutputTokens:              summary.TotalOutputTokens,
-		TotalCacheReadTokens:           summary.TotalCacheReadTokens,
-		TotalCacheCreationTokens:       summary.TotalCacheCreationTokens,
-		TotalRuntimeMs:                 summary.TotalRuntimeMs,
-		ByModel:                        modelBreakdowns,
-		ByChat:                         chatBreakdowns,
+		StartDate:                        startDate,
+		EndDate:                          endDate,
+		TotalCostMicros:                  summary.TotalCostMicros,
+		PricedMessageCount:               summary.PricedMessageCount,
+		UnpricedMessagesHavingUsageCount: summary.UnpricedMessagesHavingUsageCount,
+		TotalInputTokens:                 summary.TotalInputTokens,
+		TotalOutputTokens:                summary.TotalOutputTokens,
+		TotalCacheReadTokens:             summary.TotalCacheReadTokens,
+		TotalCacheCreationTokens:         summary.TotalCacheCreationTokens,
+		TotalRuntimeMs:                   summary.TotalRuntimeMs,
+		ByModel:                          modelBreakdowns,
+		ByChat:                           chatBreakdowns,
 	}
 	if usageStatus != nil {
 		response.UsageLimit = usageStatus
@@ -2246,10 +2246,10 @@ func (api *API) getChatCost(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	httpapi.Write(ctx, rw, http.StatusOK, codersdk.ChatCost{
-		ChatID:                         row.ChatID,
-		TotalCostMicros:                row.TotalCostMicros,
-		PricedMessageCount:             row.PricedMessageCount,
-		UnpricedMessagesWithUsageCount: row.UnpricedMessagesWithUsageCount,
+		ChatID:                           row.ChatID,
+		TotalCostMicros:                  row.TotalCostMicros,
+		PricedMessageCount:               row.PricedMessageCount,
+		UnpricedMessagesHavingUsageCount: row.UnpricedMessagesHavingUsageCount,
 	})
 }
 

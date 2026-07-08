@@ -195,7 +195,7 @@ export const ChatCostSummaryView: FC<ChatCostSummaryViewProps> = ({
 					<p className="mt-1 text-2xl font-semibold text-content-primary">
 						{(
 							summary.priced_message_count +
-							summary.unpriced_messages_with_usage_count
+							summary.unpriced_messages_having_usage_count
 						).toLocaleString()}
 					</p>
 				</div>
@@ -254,12 +254,12 @@ export const ChatCostSummaryView: FC<ChatCostSummaryViewProps> = ({
 				</div>
 			)}
 
-			{summary.unpriced_messages_with_usage_count > 0 && (
+			{summary.unpriced_messages_having_usage_count > 0 && (
 				<div className="flex items-start gap-3 rounded-lg border border-border-warning bg-surface-warning p-4 text-sm text-content-primary">
 					<TriangleAlertIcon className="size-5 shrink-0 text-content-warning" />
 					<span>
-						{summary.unpriced_messages_with_usage_count} message
-						{summary.unpriced_messages_with_usage_count === 1 ? "" : "s"} with
+						{summary.unpriced_messages_having_usage_count} message
+						{summary.unpriced_messages_having_usage_count === 1 ? "" : "s"} with
 						usage could not be priced because model pricing data was
 						unavailable.
 					</span>

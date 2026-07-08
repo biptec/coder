@@ -1827,19 +1827,19 @@ type ChatCostUsersOptions struct {
 
 // ChatCostSummary is the response from the chat cost summary endpoint.
 type ChatCostSummary struct {
-	StartDate                      time.Time                `json:"start_date" format:"date-time"`
-	EndDate                        time.Time                `json:"end_date" format:"date-time"`
-	TotalCostMicros                int64                    `json:"total_cost_micros"`
-	PricedMessageCount             int64                    `json:"priced_message_count"`
-	UnpricedMessagesWithUsageCount int64                    `json:"unpriced_messages_with_usage_count"`
-	TotalInputTokens               int64                    `json:"total_input_tokens"`
-	TotalOutputTokens              int64                    `json:"total_output_tokens"`
-	TotalCacheReadTokens           int64                    `json:"total_cache_read_tokens"`
-	TotalCacheCreationTokens       int64                    `json:"total_cache_creation_tokens"`
-	TotalRuntimeMs                 int64                    `json:"total_runtime_ms"`
-	ByModel                        []ChatCostModelBreakdown `json:"by_model"`
-	ByChat                         []ChatCostChatBreakdown  `json:"by_chat"`
-	UsageLimit                     *ChatUsageLimitStatus    `json:"usage_limit,omitempty"`
+	StartDate                        time.Time                `json:"start_date" format:"date-time"`
+	EndDate                          time.Time                `json:"end_date" format:"date-time"`
+	TotalCostMicros                  int64                    `json:"total_cost_micros"`
+	PricedMessageCount               int64                    `json:"priced_message_count"`
+	UnpricedMessagesHavingUsageCount int64                    `json:"unpriced_messages_having_usage_count"`
+	TotalInputTokens                 int64                    `json:"total_input_tokens"`
+	TotalOutputTokens                int64                    `json:"total_output_tokens"`
+	TotalCacheReadTokens             int64                    `json:"total_cache_read_tokens"`
+	TotalCacheCreationTokens         int64                    `json:"total_cache_creation_tokens"`
+	TotalRuntimeMs                   int64                    `json:"total_runtime_ms"`
+	ByModel                          []ChatCostModelBreakdown `json:"by_model"`
+	ByChat                           []ChatCostChatBreakdown  `json:"by_chat"`
+	UsageLimit                       *ChatUsageLimitStatus    `json:"usage_limit,omitempty"`
 }
 
 // ChatCostModelBreakdown contains per-model cost aggregation.
@@ -1875,10 +1875,10 @@ type ChatCostChatBreakdown struct {
 // chat therefore reports its whole tree, while a subagent reports only
 // its own spend plus any nested subagents.
 type ChatCost struct {
-	ChatID                         uuid.UUID `json:"chat_id" format:"uuid"`
-	TotalCostMicros                int64     `json:"total_cost_micros"`
-	PricedMessageCount             int64     `json:"priced_message_count"`
-	UnpricedMessagesWithUsageCount int64     `json:"unpriced_messages_with_usage_count"`
+	ChatID                           uuid.UUID `json:"chat_id" format:"uuid"`
+	TotalCostMicros                  int64     `json:"total_cost_micros"`
+	PricedMessageCount               int64     `json:"priced_message_count"`
+	UnpricedMessagesHavingUsageCount int64     `json:"unpriced_messages_having_usage_count"`
 }
 
 // ChatCostUserRollup contains per-user cost aggregation for admin views.

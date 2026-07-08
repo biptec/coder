@@ -914,11 +914,11 @@ func (s *MethodTestSuite) TestChats() {
 			EndDate:   time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC),
 		}
 		row := database.GetChatCostSummaryRow{
-			TotalCostMicros:                987,
-			PricedMessageCount:             12,
-			UnpricedMessagesWithUsageCount: 2,
-			TotalInputTokens:               400,
-			TotalOutputTokens:              800,
+			TotalCostMicros:                  987,
+			PricedMessageCount:               12,
+			UnpricedMessagesHavingUsageCount: 2,
+			TotalInputTokens:                 400,
+			TotalOutputTokens:                800,
 		}
 		dbm.EXPECT().GetChatCostSummary(gomock.Any(), arg).Return(row, nil).AnyTimes()
 		check.Args(arg).Asserts(rbac.ResourceChat.WithOwner(arg.OwnerID.String()).AnyOrganization(), policy.ActionRead).Returns(row)

@@ -16976,7 +16976,7 @@ const docTemplate = `{
                 "total_cost_micros": {
                     "type": "integer"
                 },
-                "unpriced_messages_with_usage_count": {
+                "unpriced_messages_having_usage_count": {
                     "type": "integer"
                 }
             }
