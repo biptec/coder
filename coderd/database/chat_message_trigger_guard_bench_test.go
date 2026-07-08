@@ -203,6 +203,165 @@ WHERE generation_attempt <> 0 OR history_version IS DISTINCT FROM snapshot_versi
 	report("edit", edits)
 }
 
+// AFTER statement trigger variants for update_chat_history_after_message_update.
+// The BEFORE trigger stays at its migrated (composite-copy) version. X is the
+// migrated 000541 body; Y replaces the jsonb-minus row comparison with a
+// plpgsql helper doing a composite-copy comparison.
+const afterTriggerVariantX = `
+CREATE OR REPLACE FUNCTION update_chat_history_after_message_update()
+RETURNS trigger AS $$
+BEGIN
+    UPDATE chats c
+    SET history_version = c.snapshot_version,
+        generation_attempt = 0
+    FROM (
+        SELECT DISTINCT n.chat_id
+        FROM chat_message_history_new_rows n
+        JOIN chat_message_history_old_rows o ON o.id = n.id
+        WHERE (to_jsonb(o) - 'search_tsv') IS DISTINCT FROM (to_jsonb(n) - 'search_tsv')
+    ) AS affected
+    WHERE c.id = affected.chat_id
+      AND (
+          c.history_version IS DISTINCT FROM c.snapshot_version
+          OR c.generation_attempt <> 0
+      );
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+`
+
+const afterTriggerVariantY = `
+CREATE OR REPLACE FUNCTION chat_messages_differ_ignoring_search_tsv(o chat_messages, n chat_messages)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE
+    cmp chat_messages;
+BEGIN
+    cmp := n;
+    cmp.search_tsv := o.search_tsv;
+    RETURN o IS DISTINCT FROM cmp;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION update_chat_history_after_message_update()
+RETURNS trigger AS $$
+BEGIN
+    UPDATE chats c
+    SET history_version = c.snapshot_version,
+        generation_attempt = 0
+    FROM (
+        SELECT DISTINCT n.chat_id
+        FROM chat_message_history_new_rows n
+        JOIN chat_message_history_old_rows o ON o.id = n.id
+        WHERE chat_messages_differ_ignoring_search_tsv(o, n)
+    ) AS affected
+    WHERE c.id = affected.chat_id
+      AND (
+          c.history_version IS DISTINCT FROM c.snapshot_version
+          OR c.generation_attempt <> 0
+      );
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+`
+
+// BenchmarkChatSearchAfterTriggerGuard compares the jsonb-minus (X) and
+// plpgsql helper (Y) row comparisons inside the AFTER statement trigger on
+// both UPDATE paths. The BEFORE row trigger is left at its migrated
+// composite-copy version throughout.
+//
+// Run:
+//
+//	go test -tags bench_chat_search -run=^$ -bench=BenchmarkChatSearchAfterTriggerGuard \
+//	  -benchtime=1x -timeout=60m -v ./coderd/database
+func BenchmarkChatSearchAfterTriggerGuard(b *testing.B) {
+	ctx := b.Context()
+	db, _, sqlDB := dbtestutil.NewDBWithSQLDB(b)
+
+	seedStart := time.Now()
+	seeded := seedTriggerGuardCorpus(ctx, b, db)
+	b.Logf("seed: messages=%d duration=%s", seeded, time.Since(seedStart))
+
+	_, err := sqlDB.ExecContext(ctx, `ANALYZE chats; ANALYZE chat_messages;`)
+	require.NoError(b, err)
+
+	var eligible int64
+	err = sqlDB.QueryRowContext(ctx, `
+SELECT count(*) FROM chat_messages
+WHERE search_tsv IS NULL
+  AND deleted = false
+  AND visibility IN ('user', 'both')
+  AND role IN ('user', 'assistant');
+`).Scan(&eligible)
+	require.NoError(b, err)
+	b.Logf("backfill-eligible rows: %d (%.0f%% of seeded)", eligible, 100*float64(eligible)/float64(seeded))
+
+	prepareTriggerGuardEditRows(ctx, b, sqlDB, 5000)
+
+	variants := []triggerGuardVariant{
+		{Name: "X_jsonb_minus", SQL: afterTriggerVariantX},
+		{Name: "Y_plpgsql_helper", SQL: afterTriggerVariantY},
+	}
+	byName := map[string]triggerGuardVariant{}
+	for _, v := range variants {
+		byName[v.Name] = v
+	}
+
+	type pathStats struct {
+		wall      []time.Duration
+		latencies []time.Duration
+	}
+	backfill := map[string]*pathStats{}
+	edits := map[string]*pathStats{}
+	for _, v := range variants {
+		backfill[v.Name] = &pathStats{}
+		edits[v.Name] = &pathStats{}
+	}
+
+	// Warmup: one full pass per variant, unmeasured.
+	for _, v := range variants {
+		installTriggerGuardVariant(ctx, b, sqlDB, v)
+		runTriggerGuardBackfillDrain(ctx, b, sqlDB, eligible)
+		resetTriggerGuardTsv(ctx, b, sqlDB)
+		runTriggerGuardEditBatches(ctx, b, sqlDB)
+		restoreTriggerGuardEditRows(ctx, b, sqlDB)
+	}
+
+	// Measured: X,Y then Y,X to cancel drift; results averaged.
+	order := []string{"X_jsonb_minus", "Y_plpgsql_helper", "Y_plpgsql_helper", "X_jsonb_minus"}
+	for run, name := range order {
+		v := byName[name]
+		installTriggerGuardVariant(ctx, b, sqlDB, v)
+
+		wall, lats := runTriggerGuardBackfillDrain(ctx, b, sqlDB, eligible)
+		backfill[name].wall = append(backfill[name].wall, wall)
+		backfill[name].latencies = append(backfill[name].latencies, lats...)
+		resetTriggerGuardTsv(ctx, b, sqlDB)
+
+		editWall, editLats := runTriggerGuardEditBatches(ctx, b, sqlDB)
+		edits[name].wall = append(edits[name].wall, editWall)
+		edits[name].latencies = append(edits[name].latencies, editLats...)
+		restoreTriggerGuardEditRows(ctx, b, sqlDB)
+
+		b.Logf("run %d variant=%s backfill_wall=%s edit_wall=%s", run+1, name, wall, editWall)
+	}
+
+	report := func(label string, stats map[string]*pathStats) {
+		for _, v := range variants {
+			s := stats[v.Name]
+			var total time.Duration
+			for _, w := range s.wall {
+				total += w
+			}
+			avg := total / time.Duration(len(s.wall))
+			p50, _, p99, maxLat := chatMessageSearchDurationPercentiles(s.latencies)
+			b.Logf("%s variant=%s avg_wall=%s batch_p50=%s batch_p99=%s batch_max=%s (batches=%d)",
+				label, v.Name, avg, p50, p99, maxLat, len(s.latencies))
+		}
+	}
+	report("backfill", backfill)
+	report("edit", edits)
+}
+
 // seedTriggerGuardCorpus seeds ~100k messages across 20 users with the
 // content-size long tail from chatSearchTextBytes but a majority-eligible
 // role mix: 70% assistant text, 20% user text, 10% tool results.
