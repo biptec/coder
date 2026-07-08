@@ -69,6 +69,16 @@ type AWSBedrock struct {
 // Validate verifies endpoint-specific Bedrock configuration.
 func (c AWSBedrock) Validate() error {
 	switch c.Endpoint {
+	case "", BedrockEndpointInvokeModel:
+		if c.Region == "" && c.BaseURL == "" {
+			return errors.New("region or base url required")
+		}
+		if c.Model == "" {
+			return errors.New("model required")
+		}
+		if c.SmallFastModel == "" {
+			return errors.New("small fast model required")
+		}
 	case BedrockEndpointMantle:
 		if c.Region == "" {
 			return errors.New("region required")

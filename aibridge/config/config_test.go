@@ -16,7 +16,50 @@ func TestAWSBedrockValidate(t *testing.T) {
 		errorMsg string
 	}{
 		{
-			name: "invoke model allows empty fields",
+			name: "invoke model valid",
+			cfg: config.AWSBedrock{
+				Region:         "us-east-1",
+				Model:          "anthropic.claude-sonnet",
+				SmallFastModel: "anthropic.claude-haiku",
+			},
+		},
+		{
+			name: "invoke model valid with base url instead of region",
+			cfg: config.AWSBedrock{
+				BaseURL:        "https://bedrock-runtime.example.com",
+				Model:          "anthropic.claude-sonnet",
+				SmallFastModel: "anthropic.claude-haiku",
+			},
+		},
+		{
+			name: "invoke model missing region and base url",
+			cfg: config.AWSBedrock{
+				Model:          "anthropic.claude-sonnet",
+				SmallFastModel: "anthropic.claude-haiku",
+			},
+			errorMsg: "region or base url required",
+		},
+		{
+			name: "invoke model missing model",
+			cfg: config.AWSBedrock{
+				Region:         "us-east-1",
+				SmallFastModel: "anthropic.claude-haiku",
+			},
+			errorMsg: "model required",
+		},
+		{
+			name: "invoke model missing small fast model",
+			cfg: config.AWSBedrock{
+				Region: "us-east-1",
+				Model:  "anthropic.claude-sonnet",
+			},
+			errorMsg: "small fast model required",
+		},
+		{
+			name: "unknown endpoint allows empty fields",
+			cfg: config.AWSBedrock{
+				Endpoint: config.BedrockEndpoint("unknown"),
+			},
 		},
 		{
 			name: "mantle valid official api prefix",

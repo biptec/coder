@@ -124,7 +124,7 @@ func (i *interceptionBase) isBedrockMantle() bool {
 // InvokeModel transport.
 func (i *interceptionBase) isBedrockInvokeModel() bool {
 	return i.bedrock != nil &&
-		(i.bedrock.Cfg.Endpoint == aibconfig.BedrockEndpointInvokeModel || i.bedrock.Cfg.Endpoint == "")
+		(i.bedrock.Cfg.Endpoint == "" || i.bedrock.Cfg.Endpoint == aibconfig.BedrockEndpointInvokeModel)
 }
 
 func (i *interceptionBase) Model() string {
@@ -309,14 +309,8 @@ func (i *interceptionBase) withBedrockInvokeModelOptions(ctx context.Context) ([
 		return nil, xerrors.New("nil bedrock runtime")
 	}
 	cfg := i.bedrock.Cfg
-	if cfg.Region == "" && cfg.BaseURL == "" {
-		return nil, xerrors.New("region or base url required")
-	}
-	if cfg.Model == "" {
-		return nil, xerrors.New("model required")
-	}
-	if cfg.SmallFastModel == "" {
-		return nil, xerrors.New("small fast model required")
+	if err := cfg.Validate(); err != nil {
+		return nil, err
 	}
 
 	// Fail fast: ensure credentials can be resolved before signing. Served from
