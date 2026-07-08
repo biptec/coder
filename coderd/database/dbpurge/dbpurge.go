@@ -51,11 +51,9 @@ const (
 	// Chat debug run deletions can cascade into steps with large JSONB
 	// payloads, so they use the same conservative batch size.
 	chatDebugRunsBatchSize = 1000
-	// The chat search backfill fills chat_messages.search_tsv in batches,
-	// newest first. 10k rows take roughly 800ms; capping at 5 batches
-	// bounds per-tick transaction growth at a few seconds even on a cold
-	// multi-million-row backlog. A backlog larger than the per-tick cap
-	// drains across subsequent ticks.
+	// 10k rows take ~800ms; capping at 5 batches bounds per-tick
+	// transaction growth at a few seconds. Larger backlogs drain
+	// across ticks.
 	chatSearchBackfillBatchSize  = 10000
 	chatSearchBackfillMaxBatches = 5
 )
@@ -339,17 +337,14 @@ func (i *instance) purgeTick(ctx context.Context, db database.Store, start time.
 			}
 		}
 
-		// Backfill chat_messages.search_tsv for rows pending in
-		// idx_chat_messages_search_tsv_pending. This is safe to run
-		// incrementally: queue membership is per-row (a row leaves the
-		// queue only when its own search_tsv is set), message content is
-		// immutable after insert, and soft-deleted rows drop out of the
-		// partial index automatically.
+		// Safe to run incrementally: queue membership is per-row, content is
+		// immutable after insert, and soft-deleted rows leave the index
+		// automatically.
 		var backfilledChatSearchRows int64
 		for range i.chatSearchBackfillMaxBatches {
 			n, err := tx.BackfillChatMessagesSearchTsv(ctx, i.chatSearchBackfillBatchSize)
 			if err != nil {
-				return xerrors.Errorf("failed to backfill chat message search vectors: %w", err)
+				return xerrors.Errorf("backfill chat_messages.search_tsv: %w", err)
 			}
 			backfilledChatSearchRows += n
 			if n < int64(i.chatSearchBackfillBatchSize) {

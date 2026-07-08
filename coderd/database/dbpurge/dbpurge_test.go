@@ -3007,6 +3007,17 @@ func TestBackfillChatMessagesSearchTsv(t *testing.T) {
 		isNull, _ := searchTsv(ctx, t, rawDB, id)
 		require.False(t, isNull, msg)
 	}
+	// requireTsvFor asserts the row was backfilled with the tsvector of
+	// expectedText, not just any non-NULL value such as the sentinel.
+	requireTsvFor := func(ctx context.Context, t *testing.T, rawDB *sql.DB, id int64, expectedText string) {
+		t.Helper()
+		var matches bool
+		err := rawDB.QueryRowContext(ctx,
+			"SELECT search_tsv = to_tsvector('simple', $2::text) FROM chat_messages WHERE id = $1", id, expectedText).
+			Scan(&matches)
+		require.NoError(t, err)
+		require.True(t, matches, "search_tsv should contain the lexemes of %q", expectedText)
+	}
 	requireNotBackfilled := func(ctx context.Context, t *testing.T, rawDB *sql.DB, id int64, msg string) {
 		t.Helper()
 		isNull, _ := searchTsv(ctx, t, rawDB, id)
@@ -3036,8 +3047,8 @@ func TestBackfillChatMessagesSearchTsv(t *testing.T) {
 		tick()
 
 		require.Zero(t, countPending(ctx, t, rawDB), "queue should be drained")
-		requireBackfilled(ctx, t, rawDB, eligibleBoth.ID, "eligible message with visibility=both should be backfilled")
-		requireBackfilled(ctx, t, rawDB, eligibleUserVis.ID, "eligible assistant message with visibility=user should be backfilled")
+		requireTsvFor(ctx, t, rawDB, eligibleBoth.ID, "hello world")
+		requireTsvFor(ctx, t, rawDB, eligibleUserVis.ID, "assistant reply")
 		requireBackfilled(ctx, t, rawDB, eligibleNoText.ID, "eligible message with no text should be backfilled (sentinel)")
 		requireNotBackfilled(ctx, t, rawDB, toolMsg.ID, "tool message should never be backfilled")
 		requireNotBackfilled(ctx, t, rawDB, modelOnlyMsg.ID, "model-only message should never be backfilled")
@@ -3065,7 +3076,6 @@ func TestBackfillChatMessagesSearchTsv(t *testing.T) {
 		defer closer.Close()
 		tick()
 
-		// One batch of 2: only the two highest ids are backfilled.
 		slices.Sort(ids)
 		requireBackfilled(ctx, t, rawDB, ids[4], "newest message should be backfilled first")
 		requireBackfilled(ctx, t, rawDB, ids[3], "second-newest message should be backfilled first")
