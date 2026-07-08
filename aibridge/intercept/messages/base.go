@@ -387,12 +387,7 @@ func (i *interceptionBase) withBedrockMantleOptions(ctx context.Context) ([]opti
 				return nil, err
 			}
 			_ = req.Body.Close()
-			reader := bytes.NewReader(body)
-			req.Body = io.NopCloser(reader)
-			req.GetBody = func() (io.ReadCloser, error) {
-				_, err := reader.Seek(0, 0)
-				return io.NopCloser(reader), err
-			}
+			req.Body = io.NopCloser(bytes.NewReader(body))
 			req.ContentLength = int64(len(body))
 		}
 
