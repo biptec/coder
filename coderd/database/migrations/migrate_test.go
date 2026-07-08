@@ -1795,7 +1795,7 @@ func TestMigration000498SoftDeleteStaleWorkspaceAgents(t *testing.T) {
 	// under coderd/coderd_test.go; not retested here.
 }
 
-func TestMigration000538ChatMessageSearchText(t *testing.T) {
+func TestMigration000541ChatMessageSearchText(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
 		t.SkipNow()
@@ -1871,7 +1871,7 @@ const eligibilityPredicate = `deleted = false
 	AND visibility IN ('user', 'both')
 	AND role IN ('user', 'assistant')`
 
-func TestMigration000538ChatSearchSchemaIndexes(t *testing.T) {
+func TestMigration000541ChatSearchSchemaIndexes(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
 		t.SkipNow()
@@ -1907,7 +1907,7 @@ func TestMigration000538ChatSearchSchemaIndexes(t *testing.T) {
 	}
 }
 
-func TestMigration000538ChatSearchSchemaBehavior(t *testing.T) {
+func TestMigration000541ChatSearchSchemaBehavior(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
 		t.SkipNow()
