@@ -1838,9 +1838,7 @@ func (q *querier) CalculateAIBridgeInterceptionsTelemetrySummary(ctx context.Con
 }
 
 func (q *querier) ChatSearchQueryIsEmpty(ctx context.Context, search string) (bool, error) {
-	// This evaluates a pure tokenization function and touches no rows,
-	// but the only caller is validating a chat list request, so gate it
-	// on the same read permission as listing chats.
+	// Pure function, no rows. Gates on chat read to match the listing caller.
 	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceChat); err != nil {
 		return false, err
 	}

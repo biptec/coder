@@ -89,10 +89,8 @@ type sqlcQuerier interface {
 	// Calculates the telemetry summary for a given provider, model, and client
 	// combination for telemetry reporting.
 	CalculateAIBridgeInterceptionsTelemetrySummary(ctx context.Context, arg CalculateAIBridgeInterceptionsTelemetrySummaryParams) (CalculateAIBridgeInterceptionsTelemetrySummaryRow, error)
-	// Reports whether the search text tokenizes to an empty tsquery, e.g.
-	// punctuation-only input like '!!!'. numnode = 0 is the canonical
-	// "tsquery is empty" check. Used to return a validation error instead
-	// of silently matching nothing.
+	// Reports whether search text tokenizes to an empty tsquery (e.g. '!!!').
+	// Used to reject input that would silently match nothing.
 	ChatSearchQueryIsEmpty(ctx context.Context, search string) (bool, error)
 	ClaimPrebuiltWorkspace(ctx context.Context, arg ClaimPrebuiltWorkspaceParams) (ClaimPrebuiltWorkspaceRow, error)
 	CleanTailnetCoordinators(ctx context.Context) error

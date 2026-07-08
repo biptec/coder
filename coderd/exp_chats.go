@@ -356,8 +356,7 @@ func (api *API) listChats(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Reject search input that tokenizes to an empty tsquery (e.g.
-	// punctuation-only text like "!!!"); it would silently match nothing.
+	// Reject text that tokenizes to nothing; it would silently match no rows.
 	if searchParams.Search != "" {
 		isEmpty, err := api.Database.ChatSearchQueryIsEmpty(ctx, searchParams.Search)
 		if err != nil {

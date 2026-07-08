@@ -2035,6 +2035,14 @@ func TestListChats_Search(t *testing.T) {
 		linkRepo(searchOnly.ID, "git@github.com:acme/other.git")
 		repoOnly := createChat(t, db, firstUser, modelConfig.ID, "plain title")
 		linkRepo(repoOnly.ID, "git@github.com:acme/widget.git")
+		// Matches via message body, not title, so composition also covers
+		// search_tsv.
+		bodyMatch := createChat(t, db, firstUser, modelConfig.ID, "quiet title")
+		linkRepo(bodyMatch.ID, "git@github.com:acme/widget.git")
+		insertMessage(t, db, firstUser, modelConfig.ID, bodyMatch.ID, "kubernetes rollout stuck")
+		bodyMatchWrongRepo := createChat(t, db, firstUser, modelConfig.ID, "quiet title two")
+		linkRepo(bodyMatchWrongRepo.ID, "git@github.com:acme/other.git")
+		insertMessage(t, db, firstUser, modelConfig.ID, bodyMatchWrongRepo.ID, "kubernetes rollout stuck")
 		archivedMatch := createChat(t, db, firstUser, modelConfig.ID, "kubernetes archived")
 		linkRepo(archivedMatch.ID, "git@github.com:acme/widget.git")
 		_, err := db.ArchiveChatByID(dbauthz.AsSystemRestricted(ctx), archivedMatch.ID)
@@ -2047,6 +2055,8 @@ func TestListChats_Search(t *testing.T) {
 		require.NoError(t, err)
 		ids := chatIDs(chats)
 		require.Contains(t, ids, bothMatch.ID)
+		require.Contains(t, ids, bodyMatch.ID)
+		require.NotContains(t, ids, bodyMatchWrongRepo.ID)
 		require.NotContains(t, ids, searchOnly.ID)
 		require.NotContains(t, ids, repoOnly.ID)
 		// Archived chats stay hidden unless archived:true is requested.
