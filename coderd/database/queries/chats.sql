@@ -2272,9 +2272,7 @@ ORDER BY cc.total_cost_micros DESC;
 -- root chat therefore reports its whole tree, while a subagent chat
 -- reports only its own spend plus any nested subagents it spawned.
 WITH RECURSIVE target AS (
-    SELECT id AS chat_id
-    FROM chats
-    WHERE id = @chat_id::uuid
+    SELECT @chat_id::uuid AS chat_id
 ), subtree AS (
     SELECT chat_id AS id FROM target
     UNION ALL
