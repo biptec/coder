@@ -2407,7 +2407,7 @@ func TestSpawnAgent_ComputerUseAvailabilityUsesConfiguredProvider(t *testing.T) 
 	ctx := chatdTestContext(t)
 	require.NoError(t, db.UpsertChatComputerUseProvider(
 		ctx,
-		chattool.ComputerUseProviderOpenAI,
+		string(codersdk.ChatComputerUseProviderOpenAI),
 	))
 	server := newInternalTestServer(t, db, ps, chatprovider.ProviderAPIKeys{})
 
@@ -2427,7 +2427,7 @@ func TestSpawnAgent_ComputerUseRejectsMissingConfiguredProvider(t *testing.T) {
 	ctx := chatdTestContext(t)
 	require.NoError(t, db.UpsertChatComputerUseProvider(
 		ctx,
-		chattool.ComputerUseProviderOpenAI,
+		string(codersdk.ChatComputerUseProviderOpenAI),
 	))
 	server := newInternalTestServer(t, db, ps, chatprovider.ProviderAPIKeys{})
 
@@ -2441,7 +2441,7 @@ func TestSpawnAgent_ComputerUseRejectsMissingConfiguredProvider(t *testing.T) {
 	model := insertInternalChatModelConfigForProvider(
 		t,
 		db,
-		chattool.ComputerUseProviderOpenAI,
+		string(codersdk.ChatComputerUseProviderOpenAI),
 		"gpt-4o-mini",
 		true,
 	)
@@ -2849,7 +2849,7 @@ func TestSpawnAgent_ComputerUseUsesComputerUseModelNotParent(t *testing.T) {
 	require.Equal(t, parentChat.AgentID, childChat.AgentID)
 	require.True(t, childChat.Mode.Valid)
 	assert.Equal(t, database.ChatModeComputerUse, childChat.Mode.ChatMode)
-	computerUseModelProvider, computerUseModelName, ok := chattool.DefaultComputerUseModel(chattool.ComputerUseProviderAnthropic)
+	computerUseModelProvider, computerUseModelName, ok := chattool.DefaultComputerUseModel(string(codersdk.ChatComputerUseProviderAnthropic))
 	require.True(t, ok)
 	assert.NotEqual(t, string(seedProvider.Type), computerUseModelProvider,
 		"computer use model provider must differ from parent model provider")
