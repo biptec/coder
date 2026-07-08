@@ -30,6 +30,22 @@ func modelBuildOptionsFromMessages(messages []database.ChatMessage) modelBuildOp
 	return modelBuildOptions{ActiveAPIKeyID: apiKeyID}
 }
 
+// modelBuildOptionsForGeneration resolves the delegated API key for a
+// generation turn. It prefers the active turn's key from history. A
+// manual compaction turn inserts no user message, so when the prior
+// history carries no key (for example chats whose messages predate
+// API-key attribution, or whose key was deleted), it falls back to the
+// key that requested the pending compaction.
+func modelBuildOptionsForGeneration(chat database.Chat, messages []database.ChatMessage) modelBuildOptions {
+	opts := modelBuildOptionsFromMessages(messages)
+	if opts.ActiveAPIKeyID == "" &&
+		chat.CompactionRequestedAt.Valid &&
+		chat.CompactionRequestedByAPIKeyID.Valid {
+		opts.ActiveAPIKeyID = chat.CompactionRequestedByAPIKeyID.String
+	}
+	return opts
+}
+
 // withActiveTurnAPIKeyID augments ctx with the active turn's delegated API
 // key ID when one is known. AI Gateway routing and subagent tool callbacks
 // read this value from the context to attribute requests to the correct

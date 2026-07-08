@@ -2083,6 +2083,7 @@ func (p *Server) InterruptChat(
 func (p *Server) CompactChat(
 	ctx context.Context,
 	chat database.Chat,
+	requestAPIKeyID string,
 ) (database.Chat, error) {
 	if chat.ID == uuid.Nil {
 		return chat, xerrors.New("chat_id is required")
@@ -2105,7 +2106,9 @@ func (p *Server) CompactChat(
 		}
 		// Run the transition first so busy chats surface the state
 		// conflict rather than a misleading nothing-to-compact.
-		result, err := tx.RequestCompaction(chatstate.RequestCompactionInput{})
+		result, err := tx.RequestCompaction(chatstate.RequestCompactionInput{
+			RequestAPIKeyID: requestAPIKeyID,
+		})
 		if err != nil {
 			return err
 		}

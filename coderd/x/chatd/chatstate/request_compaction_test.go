@@ -30,11 +30,15 @@ func requestCompaction(t *testing.T, f *testFixture) (uuid.UUID, *chatstate.Chat
 	seeded := seedState(t, f, chatstate.StateW)
 	m := chatstate.NewChatMachine(f.DB, f.Pub, seeded.chatID)
 	require.NoError(t, m.Update(ctx, func(tx *chatstate.Tx, store database.Store) error {
-		_, err := tx.RequestCompaction(chatstate.RequestCompactionInput{})
+		_, err := tx.RequestCompaction(chatstate.RequestCompactionInput{
+			RequestAPIKeyID: f.APIKey.ID,
+		})
 		return err
 	}))
 	chat := f.readChat(ctx, t, seeded.chatID)
 	require.True(t, chat.CompactionRequestedAt.Valid, "request must set the marker")
+	require.Equal(t, f.APIKey.ID, chat.CompactionRequestedByAPIKeyID.String,
+		"request must record the caller key for worker attribution")
 	require.Equal(t, database.ChatStatusRunning, chat.Status)
 	return seeded.chatID, m
 }
@@ -100,6 +104,8 @@ func TestRequestCompaction_ConsumedByCommitStep(t *testing.T) {
 	chat = f.readChat(ctx, t, chatID)
 	require.False(t, chat.CompactionRequestedAt.Valid,
 		"CommitStep with ConsumeCompactionRequest clears the marker")
+	require.False(t, chat.CompactionRequestedByAPIKeyID.Valid,
+		"consuming the request clears the attribution key with it")
 }
 
 // TestRequestCompaction_ClearedOnTerminalTransitions verifies that

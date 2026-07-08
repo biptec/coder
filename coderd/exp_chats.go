@@ -3783,7 +3783,7 @@ func (api *API) compactChat(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated, err := api.chatDaemon.CompactChat(ctx, chat)
+	updated, err := api.chatDaemon.CompactChat(ctx, chat, apiKey.ID)
 	if err != nil {
 		if maybeWriteLimitErr(ctx, rw, err) {
 			return

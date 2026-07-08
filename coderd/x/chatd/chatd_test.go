@@ -5838,7 +5838,7 @@ func TestActiveServer_ManualCompaction(t *testing.T) {
 		require.Equal(t, int32(0), compactionRequests.Load())
 		preCompactionMessageCount := len(chatMessages(ctx, t, db, chat.ID))
 
-		compacted, err := server.CompactChat(ctx, chat)
+		compacted, err := server.CompactChat(ctx, chat, "")
 		require.NoError(t, err)
 		require.Equal(t, database.ChatStatusRunning, compacted.Status)
 		require.True(t, compacted.CompactionRequestedAt.Valid)
@@ -5873,7 +5873,7 @@ func TestActiveServer_ManualCompaction(t *testing.T) {
 
 		// A second /compact with nothing new to summarize is
 		// rejected before any LLM call.
-		_, err = server.CompactChat(ctx, chat)
+		_, err = server.CompactChat(ctx, chat, "")
 		require.ErrorIs(t, err, chatd.ErrNothingToCompact)
 		require.Equal(t, int32(1), compactionRequests.Load())
 
@@ -5928,7 +5928,7 @@ func TestActiveServer_ManualCompaction(t *testing.T) {
 		// chat is then running with an owning worker.
 		testutil.TryReceive(ctx, t, streamStarted)
 
-		_, err := server.CompactChat(ctx, chat)
+		_, err := server.CompactChat(ctx, chat, "")
 		require.ErrorIs(t, err, chatstate.ErrTransitionNotAllowed)
 
 		releaseOnce()

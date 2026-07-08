@@ -619,9 +619,16 @@ const ChatMessageInput = ({
 	// A personal skill with the same name takes precedence over a
 	// built-in command: the composer's submit intercept defers to the
 	// skill, so the menu must not advertise a dead command entry.
-	const availableSlashCommands = (slashCommands ?? []).filter(
-		(command) => !personalSkills.some((skill) => skill.name === command.name),
-	);
+	// Until the skills list resolves, a collision cannot be ruled
+	// out, so no built-in commands are offered (matching the submit
+	// intercept, which also stands down while skills are unknown).
+	const skillsResolved = hasPersonalSkillsOverride || skillsQuery.isSuccess;
+	const availableSlashCommands = skillsResolved
+		? (slashCommands ?? []).filter(
+				(command) =>
+					!personalSkills.some((skill) => skill.name === command.name),
+			)
+		: [];
 	const hasSlashCommands = availableSlashCommands.length > 0;
 	// A stale empty cache with a refetch in flight must not dismiss the menu.
 	const isResolvedEmptySkillsList = hasPersonalSkillsOverride

@@ -80,7 +80,7 @@ func (server *Server) prepareGeneration(
 		return generationPrepared{}, err
 	}
 
-	modelOpts = modelBuildOptionsFromMessages(promptRows)
+	modelOpts = modelBuildOptionsForGeneration(chat, promptRows)
 	ctx = withActiveTurnAPIKeyID(ctx, modelOpts)
 
 	var err error

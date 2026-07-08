@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"charm.land/fantasy"
 	"github.com/google/uuid"
@@ -578,6 +579,65 @@ func TestPromptMessagesForCompactedChatPreserveActiveAPIKeyID(t *testing.T) {
 
 func sqlNullString(value string) sql.NullString {
 	return sql.NullString{String: value, Valid: value != ""}
+}
+
+func TestModelBuildOptionsForGeneration(t *testing.T) {
+	t.Parallel()
+
+	const historyKeyID = "history-key"
+	const requestKeyID = "request-key"
+	keyedHistory := []database.ChatMessage{
+		{ID: 1, Role: database.ChatMessageRoleUser, Visibility: database.ChatMessageVisibilityBoth, APIKeyID: sqlNullString(historyKeyID)},
+	}
+	unkeyedHistory := []database.ChatMessage{
+		{ID: 1, Role: database.ChatMessageRoleUser, Visibility: database.ChatMessageVisibilityBoth},
+	}
+	pendingCompaction := database.Chat{
+		CompactionRequestedAt:         sql.NullTime{Time: time.Now(), Valid: true},
+		CompactionRequestedByAPIKeyID: sqlNullString(requestKeyID),
+	}
+
+	tests := []struct {
+		name     string
+		chat     database.Chat
+		messages []database.ChatMessage
+		wantKey  string
+	}{
+		{
+			name:     "HistoryKeyWins",
+			chat:     pendingCompaction,
+			messages: keyedHistory,
+			wantKey:  historyKeyID,
+		},
+		{
+			name:     "FallsBackToCompactionRequestKey",
+			chat:     pendingCompaction,
+			messages: unkeyedHistory,
+			wantKey:  requestKeyID,
+		},
+		{
+			name:     "NoPendingRequestNoFallback",
+			chat:     database.Chat{CompactionRequestedByAPIKeyID: sqlNullString(requestKeyID)},
+			messages: unkeyedHistory,
+			wantKey:  "",
+		},
+		{
+			name: "PendingRequestWithoutKeyNoFallback",
+			chat: database.Chat{
+				CompactionRequestedAt: sql.NullTime{Time: time.Now(), Valid: true},
+			},
+			messages: unkeyedHistory,
+			wantKey:  "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			opts := modelBuildOptionsForGeneration(tt.chat, tt.messages)
+			require.Equal(t, tt.wantKey, opts.ActiveAPIKeyID)
+		})
+	}
 }
 
 func TestAIBridgeRoutingFailClosed(t *testing.T) {

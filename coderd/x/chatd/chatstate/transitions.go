@@ -157,18 +157,23 @@ type executionStateUpdate struct {
 	LastError                pqtype.NullRawMessage
 	RequiresActionDeadlineAt sql.NullTime
 	CompactionRequestedAt    sql.NullTime
+	// CompactionRequestedByAPIKeyID attributes the pending manual
+	// compaction request and shares CompactionRequestedAt's one-shot
+	// lifecycle: carried, consumed, and cleared together.
+	CompactionRequestedByAPIKeyID sql.NullString
 }
 
 func (tx *Tx) applyExecutionState(u executionStateUpdate) (database.Chat, error) {
 	return tx.store.UpdateChatExecutionState(tx.ctx, database.UpdateChatExecutionStateParams{
-		ID:                       tx.chatID,
-		Status:                   u.Status,
-		Archived:                 u.Archived,
-		WorkerID:                 u.WorkerID,
-		RunnerID:                 u.RunnerID,
-		LastError:                u.LastError,
-		RequiresActionDeadlineAt: u.RequiresActionDeadlineAt,
-		CompactionRequestedAt:    u.CompactionRequestedAt,
+		ID:                            tx.chatID,
+		Status:                        u.Status,
+		Archived:                      u.Archived,
+		WorkerID:                      u.WorkerID,
+		RunnerID:                      u.RunnerID,
+		LastError:                     u.LastError,
+		RequiresActionDeadlineAt:      u.RequiresActionDeadlineAt,
+		CompactionRequestedAt:         u.CompactionRequestedAt,
+		CompactionRequestedByAPIKeyID: u.CompactionRequestedByAPIKeyID,
 	})
 }
 
@@ -288,13 +293,14 @@ func (tx *Tx) SetArchived(input SetArchivedInput) (SetArchivedResult, error) {
 		)
 	}
 	if _, err := tx.applyExecutionState(executionStateUpdate{
-		Status:                   chat.Status,
-		Archived:                 input.Archived,
-		WorkerID:                 chat.WorkerID,
-		RunnerID:                 chat.RunnerID,
-		LastError:                chat.LastError,
-		RequiresActionDeadlineAt: chat.RequiresActionDeadlineAt,
-		CompactionRequestedAt:    chat.CompactionRequestedAt,
+		Status:                        chat.Status,
+		Archived:                      input.Archived,
+		WorkerID:                      chat.WorkerID,
+		RunnerID:                      chat.RunnerID,
+		LastError:                     chat.LastError,
+		RequiresActionDeadlineAt:      chat.RequiresActionDeadlineAt,
+		CompactionRequestedAt:         chat.CompactionRequestedAt,
+		CompactionRequestedByAPIKeyID: chat.CompactionRequestedByAPIKeyID,
 	}); err != nil {
 		return SetArchivedResult{}, xerrors.Errorf("update archive: %w", err)
 	}
@@ -470,13 +476,14 @@ func (tx *Tx) sendMessageQueueAndSetStatus(
 	// compaction request stays live: the in-flight compaction
 	// commits first and the queued message is promoted afterwards.
 	if _, err := tx.applyExecutionState(executionStateUpdate{
-		Status:                   status,
-		Archived:                 false,
-		WorkerID:                 chat.WorkerID,
-		RunnerID:                 chat.RunnerID,
-		LastError:                lastError,
-		RequiresActionDeadlineAt: deadline,
-		CompactionRequestedAt:    chat.CompactionRequestedAt,
+		Status:                        status,
+		Archived:                      false,
+		WorkerID:                      chat.WorkerID,
+		RunnerID:                      chat.RunnerID,
+		LastError:                     lastError,
+		RequiresActionDeadlineAt:      deadline,
+		CompactionRequestedAt:         chat.CompactionRequestedAt,
+		CompactionRequestedByAPIKeyID: chat.CompactionRequestedByAPIKeyID,
 	}); err != nil {
 		return SendMessageResult{}, xerrors.Errorf("update status: %w", err)
 	}
@@ -623,8 +630,14 @@ func (tx *Tx) EditMessage(input EditMessageInput) (EditMessageResult, error) {
 	}, nil
 }
 
-// RequestCompactionInput is intentionally empty.
-type RequestCompactionInput struct{}
+// RequestCompactionInput configures [Tx.RequestCompaction].
+type RequestCompactionInput struct {
+	// RequestAPIKeyID is the API key of the requesting owner. The
+	// compaction turn inserts no user message, so the worker uses this
+	// key for AI Gateway attribution when the prior history carries
+	// no active-turn key.
+	RequestAPIKeyID string
+}
 
 // RequestCompactionResult is returned by [Tx.RequestCompaction].
 type RequestCompactionResult struct {
@@ -636,7 +649,7 @@ type RequestCompactionResult struct {
 // inserted; the request is a one-shot marker consumed by the worker's
 // compaction commit and cleared by every transition that starts a new
 // turn or leaves running, so a stale request never replays later.
-func (tx *Tx) RequestCompaction(_ RequestCompactionInput) (RequestCompactionResult, error) {
+func (tx *Tx) RequestCompaction(input RequestCompactionInput) (RequestCompactionResult, error) {
 	chat, _, err := tx.requireFromAllowed(TransitionRequestCompaction)
 	if err != nil {
 		return RequestCompactionResult{}, err
@@ -653,6 +666,10 @@ func (tx *Tx) RequestCompaction(_ RequestCompactionInput) (RequestCompactionResu
 		LastError:                chat.LastError,
 		RequiresActionDeadlineAt: sql.NullTime{},
 		CompactionRequestedAt:    sql.NullTime{Time: now, Valid: true},
+		CompactionRequestedByAPIKeyID: sql.NullString{
+			String: input.RequestAPIKeyID,
+			Valid:  input.RequestAPIKeyID != "",
+		},
 	})
 	if err != nil {
 		return RequestCompactionResult{}, xerrors.Errorf("set running: %w", err)
@@ -999,13 +1016,14 @@ func (tx *Tx) Acquire(input AcquireInput) (AcquireResult, error) {
 		return AcquireResult{}, err
 	}
 	if _, err := tx.applyExecutionState(executionStateUpdate{
-		Status:                   chat.Status,
-		Archived:                 chat.Archived,
-		WorkerID:                 uuid.NullUUID{UUID: input.WorkerID, Valid: true},
-		RunnerID:                 uuid.NullUUID{UUID: input.RunnerID, Valid: true},
-		LastError:                chat.LastError,
-		RequiresActionDeadlineAt: chat.RequiresActionDeadlineAt,
-		CompactionRequestedAt:    chat.CompactionRequestedAt,
+		Status:                        chat.Status,
+		Archived:                      chat.Archived,
+		WorkerID:                      uuid.NullUUID{UUID: input.WorkerID, Valid: true},
+		RunnerID:                      uuid.NullUUID{UUID: input.RunnerID, Valid: true},
+		LastError:                     chat.LastError,
+		RequiresActionDeadlineAt:      chat.RequiresActionDeadlineAt,
+		CompactionRequestedAt:         chat.CompactionRequestedAt,
+		CompactionRequestedByAPIKeyID: chat.CompactionRequestedByAPIKeyID,
 	}); err != nil {
 		return AcquireResult{}, xerrors.Errorf("set ownership: %w", err)
 	}
@@ -1043,13 +1061,14 @@ func (tx *Tx) Abandon(_ AbandonInput) (AbandonResult, error) {
 		return AbandonResult{}, newTransitionError(TransitionAbandon, from, "chat is not owned")
 	}
 	if _, err := tx.applyExecutionState(executionStateUpdate{
-		Status:                   chat.Status,
-		Archived:                 chat.Archived,
-		WorkerID:                 uuid.NullUUID{},
-		RunnerID:                 uuid.NullUUID{},
-		LastError:                chat.LastError,
-		RequiresActionDeadlineAt: chat.RequiresActionDeadlineAt,
-		CompactionRequestedAt:    chat.CompactionRequestedAt,
+		Status:                        chat.Status,
+		Archived:                      chat.Archived,
+		WorkerID:                      uuid.NullUUID{},
+		RunnerID:                      uuid.NullUUID{},
+		LastError:                     chat.LastError,
+		RequiresActionDeadlineAt:      chat.RequiresActionDeadlineAt,
+		CompactionRequestedAt:         chat.CompactionRequestedAt,
+		CompactionRequestedByAPIKeyID: chat.CompactionRequestedByAPIKeyID,
 	}); err != nil {
 		return AbandonResult{}, xerrors.Errorf("clear ownership: %w", err)
 	}
@@ -1159,7 +1178,10 @@ func (tx *Tx) CommitStep(input CommitStepInput) (CommitStepResult, error) {
 			RunnerID:                 chat.RunnerID,
 			LastError:                chat.LastError,
 			RequiresActionDeadlineAt: chat.RequiresActionDeadlineAt,
-			CompactionRequestedAt:    sql.NullTime{},
+			// Zero values clear both the request marker and its
+			// attribution key together.
+			CompactionRequestedAt:         sql.NullTime{},
+			CompactionRequestedByAPIKeyID: sql.NullString{},
 		}); err != nil {
 			return CommitStepResult{}, xerrors.Errorf("consume compaction request: %w", err)
 		}

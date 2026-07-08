@@ -1008,16 +1008,19 @@ const AgentChatPage: FC = () => {
 	);
 	// A personal skill named "compact" must keep working as a skill
 	// trigger, so the built-in /compact command yields to it. Shares
-	// the composer trigger menu's query cache.
+	// the composer trigger menu's query cache. Until the skills query
+	// succeeds (loading or errored), a conflict cannot be ruled out,
+	// so "/compact" is sent as a regular message instead of being
+	// intercepted.
 	const personalSkillsQuery = useQuery({
 		...userSkills(),
 		staleTime: 60_000,
 	});
-	const hasCompactPersonalSkill = Boolean(
-		personalSkillsQuery.data?.some(
+	const compactCommandAvailable =
+		personalSkillsQuery.isSuccess &&
+		!personalSkillsQuery.data.some(
 			(skill) => skill.name === COMPACT_SLASH_COMMAND.name,
-		),
-	);
+		);
 	const { mutateAsync: deleteQueuedMessage } = useMutation(
 		deleteChatQueuedMessage(queryClient, agentId ?? ""),
 	);
@@ -1462,7 +1465,7 @@ const AgentChatPage: FC = () => {
 		// takes precedence so the command cannot shadow it.
 		const isCompactCommand =
 			editedMessageID === undefined &&
-			!hasCompactPersonalSkill &&
+			compactCommandAvailable &&
 			content.length === 1 &&
 			content[0].type === "text" &&
 			content[0].text?.trim() ===
