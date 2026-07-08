@@ -12,6 +12,7 @@ import (
 	"charm.land/fantasy"
 	"golang.org/x/xerrors"
 
+	"cdr.dev/slog/v3"
 	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/codersdk/workspacesdk"
 )
@@ -149,6 +150,9 @@ type ExecutionRecorder interface {
 type ExecuteOptions struct {
 	GetWorkspaceConn func(context.Context) (workspacesdk.AgentConn, error)
 	DefaultTimeout   time.Duration
+	// Logger records idempotent-start observability events. The
+	// zero Logger is a valid no-op.
+	Logger slog.Logger
 	// Recorder persists per-tool-call execution records so a
 	// retried attempt re-attaches instead of starting a
 	// duplicate process. A nil Recorder disables idempotent
@@ -277,9 +281,29 @@ func executeTool(
 	}
 
 	if background {
-		return executeBackground(ctx, conn, options.Recorder, toolCallID, args.Command, workDir, env)
+		return executeBackground(ctx, conn, options, toolCallID, args.Command, workDir, env)
 	}
-	return executeForeground(ctx, conn, options.Recorder, toolCallID, args.Command, timeout, workDir, env)
+	return executeForeground(ctx, conn, options, toolCallID, args.Command, timeout, workDir, env)
+}
+
+// logStartIdempotency records whether the agent honored the
+// idempotency token sent with a StartProcess request. A missing
+// echo means the agent predates idempotent starts, so only the
+// durable execution record protects against duplicate processes.
+func logStartIdempotency(ctx context.Context, logger slog.Logger, resp workspacesdk.StartProcessResponse, toolCallID string) {
+	if resp.ClientToken == "" {
+		logger.Warn(ctx, "workspace agent does not support idempotent process starts",
+			slog.F("tool_call_id", toolCallID),
+			slog.F("process_id", resp.ID),
+		)
+		return
+	}
+	if resp.Attached {
+		logger.Info(ctx, "execute_agent_deduped",
+			slog.F("tool_call_id", toolCallID),
+			slog.F("process_id", resp.ID),
+		)
+	}
 }
 
 // awaitRecordedProcess polls a reserved-but-unstarted execution
@@ -395,23 +419,25 @@ func reattachProcess(
 func executeBackground(
 	ctx context.Context,
 	conn workspacesdk.AgentConn,
-	recorder ExecutionRecorder,
+	options ExecuteOptions,
 	toolCallID string,
 	command string,
 	workDir string,
 	env map[string]string,
 ) fantasy.ToolResponse {
 	resp, err := conn.StartProcess(ctx, workspacesdk.StartProcessRequest{
-		Command:    command,
-		WorkDir:    workDir,
-		Env:        env,
-		Background: true,
+		Command:     command,
+		WorkDir:     workDir,
+		Env:         env,
+		Background:  true,
+		ClientToken: toolCallID,
 	})
 	if err != nil {
 		return errorResult(enrichStartError(fmt.Sprintf("start background process: %v", err)))
 	}
-	if recorder != nil {
-		if err := recordProcessStart(ctx, recorder, toolCallID, resp.ID); err != nil {
+	logStartIdempotency(ctx, options.Logger, resp, toolCallID)
+	if options.Recorder != nil {
+		if err := recordProcessStart(ctx, options.Recorder, toolCallID, resp.ID); err != nil {
 			// The process is already running; killing it here would
 			// discard real work. Surface the handle instead.
 			return errorResultWithProcess(
@@ -442,7 +468,7 @@ func recordProcessStart(ctx context.Context, recorder ExecutionRecorder, toolCal
 func executeForeground(
 	ctx context.Context,
 	conn workspacesdk.AgentConn,
-	recorder ExecutionRecorder,
+	options ExecuteOptions,
 	toolCallID string,
 	command string,
 	timeout time.Duration,
@@ -455,16 +481,18 @@ func executeForeground(
 	start := time.Now()
 
 	resp, err := conn.StartProcess(cmdCtx, workspacesdk.StartProcessRequest{
-		Command:    command,
-		WorkDir:    workDir,
-		Env:        env,
-		Background: false,
+		Command:     command,
+		WorkDir:     workDir,
+		Env:         env,
+		Background:  false,
+		ClientToken: toolCallID,
 	})
 	if err != nil {
 		return errorResult(enrichStartError(fmt.Sprintf("start process: %v", err)))
 	}
-	if recorder != nil {
-		if err := recordProcessStart(ctx, recorder, toolCallID, resp.ID); err != nil {
+	logStartIdempotency(ctx, options.Logger, resp, toolCallID)
+	if options.Recorder != nil {
+		if err := recordProcessStart(ctx, options.Recorder, toolCallID, resp.ID); err != nil {
 			// The process is already running; killing it here would
 			// discard real work. Surface the handle instead.
 			return errorResultWithProcess(

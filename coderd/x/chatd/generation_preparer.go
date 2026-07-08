@@ -379,6 +379,7 @@ func (server *Server) prepareGeneration(
 		}),
 		chattool.Execute(chattool.ExecuteOptions{
 			GetWorkspaceConn: workspaceCtx.getWorkspaceConn,
+			Logger:           logger,
 			Recorder:         server.newExecutionRecorder(chat.ID, &workspaceCtx),
 		}),
 		chattool.ProcessOutput(chattool.ProcessToolOptions{GetWorkspaceConn: workspaceCtx.getWorkspaceConn}),
