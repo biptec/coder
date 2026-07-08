@@ -351,7 +351,7 @@ describe("TemplateSchedulePage", () => {
 		expect(validate).toThrowError();
 	});
 
-	it("disables activity bump field when default TTL is 0", async () => {
+	it("disables activity bump field when default TTL is 0 and user autostop is not allowed", async () => {
 		await renderTemplateSchedulePage();
 		const user = userEvent.setup();
 
@@ -359,9 +359,16 @@ describe("TemplateSchedulePage", () => {
 			"Default autostop (hours)",
 		);
 		const activityBumpField = screen.getByLabelText("Activity bump (hours)");
+		const allowUserAutostopCheckbox = screen.getByRole("checkbox", {
+			name: /allow users to customize autostop/i,
+		});
 
 		// Activity bump should be enabled when default TTL is non-zero.
 		expect(activityBumpField).not.toBeDisabled();
+
+		// Uncheck allow_user_autostop so the guard applies.
+		await user.click(allowUserAutostopCheckbox);
+		expect(allowUserAutostopCheckbox).not.toBeChecked();
 
 		// Set default TTL to 0.
 		await user.clear(defaultTtlField);
@@ -371,13 +378,43 @@ describe("TemplateSchedulePage", () => {
 		expect(activityBumpField).toBeDisabled();
 	});
 
-	it("shows helper text on activity bump when default TTL is 0", async () => {
+	it("keeps activity bump field enabled when default TTL is 0 but user autostop is allowed", async () => {
 		await renderTemplateSchedulePage();
 		const user = userEvent.setup();
 
 		const defaultTtlField = await screen.findByLabelText(
 			"Default autostop (hours)",
 		);
+		const activityBumpField = screen.getByLabelText("Activity bump (hours)");
+		const allowUserAutostopCheckbox = screen.getByRole("checkbox", {
+			name: /allow users to customize autostop/i,
+		});
+
+		// MockTemplate defaults allow_user_autostop to true.
+		expect(allowUserAutostopCheckbox).toBeChecked();
+
+		// Set default TTL to 0.
+		await user.clear(defaultTtlField);
+		await user.type(defaultTtlField, "0");
+
+		// Activity bump remains editable because users can still configure
+		// autostop timers on their own workspaces.
+		expect(activityBumpField).not.toBeDisabled();
+	});
+
+	it("shows helper text on activity bump when default TTL is 0 and user autostop is not allowed", async () => {
+		await renderTemplateSchedulePage();
+		const user = userEvent.setup();
+
+		const defaultTtlField = await screen.findByLabelText(
+			"Default autostop (hours)",
+		);
+		const allowUserAutostopCheckbox = screen.getByRole("checkbox", {
+			name: /allow users to customize autostop/i,
+		});
+
+		// Uncheck allow_user_autostop so the guard applies.
+		await user.click(allowUserAutostopCheckbox);
 
 		// Set default TTL to 0.
 		await user.clear(defaultTtlField);
@@ -386,7 +423,7 @@ describe("TemplateSchedulePage", () => {
 		// Should show the explanatory helper text.
 		expect(
 			screen.getByText(
-				/activity bump only applies when a default TTL is configured/i,
+				/activity bump only applies when a default TTL is configured or users are allowed to customize autostop/i,
 			),
 		).toBeInTheDocument();
 	});
@@ -399,6 +436,12 @@ describe("TemplateSchedulePage", () => {
 			"Default autostop (hours)",
 		);
 		const activityBumpField = screen.getByLabelText("Activity bump (hours)");
+		const allowUserAutostopCheckbox = screen.getByRole("checkbox", {
+			name: /allow users to customize autostop/i,
+		});
+
+		// Uncheck allow_user_autostop so the guard applies.
+		await user.click(allowUserAutostopCheckbox);
 
 		// Set default TTL to 0.
 		await user.clear(defaultTtlField);
@@ -408,6 +451,29 @@ describe("TemplateSchedulePage", () => {
 		// Set default TTL back to a non-zero value.
 		await user.clear(defaultTtlField);
 		await user.type(defaultTtlField, "8");
+		expect(activityBumpField).not.toBeDisabled();
+	});
+
+	it("re-enables activity bump field when user autostop is re-enabled", async () => {
+		await renderTemplateSchedulePage();
+		const user = userEvent.setup();
+
+		const defaultTtlField = await screen.findByLabelText(
+			"Default autostop (hours)",
+		);
+		const activityBumpField = screen.getByLabelText("Activity bump (hours)");
+		const allowUserAutostopCheckbox = screen.getByRole("checkbox", {
+			name: /allow users to customize autostop/i,
+		});
+
+		// Disable both default TTL and user autostop.
+		await user.click(allowUserAutostopCheckbox);
+		await user.clear(defaultTtlField);
+		await user.type(defaultTtlField, "0");
+		expect(activityBumpField).toBeDisabled();
+
+		// Re-enable user autostop while keeping default TTL at 0.
+		await user.click(allowUserAutostopCheckbox);
 		expect(activityBumpField).not.toBeDisabled();
 	});
 });

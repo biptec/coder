@@ -53,6 +53,10 @@ export const SubmitClearsActivityBumpWhenDefaultTTLIsZero: Story = {
 			// Start with a non-zero activity bump so we can verify
 			// it gets discarded when default TTL is set to 0.
 			activity_bump_ms: 3 * 60 * 60 * 1000,
+			// Disable user autostop so the guard applies (activity bump
+			// remains editable when either default TTL or user autostop is
+			// enabled).
+			allow_user_autostop: false,
 		},
 		onSubmit: fn(),
 	},
@@ -82,6 +86,47 @@ export const SubmitClearsActivityBumpWhenDefaultTTLIsZero: Story = {
 		});
 	},
 };
+
+export const SubmitPreservesActivityBumpWhenAllowUserAutostopIsEnabled: Story =
+	{
+		args: {
+			...defaultArgs,
+			template: {
+				...MockTemplate,
+				activity_bump_ms: 3 * 60 * 60 * 1000,
+				// Users can customize autostop on their workspaces, so activity
+				// bump still has meaning even without a default TTL.
+				allow_user_autostop: true,
+			},
+			onSubmit: fn(),
+		},
+		play: async ({ canvasElement, args }) => {
+			const canvas = within(canvasElement);
+			const user = userEvent.setup();
+
+			const defaultTtlField = await canvas.findByLabelText(
+				"Default autostop (hours)",
+			);
+			const activityBumpField = canvas.getByLabelText("Activity bump (hours)");
+
+			await user.clear(defaultTtlField);
+			await user.type(defaultTtlField, "0");
+
+			// Activity bump stays enabled because allow_user_autostop is on.
+			await expect(activityBumpField).not.toBeDisabled();
+
+			const submitButton = canvas.getByRole("button", { name: /save/i });
+			await user.click(submitButton);
+
+			await waitFor(() => {
+				expect(args.onSubmit).toHaveBeenCalledWith(
+					expect.objectContaining({
+						activity_bump_ms: 3 * 60 * 60 * 1000,
+					}),
+				);
+			});
+		},
+	};
 
 export const SubmitAutostopReminderConvertsHoursToMs: Story = {
 	args: {
