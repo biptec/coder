@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -1047,6 +1048,170 @@ func countSentenceTerminators(text string) int {
 		}
 	}
 	return count
+}
+
+// markdownLinkRe matches inline links and images so snippet extraction
+// can keep the link text and drop the URL.
+var markdownLinkRe = regexp.MustCompile(`!?\[([^\]]*)\]\([^)]*\)`)
+
+// subagentReportSummarySnippet reduces a subagent's final report to a
+// short plain-text summary comparable in length to the generated 1-3
+// sentence summaries root chats get: markdown scaffolding is stripped,
+// the first content paragraph is selected (agent reports lead with the
+// conclusion), and the result is bounded by sentence and rune caps.
+// Returns "" when the report has no prose content.
+func subagentReportSummarySnippet(report string) string {
+	paragraph := firstReportParagraph(report)
+	if paragraph == "" {
+		return ""
+	}
+	return boundSnippetSentences(
+		paragraph,
+		subagentReportSummaryMaxSentences,
+		subagentReportSummaryMaxRunes,
+	)
+}
+
+// firstReportParagraph returns the first run of contiguous prose lines
+// in a markdown report, joined with spaces. Code fences, headings,
+// horizontal rules, and table rows never contribute text; they end an
+// in-progress paragraph like a blank line does. List markers and
+// blockquote prefixes are stripped so reports that lead with bullets
+// still produce a snippet.
+func firstReportParagraph(report string) string {
+	var paragraph []string
+	inFence := false
+	for line := range strings.Lines(report) {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			if !inFence && len(paragraph) > 0 {
+				break
+			}
+			inFence = !inFence
+			continue
+		}
+		if inFence {
+			continue
+		}
+		if trimmed == "" || isMarkdownStructureLine(trimmed) {
+			if len(paragraph) > 0 {
+				break
+			}
+			continue
+		}
+		content := stripInlineMarkdown(stripLineMarkers(trimmed))
+		if content == "" {
+			if len(paragraph) > 0 {
+				break
+			}
+			continue
+		}
+		paragraph = append(paragraph, content)
+	}
+	return strings.TrimSpace(strings.Join(paragraph, " "))
+}
+
+// isMarkdownStructureLine reports whether a trimmed line is markdown
+// scaffolding (heading, horizontal rule, or table row) that carries no
+// prose for a summary snippet.
+func isMarkdownStructureLine(trimmed string) bool {
+	if strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "|") {
+		return true
+	}
+	// Horizontal rules: at least three of the same marker character
+	// and nothing else.
+	if len(trimmed) >= 3 && strings.Trim(trimmed, "-") == "" {
+		return true
+	}
+	if len(trimmed) >= 3 && strings.Trim(trimmed, "*") == "" {
+		return true
+	}
+	if len(trimmed) >= 3 && strings.Trim(trimmed, "_") == "" {
+		return true
+	}
+	return false
+}
+
+// stripLineMarkers removes leading blockquote, list, and task-list
+// markers from a trimmed markdown line, iterating so nested prefixes
+// like "> - [x] item" reduce to the item text.
+func stripLineMarkers(trimmed string) string {
+	for {
+		next := trimmed
+		next = strings.TrimPrefix(next, ">")
+		if rest, ok := trimListMarker(next); ok {
+			next = rest
+		}
+		next = strings.TrimSpace(next)
+		if next == trimmed {
+			return trimmed
+		}
+		trimmed = next
+	}
+}
+
+// trimListMarker strips one leading bullet ("- ", "* ", "+ "), ordered
+// ("1. ", "1) "), or task-list ("[ ] ", "[x] ") marker.
+func trimListMarker(line string) (string, bool) {
+	for _, marker := range []string{"- ", "* ", "+ ", "[ ] ", "[x] ", "[X] "} {
+		if rest, ok := strings.CutPrefix(line, marker); ok {
+			return rest, true
+		}
+	}
+	digits := 0
+	for _, r := range line {
+		if r < '0' || r > '9' {
+			break
+		}
+		digits++
+	}
+	if digits > 0 && len(line) > digits+1 &&
+		(line[digits] == '.' || line[digits] == ')') && line[digits+1] == ' ' {
+		return line[digits+2:], true
+	}
+	return line, false
+}
+
+// stripInlineMarkdown removes inline emphasis, code, and link syntax
+// while keeping the visible text. Single '*' and '_' are left alone so
+// identifiers like snake_case survive.
+func stripInlineMarkdown(text string) string {
+	text = markdownLinkRe.ReplaceAllString(text, "$1")
+	replacer := strings.NewReplacer("**", "", "__", "", "~~", "", "`", "")
+	return strings.TrimSpace(replacer.Replace(text))
+}
+
+// boundSnippetSentences keeps whole sentences (using the same
+// terminator rules as countSentenceTerminators) until either cap is
+// reached. Text without a terminator inside the rune cap is truncated
+// with an ellipsis.
+func boundSnippetSentences(text string, maxSentences, maxRunes int) string {
+	runes := []rune(text)
+	sentences := 0
+	lastEnd := 0
+	for i, r := range runes {
+		if r != '.' && r != '!' && r != '?' {
+			continue
+		}
+		if i != len(runes)-1 && !unicode.IsSpace(runes[i+1]) {
+			continue
+		}
+		if i+1 > maxRunes {
+			break
+		}
+		lastEnd = i + 1
+		sentences++
+		if sentences >= maxSentences {
+			break
+		}
+	}
+	if lastEnd > 0 {
+		return strings.TrimSpace(string(runes[:lastEnd]))
+	}
+	if len(runes) <= maxRunes {
+		return text
+	}
+	return strings.TrimSpace(string(runes[:maxRunes-1])) + "…"
 }
 
 const turnStatusLabelPrompt = "You write compact chat status labels for a sidebar or push notification. " +

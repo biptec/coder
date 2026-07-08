@@ -4774,8 +4774,12 @@ const (
 
 	// Subagent summaries reuse the final report instead of generating
 	// text, so their work timeout only covers two database round trips.
-	subagentReportSummaryTimeout  = 15 * time.Second
-	subagentReportSummaryMaxRunes = 2000
+	subagentReportSummaryTimeout = 15 * time.Second
+	// Bound the extracted report snippet near the 1-3 sentence
+	// generated summaries that root chats get, so subagent and parent
+	// summary panels read the same.
+	subagentReportSummaryMaxRunes     = 300
+	subagentReportSummaryMaxSentences = 3
 )
 
 // maybeGenerateChatSummaryAsync launches best-effort whole-chat summary
@@ -4976,9 +4980,9 @@ func (p *Server) storeSubagentReportSummaryAsync(
 	}
 }
 
-// storeSubagentReportSummary reuses the subagent's final report (the
-// latest visible assistant message, the same text the parent receives on
-// await) as the whole-chat summary. Subagent chats skip generated
+// storeSubagentReportSummary derives the whole-chat summary from the
+// subagent's final report (the latest visible assistant message, the
+// same text the parent receives on await). Subagent chats skip generated
 // summaries, so this gives them a summary without an extra generation
 // call. Best-effort; never clears an existing summary.
 func (p *Server) storeSubagentReportSummary(
@@ -4997,14 +5001,11 @@ func (p *Server) storeSubagentReportSummary(
 			slog.F("chat_id", chat.ID), slog.Error(err))
 		return
 	}
-	report = strings.TrimSpace(report)
-	if report == "" {
+	summary := subagentReportSummarySnippet(report)
+	if summary == "" {
 		return
 	}
-	if len([]rune(report)) > subagentReportSummaryMaxRunes {
-		report = truncateRunes(report, subagentReportSummaryMaxRunes-1) + "…"
-	}
-	p.updateChatSummary(ctx, chat, chat.HistoryVersion, report, logger)
+	p.updateChatSummary(ctx, chat, chat.HistoryVersion, summary, logger)
 }
 
 func (p *Server) webpushConfigured() bool {
