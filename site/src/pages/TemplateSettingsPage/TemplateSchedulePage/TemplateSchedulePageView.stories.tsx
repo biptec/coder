@@ -77,7 +77,7 @@ export const SubmitClearsActivityBumpWhenDefaultTTLIsZero: Story = {
 		// Helper text explains why the field is disabled.
 		await expect(
 			canvas.getByText(
-				/activity bump only applies when a default TTL is configured or users are allowed to customize autostop/i,
+				/activity bump only applies when "default autostop" is configured or users are allowed to customize autostop/i,
 			),
 		).toBeInTheDocument();
 
@@ -195,6 +195,43 @@ export const ReEnablesActivityBumpWhenAllowUserAutostopIsToggledOn: Story = {
 		await expect(activityBumpField).not.toBeDisabled();
 	},
 };
+
+export const AutostopReminderHelperTextHidesWhenAllowUserAutostopIsEnabled: Story =
+	{
+		args: {
+			...defaultArgs,
+			template: {
+				...MockTemplate,
+				// The reminder helper text used to always show the "no autostop
+				// deadline" hint when the template had no default TTL and no
+				// autostop requirement. It should now suppress the hint when
+				// allow_user_autostop is on, since users still have a deadline.
+				allow_user_autostop: true,
+				autostop_requirement: { days_of_week: [], weeks: 1 },
+				time_til_autostop_notify_ms: 0,
+			},
+		},
+		play: async ({ canvasElement }) => {
+			const canvas = within(canvasElement);
+			const user = userEvent.setup();
+
+			const defaultTtlField = await canvas.findByLabelText(
+				"Default autostop (hours)",
+			);
+
+			// Clear default TTL so the only remaining deadline source is
+			// allow_user_autostop.
+			await user.clear(defaultTtlField);
+			await user.type(defaultTtlField, "0");
+
+			// The "no autostop deadline" hint must NOT appear.
+			await expect(
+				canvas.queryByText(
+					/autostop reminders only apply when an autostop deadline is configured/i,
+				),
+			).not.toBeInTheDocument();
+		},
+	};
 
 export const SubmitAutostopReminderConvertsHoursToMs: Story = {
 	args: {

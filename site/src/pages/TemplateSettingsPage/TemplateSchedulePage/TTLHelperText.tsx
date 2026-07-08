@@ -35,10 +35,10 @@ export const ActivityBumpHelperText = (props: {
 	if (!defaultTTL && !allowUserAutostop) {
 		return (
 			<span>
-				Activity bump only applies when a default TTL is configured or users are
-				allowed to customize autostop. Set a default TTL above or check "Allow
-				users to customize autostop duration for workspaces" below to enable
-				activity bumping.
+				Activity bump only applies when "Default autostop" is configured or
+				users are allowed to customize autostop. Set "Default autostop" above or
+				check "Allow users to customize autostop duration for workspaces" below
+				to enable activity bumping.
 			</span>
 		);
 	}
@@ -90,8 +90,8 @@ export const AutostopReminderHelperText = (props: {
 		return (
 			<span>
 				Autostop reminders only apply when an autostop deadline is configured.
-				Set a default TTL, an autostop requirement, or check "Allow users to
-				customize autostop duration for workspaces" to enable reminders.
+				Set "Default autostop", an autostop requirement, or check "Allow users
+				to customize autostop duration for workspaces" to enable reminders.
 			</span>
 		);
 	}
