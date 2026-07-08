@@ -107,8 +107,8 @@ Admins may apply bulk operations (update, delete, start, stop) in the
 checkboxes on the left, then use the top-right **Actions** dropdown to apply the
 operation.
 
-The start and stop operations can only be applied to a set of workspaces which
-are all in the same state. For update and delete, the user will be prompted for
+The start and stop operations apply to eligible workspaces in the selection,
+skipping workspaces that are already in the target state. For update and delete, the user will be prompted for
 confirmation before any action is taken.
 
 ![Bulk workspace actions](../images/user-guides/workspace-bulk-actions.png)
