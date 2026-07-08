@@ -8065,9 +8065,7 @@ func (q *sqlQuerier) GetChatModelConfigsForTelemetry(ctx context.Context) ([]Get
 
 const getChatModelUsageCostByChatID = `-- name: GetChatModelUsageCostByChatID :one
 WITH RECURSIVE target AS (
-    SELECT id AS chat_id
-    FROM chats
-    WHERE id = $1::uuid
+    SELECT $1::uuid AS chat_id
 ), subtree AS (
     SELECT chat_id AS id FROM target
     UNION ALL
