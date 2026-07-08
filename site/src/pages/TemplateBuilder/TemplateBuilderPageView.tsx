@@ -48,6 +48,7 @@ import { TemplateAlternatives } from "./TemplateAlternatives";
 import { TemplateCustomizationsStep } from "./TemplateCustomizationsStep";
 import {
 	initialWizardState,
+	type SelectedBaseMeta,
 	type TemplateBuilderWizardState,
 	type WizardAction,
 	wizardReducer,
@@ -56,6 +57,7 @@ import {
 interface TemplateBuilderPageViewProps {
 	error: unknown;
 	basesData: TemplateBuilderBasesResponse | undefined;
+	preselectedBase?: SelectedBaseMeta;
 	onCreateTemplate: (state: TemplateBuilderWizardState) => void;
 	createError: Error | null;
 	isCreating: boolean;
@@ -65,12 +67,20 @@ interface TemplateBuilderPageViewProps {
 export const TemplateBuilderPageView: FC<TemplateBuilderPageViewProps> = ({
 	error,
 	basesData,
+	preselectedBase,
 	onCreateTemplate,
 	createError,
 	isCreating,
 	onClearCreateError,
 }) => {
-	const [state, dispatch] = useReducer(wizardReducer, initialWizardState);
+	const resolvedInitialState = preselectedBase
+		? {
+				...initialWizardState,
+				baseTemplateId: preselectedBase.id,
+				selectedBase: preselectedBase,
+			}
+		: initialWizardState;
+	const [state, dispatch] = useReducer(wizardReducer, resolvedInitialState);
 	const [searchParams, setSearchParams] = useSearchParams();
 	const modulesQuery = useQuery(templateBuilderModules(state.selectedBase?.id));
 
@@ -78,8 +88,14 @@ export const TemplateBuilderPageView: FC<TemplateBuilderPageViewProps> = ({
 		state.modules.map((m) => [m.id, m.variables ?? {}]),
 	);
 
-	// Derive current step from the URL query param.
-	const stepParam = searchParams.get("step") ?? WIZARD_STEPS[0].id;
+	// Derive current step from the URL query param. When a base is
+	// preselected and no explicit step param is present, skip past
+	// base-infra so the user lands on the next meaningful step.
+	const explicitStep = searchParams.get("step");
+	const defaultStepId = preselectedBase
+		? (WIZARD_STEPS[findNextVisibleIndex(0, state)]?.id ?? WIZARD_STEPS[0].id)
+		: WIZARD_STEPS[0].id;
+	const stepParam = explicitStep ?? defaultStepId;
 	const rawIndex = WIZARD_STEPS.findIndex((s) => s.id === stepParam);
 	const resolvedIndex = rawIndex >= 0 ? rawIndex : 0;
 	const clampedIndex = Math.min(resolvedIndex, furthestAllowedIndex(state));
