@@ -49,13 +49,9 @@ type sshConfigOptions struct {
 	// Deprecated: moving away from prefix to hostnameSuffix
 	userHostPrefix string
 	hostnameSuffix string
-	// userHostPrefixExplicit and hostnameSuffixExplicit track whether the
-	// user intentionally set userHostPrefix/hostnameSuffix (including to
-	// an empty value), as opposed to leaving it unset. Without this, an
-	// intentional empty value is indistinguishable from "never set" and
-	// falls back to the server default. They are persisted via
-	// sshConfigWriteSectionHeader/sshConfigParseLastOptions so the choice
-	// survives a later --use-previous-options run.
+	// userHostPrefixExplicit and hostnameSuffixExplicit distinguish an
+	// intentional empty value from "unset" (which falls back to the
+	// server default). Persisted across --use-previous-options runs.
 	userHostPrefixExplicit bool
 	hostnameSuffixExplicit bool
 	sshOptions             []string
