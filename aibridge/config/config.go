@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"time"
 
 	"github.com/coder/coder/v2/aibridge/keypool"
@@ -47,6 +48,8 @@ type AWSBedrock struct {
 	Model, SmallFastModel      string
 	// If set, requests will be sent to this URL instead of the default AWS Bedrock endpoint
 	// (https://bedrock-runtime.{region}.amazonaws.com).
+	// For mantle, this must be the Messages API prefix without
+	// /v1/messages, e.g. https://bedrock-mantle.{region}.api.aws/anthropic.
 	// This is useful for routing requests through a proxy or for testing.
 	BaseURL string
 	// RoleARN, when set, is assumed via STS before calling Bedrock. The base
@@ -61,6 +64,20 @@ type AWSBedrock struct {
 	// Endpoint selects the Bedrock transport. The zero value behaves as
 	// BedrockEndpointInvokeModel.
 	Endpoint BedrockEndpoint
+}
+
+// Validate verifies endpoint-specific Bedrock configuration.
+func (c AWSBedrock) Validate() error {
+	switch c.Endpoint {
+	case BedrockEndpointMantle:
+		if c.Region == "" {
+			return errors.New("region required")
+		}
+		if c.BaseURL == "" {
+			return errors.New("base_url required")
+		}
+	}
+	return nil
 }
 
 // OpenAI carries configuration for an OpenAI provider.

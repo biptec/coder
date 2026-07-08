@@ -355,11 +355,8 @@ func (i *interceptionBase) withBedrockInvokeModelOptions(ctx context.Context) ([
 // SSE.
 func (i *interceptionBase) withBedrockMantleOptions(ctx context.Context) ([]option.RequestOption, error) {
 	cfg := i.bedrock.Cfg
-	// Region is mandatory for mantle: it scopes the SigV4 signature and forms
-	// the default endpoint host, and is still required behind a custom base URL.
-	// Model fields are not required (the client sends the model).
-	if cfg.Region == "" {
-		return nil, xerrors.New("region required")
+	if err := cfg.Validate(); err != nil {
+		return nil, err
 	}
 
 	// Fail fast: ensure credentials can be resolved before signing. Served from
@@ -370,11 +367,10 @@ func (i *interceptionBase) withBedrockMantleOptions(ctx context.Context) ([]opti
 	}
 
 	region := cfg.Region
-	baseURL := cfg.BaseURL + "/anthropic"
 
 	signer := v4.NewSigner()
 	var out []option.RequestOption
-	out = append(out, option.WithBaseURL(baseURL))
+	out = append(out, option.WithBaseURL(cfg.BaseURL))
 	// Appended last so it runs innermost (right before the HTTP send) and signs
 	// the request after all other headers are set.
 	out = append(out, option.WithMiddleware(func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {

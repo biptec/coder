@@ -1167,7 +1167,7 @@ func TestAWSMantleOptionsValidation(t *testing.T) {
 			name: "valid without model fields",
 			cfg: config.AWSBedrock{
 				Region:   "us-east-1",
-				BaseURL:  "https://bedrock-mantle.us-east-1.api.aws",
+				BaseURL:  "https://bedrock-mantle.us-east-1.api.aws/anthropic",
 				Endpoint: config.BedrockEndpointMantle,
 			},
 		},

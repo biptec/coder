@@ -406,7 +406,7 @@ func TestAWSBedrockIntegration(t *testing.T) {
 			Region:          "us-west-2",
 			AccessKey:       "test-access-key",
 			AccessKeySecret: "test-secret-key",
-			BaseURL:         upstream.URL, // Use the mock server.
+			BaseURL:         upstream.URL + "/anthropic", // Use the mock server.
 			Endpoint:        config.BedrockEndpointMantle,
 		}
 		// The client's model must be forwarded unchanged.
