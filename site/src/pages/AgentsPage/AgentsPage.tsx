@@ -94,10 +94,27 @@ export const shouldInvalidateFilteredChatList = (
 ): boolean =>
 	!chat.parent_chat_id && FILTER_MEMBERSHIP_EVENT_KINDS.has(eventKind);
 
-export const shouldInvalidateChatCost = (
+// Chat IDs whose cost queries must refetch after a watch event, or an
+// empty array when the event cannot change any cost. Cost accrues while
+// a chat generates, so refetch when a status change lands in a
+// non-active status. The cost endpoint rolls subagent spend up into the
+// root chat (GetChatModelUsageCostByChatID sums over root_chat_id), so
+// a subagent going idle must also refresh the root chat's cost query,
+// not just its own.
+export const chatCostIdsToInvalidate = (
 	chat: TypesGen.Chat,
 	eventKind: TypesGen.ChatWatchEventKind,
-): boolean => eventKind === "status_change" && !isActiveChatStatus(chat.status);
+): readonly string[] => {
+	if (eventKind !== "status_change" || isActiveChatStatus(chat.status)) {
+		return [];
+	}
+	// root_chat_id is self-referential on root chats; only include it
+	// when it points at a different (parent) chat.
+	if (chat.root_chat_id && chat.root_chat_id !== chat.id) {
+		return [chat.id, chat.root_chat_id];
+	}
+	return [chat.id];
+};
 
 const AgentsPage: FC = () => {
 	useAgentsPWA();
@@ -624,9 +641,12 @@ const AgentsPage: FC = () => {
 						if (shouldInvalidateFilteredChatList(updatedChat, chatEvent.kind)) {
 							void invalidateChatListQueries(queryClient);
 						}
-						if (shouldInvalidateChatCost(updatedChat, chatEvent.kind)) {
+						for (const costChatId of chatCostIdsToInvalidate(
+							updatedChat,
+							chatEvent.kind,
+						)) {
 							void queryClient.invalidateQueries({
-								queryKey: chatCostKey(updatedChat.id),
+								queryKey: chatCostKey(costChatId),
 								exact: true,
 							});
 						}

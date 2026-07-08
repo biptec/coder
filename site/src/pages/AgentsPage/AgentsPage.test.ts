@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as TypesGen from "#/api/typesGenerated";
 import {
-	shouldInvalidateChatCost,
+	chatCostIdsToInvalidate,
 	shouldInvalidateFilteredChatList,
 } from "./AgentsPage";
 import {
@@ -933,38 +933,69 @@ describe(shouldInvalidateFilteredChatList.name, () => {
 	});
 });
 
-describe(shouldInvalidateChatCost.name, () => {
+describe(chatCostIdsToInvalidate.name, () => {
 	it.each<{
 		name: string;
 		updatedChat: TypesGen.Chat;
 		eventKind: TypesGen.ChatWatchEventKind;
-		expected: boolean;
+		expected: readonly string[];
 	}>([
 		{
 			name: "invalidates when a status change ends active generation",
 			updatedChat: chatForFilterInvalidation({ status: "waiting" }),
 			eventKind: "status_change",
-			expected: true,
+			expected: ["chat-1"],
+		},
+		{
+			name: "does not duplicate a self-referential root id",
+			updatedChat: chatForFilterInvalidation({
+				status: "waiting",
+				root_chat_id: "chat-1",
+			}),
+			eventKind: "status_change",
+			expected: ["chat-1"],
+		},
+		{
+			name: "invalidates the root chat's rolled-up cost when a subagent finishes",
+			updatedChat: chatForFilterInvalidation({
+				id: "child-1",
+				parent_chat_id: "root-1",
+				root_chat_id: "root-1",
+				status: "waiting",
+			}),
+			eventKind: "status_change",
+			expected: ["child-1", "root-1"],
 		},
 		{
 			name: "waits while the chat is still active",
 			updatedChat: chatForFilterInvalidation({ status: "running" }),
 			eventKind: "status_change",
-			expected: false,
+			expected: [],
+		},
+		{
+			name: "waits while a subagent is still active",
+			updatedChat: chatForFilterInvalidation({
+				id: "child-1",
+				parent_chat_id: "root-1",
+				root_chat_id: "root-1",
+				status: "running",
+			}),
+			eventKind: "status_change",
+			expected: [],
 		},
 		{
 			name: "waits while the chat is interrupting",
 			updatedChat: chatForFilterInvalidation({ status: "interrupting" }),
 			eventKind: "status_change",
-			expected: false,
+			expected: [],
 		},
 		{
 			name: "ignores non-status events",
 			updatedChat: chatForFilterInvalidation({ status: "waiting" }),
 			eventKind: "summary_change",
-			expected: false,
+			expected: [],
 		},
 	])("$name", ({ updatedChat, eventKind, expected }) => {
-		expect(shouldInvalidateChatCost(updatedChat, eventKind)).toBe(expected);
+		expect(chatCostIdsToInvalidate(updatedChat, eventKind)).toEqual(expected);
 	});
 });
