@@ -435,6 +435,7 @@ func executeBackground(
 	if err != nil {
 		return errorResult(enrichStartError(fmt.Sprintf("start background process: %v", err)))
 	}
+	KickAttemptKeepalive(ctx)
 	logStartIdempotency(ctx, options.Logger, resp, toolCallID)
 	if options.Recorder != nil {
 		if err := recordProcessStart(ctx, options.Recorder, toolCallID, resp.ID); err != nil {
@@ -490,6 +491,7 @@ func executeForeground(
 	if err != nil {
 		return errorResult(enrichStartError(fmt.Sprintf("start process: %v", err)))
 	}
+	KickAttemptKeepalive(ctx)
 	logStartIdempotency(ctx, options.Logger, resp, toolCallID)
 	if options.Recorder != nil {
 		if err := recordProcessStart(ctx, options.Recorder, toolCallID, resp.ID); err != nil {
@@ -569,6 +571,8 @@ func waitForProcess(
 			}
 		}
 
+		KickAttemptKeepalive(parentCtx)
+
 		// Snapshot succeeded. If the process finished, return
 		// its real result (transparent recovery).
 		if !resp.Running {
@@ -600,6 +604,8 @@ func waitForProcess(
 			BackgroundProcessID: processID,
 		}
 	}
+
+	KickAttemptKeepalive(parentCtx)
 
 	// The server-side wait may return before the
 	// process exits if maxWaitDuration is shorter than
@@ -764,6 +770,7 @@ func ProcessOutput(options ProcessToolOptions) fantasy.AgentTool {
 				}
 				// Fall through to normal response handling below.
 			}
+			KickAttemptKeepalive(parentCtx)
 			output := truncateOutput(resp.Output)
 			exitCode := 0
 			if resp.ExitCode != nil {
