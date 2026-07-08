@@ -36,8 +36,9 @@ export const ActivityBumpHelperText = (props: {
 		return (
 			<span>
 				Activity bump only applies when a default TTL is configured or users are
-				allowed to customize autostop. Set a default TTL above or enable user
-				autostop to enable activity bumping.
+				allowed to customize autostop. Set a default TTL above or check "Allow
+				users to customize autostop duration for workspaces" below to enable
+				activity bumping.
 			</span>
 		);
 	}
@@ -68,18 +69,29 @@ export const AutostopReminderHelperText = (props: {
 	lead?: number;
 	defaultTTL?: number;
 	autostopRequirementDaysOfWeek?: string;
+	allowUserAutostop?: boolean;
 }) => {
-	const { lead = 0, defaultTTL = 0, autostopRequirementDaysOfWeek } = props;
+	const {
+		lead = 0,
+		defaultTTL = 0,
+		autostopRequirementDaysOfWeek,
+		allowUserAutostop = false,
+	} = props;
 
 	const hasAutostopRequirement =
 		Boolean(autostopRequirementDaysOfWeek) &&
 		autostopRequirementDaysOfWeek !== "off";
 
-	if (!defaultTTL && !hasAutostopRequirement) {
+	// Autostop reminders fire relative to a workspace's scheduled stop, so
+	// this hint only makes sense when none of the sources of a stop deadline
+	// (default TTL, autostop requirement, or user-configured autostop) are
+	// available.
+	if (!defaultTTL && !hasAutostopRequirement && !allowUserAutostop) {
 		return (
 			<span>
 				Autostop reminders only apply when an autostop deadline is configured.
-				Set a default TTL or an autostop requirement above to enable reminders.
+				Set a default TTL, an autostop requirement, or check "Allow users to
+				customize autostop duration for workspaces" to enable reminders.
 			</span>
 		);
 	}
