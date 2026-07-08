@@ -39,6 +39,13 @@ const ToolNameSep = "__"
 // to start its transport and complete initialization.
 const connectTimeout = 30 * time.Second
 
+// partialCatalogDelay is how long a reload waits for every server to
+// finish connecting before publishing a partial catalog covering the
+// servers that already settled. One slow or hanging server (bounded by
+// connectTimeout) then delays only its own appearance in the catalog,
+// not the tools of every server that connected promptly.
+const partialCatalogDelay = 5 * time.Second
+
 // toolCallTimeout bounds how long a single tool invocation may
 // take before being canceled.
 const toolCallTimeout = 60 * time.Second
@@ -124,6 +131,12 @@ type Manager struct {
 	// in-flight reload (for example, to verify Close()'s
 	// shutdown ordering does not stall on a stuck connect).
 	connectStartedHook func()
+
+	// connectSettledHook is a test hook invoked by connectAll each
+	// time a server's connect attempt settles (success or failure).
+	// Production code leaves this nil; tests set it to order the
+	// partial-catalog timer against specific connect outcomes.
+	connectSettledHook func(name string)
 }
 
 // serverEntry pairs a server config with its connected client.
@@ -438,9 +451,9 @@ func (m *Manager) doReload(ctx context.Context, mcpConfigFiles []string) error {
 		return err
 	}
 
-	connected := m.connectAll(ctx, diff.toConnect)
+	connected, partialInstalled := m.connectAll(ctx, wanted, diff)
 
-	replaced, err := m.installServers(wanted, diff, connected, snap)
+	replaced, err := m.installServers(wanted, diff, connected, snap, partialInstalled)
 	if err != nil {
 		return err
 	}
@@ -548,22 +561,36 @@ func (m *Manager) classifyServers(wanted map[string]ServerConfig) (*serverDiff, 
 	return diff, nil
 }
 
-// connectAll runs connectServer in parallel for the given configs.
-// Failed connects are logged and skipped.
-func (m *Manager) connectAll(ctx context.Context, toConnect []ServerConfig) []connectedServer {
+// connectAll runs connectServer in parallel for the servers in
+// diff.toConnect and returns the successful connections. Failed
+// connects are logged and skipped.
+//
+// When some connects are still pending after partialCatalogDelay, the
+// servers that already settled are installed and published as a partial
+// catalog so their tools become visible and callable without waiting
+// for the slowest connect (bounded by connectTimeout). The returned set
+// names the servers installed early; installServers uses it to keep
+// client ownership single-homed when the manager closes mid-reload.
+func (m *Manager) connectAll(ctx context.Context, wanted map[string]ServerConfig, diff *serverDiff) ([]connectedServer, map[string]struct{}) {
 	logger := m.logger.With(agentchat.Fields(ctx)...)
 
 	if hook := m.connectStartedHook; hook != nil {
 		hook()
 	}
+	if len(diff.toConnect) == 0 {
+		return nil, nil
+	}
 
-	var (
-		mu        sync.Mutex
-		connected []connectedServer
-	)
-	var eg errgroup.Group
-	for _, cfg := range toConnect {
-		eg.Go(func() error {
+	type connectOutcome struct {
+		name   string
+		server connectedServer
+		ok     bool
+	}
+	// Buffered to the goroutine count so every connect can deliver its
+	// outcome and exit even after the collection loop has moved on.
+	outcomes := make(chan connectOutcome, len(diff.toConnect))
+	for _, cfg := range diff.toConnect {
+		go func() {
 			c, err := m.connectServer(ctx, cfg)
 			if err != nil {
 				logger.Warn(ctx, "skipping MCP server",
@@ -571,35 +598,132 @@ func (m *Manager) connectAll(ctx context.Context, toConnect []ServerConfig) []co
 					slog.F("transport", cfg.Transport),
 					slog.Error(err),
 				)
-				return nil // Don't fail the group.
+				outcomes <- connectOutcome{name: cfg.Name}
+				return
 			}
-			mu.Lock()
-			connected = append(connected, connectedServer{
-				name: cfg.Name, config: cfg, client: c,
-			})
-			mu.Unlock()
-			return nil
-		})
+			outcomes <- connectOutcome{
+				name: cfg.Name,
+				ok:   true,
+				server: connectedServer{
+					name: cfg.Name, config: cfg, client: c,
+				},
+			}
+		}()
 	}
-	_ = eg.Wait()
-	return connected
+
+	timer := m.clock.NewTimer(partialCatalogDelay, "agentmcp", "partial_catalog")
+	defer timer.Stop()
+
+	var (
+		connected        []connectedServer
+		partialInstalled map[string]struct{}
+		settled          = make(map[string]struct{}, len(diff.toConnect))
+		timerC           = timer.C
+	)
+	for len(settled) < len(diff.toConnect) {
+		select {
+		case out := <-outcomes:
+			settled[out.name] = struct{}{}
+			if out.ok {
+				connected = append(connected, out.server)
+			}
+			if hook := m.connectSettledHook; hook != nil {
+				hook(out.name)
+			}
+		case <-timerC:
+			// At most one partial catalog per reload; the final
+			// refresh in doReload publishes the complete picture.
+			timerC = nil
+			partialInstalled = m.publishPartialCatalog(ctx, wanted, diff, connected, settled)
+		}
+	}
+	return connected, partialInstalled
+}
+
+// publishPartialCatalog surfaces the servers whose connect settled
+// before the partial-catalog window elapsed, without waiting for the
+// rest. Connections for genuinely new server names are installed so
+// tool calls resolve as soon as the catalog announces them; a
+// connection that replaces an existing entry is deferred to the final
+// install so the replaced client keeps serving until then and is closed
+// exactly once by doReload's standard path. The published catalog
+// covers settled servers only: a server still connecting is omitted
+// (pending) rather than reported as failed. Returns the names it
+// installed, or nil when nothing settled yet or the manager closed.
+func (m *Manager) publishPartialCatalog(ctx context.Context, wanted map[string]ServerConfig, diff *serverDiff, connected []connectedServer, settled map[string]struct{}) map[string]struct{} {
+	if len(settled) == 0 {
+		return nil
+	}
+
+	installed := make(map[string]struct{}, len(connected))
+	m.mu.Lock()
+	if m.closed {
+		// Ownership of every connected client stays with the final
+		// installServers call, which closes them all on the closed
+		// branch.
+		m.mu.Unlock()
+		return nil
+	}
+	for _, cs := range connected {
+		if _, replaces := diff.prev[cs.name]; replaces {
+			continue
+		}
+		m.servers[cs.name] = &serverEntry{config: cs.config, client: cs.client}
+		installed[cs.name] = struct{}{}
+	}
+	if len(installed) > 0 {
+		// Invalidate the snapshot of any concurrently running
+		// refreshCatalog from an older generation.
+		m.serverGen++
+	}
+	m.mu.Unlock()
+
+	// Restrict the catalog to servers whose connect settled; the ones
+	// still connecting stay absent until the final refresh instead of
+	// surfacing as spurious "failed to connect" entries.
+	stillConnecting := make(map[string]struct{}, len(diff.toConnect))
+	for _, cfg := range diff.toConnect {
+		if _, ok := settled[cfg.Name]; !ok {
+			stillConnecting[cfg.Name] = struct{}{}
+		}
+	}
+	settledWanted := make(map[string]ServerConfig, len(wanted))
+	for name, cfg := range wanted {
+		if _, pending := stillConnecting[name]; !pending {
+			settledWanted[name] = cfg
+		}
+	}
+	if m.refreshCatalog(ctx, settledWanted) {
+		m.fireOnChange()
+	}
+	return installed
 }
 
 // installServers builds the new server map from diff.keep and the
 // connected list, falling back to diff.prev when a connect failed.
-// Returns old entries replaced by successful connects (caller
-// closes them). Acquires and releases m.mu.
+// partialInstalled names the connections publishPartialCatalog already
+// installed; when the manager closed mid-reload those clients belong to
+// the server map Close tears down, so only the rest are closed here.
+// Returns old entries replaced by successful connects (caller closes
+// them). Acquires and releases m.mu.
 func (m *Manager) installServers(
 	wanted map[string]ServerConfig,
 	diff *serverDiff,
 	connected []connectedServer,
 	snap map[string]fileSnapshot,
+	partialInstalled map[string]struct{},
 ) ([]*serverEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.closed {
 		for _, cs := range connected {
+			if _, owned := partialInstalled[cs.name]; owned {
+				// Already installed into m.servers, so Close (which
+				// marked us closed) closed this client; closing it
+				// again here would double-close.
+				continue
+			}
 			_ = cs.client.Close()
 		}
 		return nil, ErrManagerClosed

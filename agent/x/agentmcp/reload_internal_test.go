@@ -3,6 +3,7 @@ package agentmcp
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -19,6 +20,7 @@ import (
 	"github.com/coder/coder/v2/agent/agentexec"
 	"github.com/coder/coder/v2/codersdk/workspacesdk"
 	"github.com/coder/coder/v2/testutil"
+	"github.com/coder/quartz"
 )
 
 // catalogTool is a flattened (server, tool) pair taken from the
@@ -749,4 +751,109 @@ func TestClose_SuppressesSubprocessExitError(t *testing.T) {
 	// suppress the "signal: killed" error.
 	err = m.Close()
 	assert.NoError(t, err, "Close should not propagate subprocess kill errors")
+}
+
+// TestReload_PartialCatalogPublishesSettledServers verifies that one
+// hanging server does not hold every other server's tools hostage for
+// the full connectTimeout: once the partial-catalog window elapses, the
+// servers that already settled are installed, published, and announced
+// via the reload callback while the reload is still waiting on the
+// hanging connect. The still-connecting server must be absent from the
+// partial catalog rather than reported as failed.
+func TestReload_PartialCatalogPublishesSettledServers(t *testing.T) {
+	if os.Getenv("TEST_MCP_HANG_SERVER") == "1" {
+		// Child process: a stdio MCP server that starts but never
+		// answers the initialize request, simulating a hung server
+		// binary. It exits when the parent kills it or closes stdin.
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		return
+	}
+	if os.Getenv("TEST_MCP_FAKE_SERVER") == "1" {
+		runFakeMCPServer()
+		return
+	}
+	t.Parallel()
+
+	ctx := testutil.Context(t, testutil.WaitLong)
+	logger := slogtest.Make(t, nil).Leveled(slog.LevelDebug)
+	dir := t.TempDir()
+
+	testBin, err := os.Executable()
+	require.NoError(t, err)
+
+	_, fastEntry := fakeMCPServerConfig(t, "fast")
+	hangEntry := mcpServerEntry{
+		Command: testBin,
+		Args:    []string{"-test.run=^TestReload_PartialCatalogPublishesSettledServers$"},
+		Env:     map[string]string{"TEST_MCP_HANG_SERVER": "1"},
+	}
+	configPath := writeMCPConfig(t, dir, map[string]mcpServerEntry{
+		"fast": fastEntry,
+		"hang": hangEntry,
+	})
+
+	clock := quartz.NewMock(t)
+	timerTrap := clock.Trap().NewTimer("agentmcp", "partial_catalog")
+	defer timerTrap.Close()
+
+	m := NewManager(ctx, logger, agentexec.DefaultExecer, nil)
+	m.clock = clock
+	t.Cleanup(func() { _ = m.Close() })
+
+	// Observe settle order so the partial window deterministically fires
+	// after the fast server settled and before the hanging one does.
+	settledCh := make(chan string, 2)
+	m.connectSettledHook = func(name string) { settledCh <- name }
+
+	onChangeCh := make(chan struct{}, 2)
+	m.SetOnReload(func() {
+		select {
+		case onChangeCh <- struct{}{}:
+		default:
+		}
+	})
+
+	reloadDone := make(chan error, 1)
+	go func() { reloadDone <- m.Reload(ctx, []string{configPath}) }()
+
+	// The reload arms the partial-catalog timer before collecting
+	// outcomes.
+	call := timerTrap.MustWait(ctx)
+	require.Equal(t, partialCatalogDelay, call.Duration)
+	call.MustRelease(ctx)
+
+	// The fast server settles; the hanging one never does on its own.
+	require.Equal(t, "fast", testutil.RequireReceive(ctx, t, settledCh))
+
+	// Elapse the partial window: the settled server must be published
+	// and announced while the reload is still in flight.
+	clock.Advance(partialCatalogDelay).MustWait(ctx)
+
+	testutil.RequireReceive(ctx, t, onChangeCh)
+	tools := m.connectedTools()
+	require.Len(t, tools, 1, "partial catalog carries the settled server's tools")
+	require.Equal(t, catalogTool{server: "fast", tool: "echo"}, tools[0])
+	for _, s := range m.Catalog() {
+		require.NotEqual(t, "hang", s.Name,
+			"still-connecting server must be absent from the partial catalog, not failed")
+	}
+
+	// The settled server is installed, so its tools are callable before
+	// the reload finishes.
+	m.mu.RLock()
+	_, installed := m.servers["fast"]
+	m.mu.RUnlock()
+	require.True(t, installed, "partially published server must be installed for tool calls")
+
+	select {
+	case reloadErr := <-reloadDone:
+		t.Fatalf("reload finished before the hanging connect settled: %v", reloadErr)
+	default:
+	}
+
+	// Close cancels the manager context, which fails the hanging connect
+	// and lets the reload settle.
+	_ = m.Close()
+	err = testutil.RequireReceive(ctx, t, reloadDone)
+	require.Error(t, err, "reload interrupted by Close must not report success")
 }

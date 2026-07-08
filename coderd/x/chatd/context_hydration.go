@@ -54,6 +54,20 @@ func (p *Server) HydrateAndMarkChatsDirty(ctx context.Context, tx database.Store
 		return nil, xerrors.Errorf("hydrate agent chats context: %w", err)
 	}
 
+	// MCP resources are excluded from the drift hash, so a push that only
+	// changes them (servers finishing their connect after boot, a tool
+	// list changing) matches the pinned hash of already-hydrated chats and
+	// dirties nothing. Sync the pinned MCP rows of chats that are clean on
+	// the pushed hash so their tool set tracks the agent without a dirty
+	// badge or an explicit refresh. Chats hydrated above are included but
+	// unchanged: their rows were just copied from the same snapshot.
+	if err := tx.SyncChatContextMCPResourcesByAgent(ctx, database.SyncChatContextMCPResourcesByAgentParams{
+		AgentID:       agentID,
+		AggregateHash: aggregateHash,
+	}); err != nil {
+		return nil, xerrors.Errorf("sync chat context mcp resources: %w", err)
+	}
+
 	dirtied, err := tx.MarkChatsContextDirtyByAgent(ctx, database.MarkChatsContextDirtyByAgentParams{
 		AgentID:       agentID,
 		AggregateHash: aggregateHash,

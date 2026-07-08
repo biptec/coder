@@ -9405,6 +9405,20 @@ func (mr *MockStoreMockRecorder) SoftDeleteWorkspaceAgentsByWorkspaceID(ctx, wor
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SoftDeleteWorkspaceAgentsByWorkspaceID", reflect.TypeOf((*MockStore)(nil).SoftDeleteWorkspaceAgentsByWorkspaceID), ctx, workspaceID)
 }
 
+// SyncChatContextMCPResourcesByAgent mocks base method.
+func (m *MockStore) SyncChatContextMCPResourcesByAgent(ctx context.Context, arg database.SyncChatContextMCPResourcesByAgentParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SyncChatContextMCPResourcesByAgent", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SyncChatContextMCPResourcesByAgent indicates an expected call of SyncChatContextMCPResourcesByAgent.
+func (mr *MockStoreMockRecorder) SyncChatContextMCPResourcesByAgent(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SyncChatContextMCPResourcesByAgent", reflect.TypeOf((*MockStore)(nil).SyncChatContextMCPResourcesByAgent), ctx, arg)
+}
+
 // TouchChatDebugRunUpdatedAt mocks base method.
 func (m *MockStore) TouchChatDebugRunUpdatedAt(ctx context.Context, arg database.TouchChatDebugRunUpdatedAtParams) error {
 	m.ctrl.T.Helper()

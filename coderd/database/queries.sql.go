@@ -10589,6 +10589,91 @@ func (q *sqlQuerier) SoftDeleteContextFileMessages(ctx context.Context, chatID u
 	return err
 }
 
+const syncChatContextMCPResourcesByAgent = `-- name: SyncChatContextMCPResourcesByAgent :exec
+WITH eligible AS (
+    SELECT c.id
+    FROM chats c
+    WHERE c.agent_id = $1::uuid
+        AND c.archived = false
+        AND c.context_dirty_since IS NULL
+        AND c.context_aggregate_hash = $2
+),
+current_mcp AS (
+    SELECT r.source, r.body_kind, r.body, r.content_hash, r.size_bytes, r.status, r.error, r.source_path
+    FROM workspace_agent_context_resources r
+    WHERE r.workspace_agent_id = $1::uuid
+        AND r.body_kind IN ('mcp_config', 'mcp_server')
+),
+deleted AS (
+    -- Both sub-statements see the same snapshot, so this delete and the
+    -- insert below never target the same (chat_id, source): the delete
+    -- matches only sources absent from current_mcp.
+    DELETE FROM chat_context_resources ccr
+    USING eligible e
+    WHERE ccr.chat_id = e.id
+        AND ccr.body_kind IN ('mcp_config', 'mcp_server')
+        AND NOT EXISTS (SELECT 1 FROM current_mcp m WHERE m.source = ccr.source)
+)
+INSERT INTO chat_context_resources (
+    chat_id, source, body_kind, body, content_hash, size_bytes, status, error, source_path
+)
+SELECT
+    e.id, m.source, m.body_kind, m.body, m.content_hash,
+    m.size_bytes, m.status, m.error, m.source_path
+FROM eligible e
+CROSS JOIN current_mcp m
+ON CONFLICT (chat_id, source) DO UPDATE SET
+    body_kind = EXCLUDED.body_kind,
+    body = EXCLUDED.body,
+    content_hash = EXCLUDED.content_hash,
+    size_bytes = EXCLUDED.size_bytes,
+    status = EXCLUDED.status,
+    error = EXCLUDED.error,
+    source_path = EXCLUDED.source_path,
+    updated_at = now()
+WHERE (
+    chat_context_resources.body_kind,
+    chat_context_resources.body,
+    chat_context_resources.content_hash,
+    chat_context_resources.size_bytes,
+    chat_context_resources.status,
+    chat_context_resources.error,
+    chat_context_resources.source_path
+) IS DISTINCT FROM (
+    EXCLUDED.body_kind,
+    EXCLUDED.body,
+    EXCLUDED.content_hash,
+    EXCLUDED.size_bytes,
+    EXCLUDED.status,
+    EXCLUDED.error,
+    EXCLUDED.source_path
+)
+`
+
+type SyncChatContextMCPResourcesByAgentParams struct {
+	AgentID       uuid.UUID `db:"agent_id" json:"agent_id"`
+	AggregateHash []byte    `db:"aggregate_hash" json:"aggregate_hash"`
+}
+
+// Keeps the pinned MCP rows (mcp_config and mcp_server) of clean chats
+// in step with the agent's latest pushed snapshot. MCP resources
+// describe live runtime capabilities and are excluded from the drift
+// hash, so a push that only changes them (servers finishing their
+// connect after boot, a tool list changing) leaves pinned hashes
+// untouched and never dirties a chat; without this sync a chat pinned
+// before the agent's MCP servers connected would keep an empty pinned
+// tool set until an unrelated drift forced a refresh. Only chats
+// pinned to exactly the pushed hash and not already dirty are touched,
+// and only their MCP-kind rows: pinned prompt content (instruction
+// files, skills) still changes hands exclusively through the
+// dirty-then-refresh flow. Stale MCP rows are deleted and current ones
+// upserted; the upsert rewrites a row only when its content actually
+// differs so updated_at is not churned by every push.
+func (q *sqlQuerier) SyncChatContextMCPResourcesByAgent(ctx context.Context, arg SyncChatContextMCPResourcesByAgentParams) error {
+	_, err := q.db.ExecContext(ctx, syncChatContextMCPResourcesByAgent, arg.AgentID, arg.AggregateHash)
+	return err
+}
+
 const unarchiveChatByID = `-- name: UnarchiveChatByID :many
 WITH updated_chats AS (
     UPDATE chats SET

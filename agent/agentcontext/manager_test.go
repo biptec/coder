@@ -469,6 +469,43 @@ func TestManager_SetReadyIsIdempotent(t *testing.T) {
 	require.Len(t, snap.Resources, 1)
 }
 
+// TestManager_TriggerBeforeReadyResolvesAfterReady locks in the gate's
+// re-signal invariant on the Run-loop path: a Trigger that lands while
+// collection is still gated (the MCP engine's reload callback can fire
+// before startup scripts finish) must not suppress the first ready
+// resolve. Whether the Run loop consumes the pre-ready trigger before
+// or after SetReady, a resolve must follow, because SetReady re-signals
+// after opening the gate. A regression here leaves the agent's context
+// permanently unpushed until an unrelated filesystem change.
+func TestManager_TriggerBeforeReadyResolvesAfterReady(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "AGENTS.md"), "rules")
+
+	m := newPendingTestManager(t, agentcontext.ManagerOptions{
+		WorkingDir: func() string { return dir },
+	})
+	ctx := testutil.Context(t, testutil.WaitLong)
+	go func() { _ = m.Run(ctx) }()
+	select {
+	case <-agentcontext.ManagerStarted(m):
+	case <-ctx.Done():
+		t.Fatalf("manager never started: %v", ctx.Err())
+	}
+
+	// While gated, the Run loop consumes trigger tokens and drops them
+	// without resolving.
+	m.Trigger()
+	require.Zero(t, m.Snapshot().Version, "gated trigger must not resolve")
+
+	m.SetReady()
+
+	testutil.Eventually(ctx, t, func(context.Context) bool {
+		snap := m.Snapshot()
+		return snap.Version > 0 && len(snap.Resources) == 1
+	}, testutil.IntervalFast)
+}
+
 func TestManager_CloseIsIdempotent(t *testing.T) {
 	t.Parallel()
 	m := newTestManager(t, agentcontext.ManagerOptions{

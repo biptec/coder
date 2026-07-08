@@ -1565,6 +1565,13 @@ func (a *agent) handleManifest(manifestOK *checkpoint) func(ctx context.Context,
 				if mcpErr := a.mcpManager.Reload(a.gracefulCtx, a.contextConfigAPI.MCPConfigFiles()); mcpErr != nil {
 					a.logger.Warn(ctx, "failed to reload workspace MCP servers", slog.Error(mcpErr))
 				}
+				// The reload fires the catalog-change callback (wired to
+				// Trigger) only when it observes a change. Trigger once
+				// more explicitly so the pushed context always includes a
+				// resolve that ran after the first MCP sync settled, even
+				// if the callback fired while the first post-ready resolve
+				// was already past its catalog read.
+				a.contextManager.Trigger()
 			})
 			if err != nil {
 				return xerrors.Errorf("track conn goroutine: %w", err)
