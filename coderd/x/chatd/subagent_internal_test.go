@@ -29,6 +29,7 @@ import (
 	"github.com/coder/coder/v2/coderd/database/dbtestutil"
 	"github.com/coder/coder/v2/coderd/database/pubsub"
 	coderdpubsub "github.com/coder/coder/v2/coderd/pubsub"
+	"github.com/coder/coder/v2/coderd/util/ptr"
 	"github.com/coder/coder/v2/coderd/x/chatd/chatloop"
 	"github.com/coder/coder/v2/coderd/x/chatd/chatprompt"
 	"github.com/coder/coder/v2/coderd/x/chatd/chatprovider"
@@ -1489,7 +1490,7 @@ func TestResolveConfiguredModelOverride_AcceptsAmbientCredentialsProvider(
 		Enabled:     true,
 	}
 
-	resolvedModelConfig, ok, err := server.resolveConfiguredModelOverride(
+	resolvedModelConfig, reasoningEffort, ok, err := server.resolveConfiguredModelOverride(
 		ctx,
 		"plan",
 		modelConfig.ID.String(),
@@ -1514,12 +1515,39 @@ func TestResolveConfiguredModelOverride_AcceptsAmbientCredentialsProvider(
 		modelOverrideFailureModeSoft,
 	)
 	require.NoError(t, err)
+	require.Nil(t, reasoningEffort)
 	require.True(t, ok)
 	require.Equal(t, modelConfig, resolvedModelConfig)
 	require.Empty(t, logSink.entriesAtLevelWithMessage(
 		slog.LevelInfo,
 		"model override credentials are unavailable, ignoring",
 	))
+}
+
+func TestCreateChildSubagentChat_StoresReasoningEffortOverride(t *testing.T) {
+	t.Parallel()
+
+	db, ps := dbtestutil.NewDB(t)
+	server := newInternalTestServer(t, db, ps, chatprovider.ProviderAPIKeys{})
+
+	ctx := chatdTestContext(t)
+	user, org, model := seedInternalChatDeps(t, db)
+	parentChat := createInternalParentChat(
+		ctx, t, server, db, org.ID, user.ID, model.ID, "parent-effort-override",
+	)
+	ctx = aibridge.WithDelegatedAPIKeyID(ctx, testAPIKeyID(t, server.db, parentChat.OwnerID))
+	child, err := server.createChildSubagentChatWithOptions(
+		ctx,
+		parentChat,
+		"delegate work",
+		"",
+		childSubagentChatOptions{reasoningEffortOverride: ptr.Ref("high")},
+	)
+	require.NoError(t, err)
+
+	childChat, err := db.GetChatByID(ctx, child.ID)
+	require.NoError(t, err)
+	require.Equal(t, sql.NullString{String: "high", Valid: true}, childChat.LastReasoningEffort)
 }
 
 func TestCreateChildSubagentChat_OverrideWorksWhenParentHasNoModel(t *testing.T) {
