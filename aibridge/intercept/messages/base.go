@@ -115,16 +115,19 @@ func (i *interceptionBase) CorrelatingToolCallID() *string {
 }
 
 // isBedrockMantle reports whether the interception targets the Bedrock mantle
-// transport, which speaks the native Messages wire format and is a passthrough.
+// transport.
 func (i *interceptionBase) isBedrockMantle() bool {
 	return i.bedrock != nil && i.bedrock.Cfg.Endpoint == aibconfig.BedrockEndpointMantle
 }
 
 // isBedrockInvokeModel reports whether the interception targets the Bedrock
-// InvokeModel transport, the default when a Bedrock runtime is configured
-// without the mantle endpoint.
+// InvokeModel transport. An unset endpoint ("") means InvokeModel (the
+// documented default). Matching explicitly, rather than "!= mantle", keeps a
+// future third transport from being silently treated as InvokeModel.
 func (i *interceptionBase) isBedrockInvokeModel() bool {
-	return i.bedrock != nil && i.bedrock.Cfg.Endpoint != aibconfig.BedrockEndpointMantle
+	return i.bedrock != nil &&
+		(i.bedrock.Cfg.Endpoint == aibconfig.BedrockEndpointInvokeModel ||
+			i.bedrock.Cfg.Endpoint == "")
 }
 
 func (i *interceptionBase) Model() string {
