@@ -15269,8 +15269,6 @@ func TestGetChatsSearch(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// --- helpers ---
-
 	createRoot := func(title string) database.Chat {
 		t.Helper()
 		chat, err := store.InsertChat(ctx, database.InsertChatParams{
@@ -15353,8 +15351,6 @@ func TestGetChatsSearch(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// --- fixtures ---
-
 	titleChat := createRoot("deploy pipeline alpha")
 
 	archivedChat := createRoot("deploy pipeline beta")
@@ -15379,13 +15375,12 @@ func TestGetChatsSearch(t *testing.T) {
 	toolMsg := insertMsg(ineligibleChat.ID, database.ChatMessageRoleTool, database.ChatMessageVisibilityBoth, "forbidden secret token")
 	modelMsg := insertMsg(ineligibleChat.ID, database.ChatMessageRoleUser, database.ChatMessageVisibilityModel, "forbidden secret token")
 
-	// Backfill search_tsv through the real pipeline. The backfill indexes
-	// eligible rows; ineligible rows keep search_tsv NULL.
+	// Ineligible rows keep search_tsv NULL after backfill.
 	_, err = store.BackfillChatMessagesSearchTsv(ctx, 1000)
 	require.NoError(t, err)
 
-	// Deleting after backfill removes the row from search results even
-	// though its search_tsv is still populated.
+	// Soft-deleted rows stay excluded even though search_tsv remains
+	// populated.
 	err = store.SoftDeleteChatMessageByID(ctx, deletedMsg.ID)
 	require.NoError(t, err)
 
@@ -15434,6 +15429,7 @@ func TestGetChatsSearch(t *testing.T) {
 		{"Composed/SearchAndRepo", database.GetChatsParams{Search: "authentication", RepoQuery: "acme/widget"}, []uuid.UUID{prTitleChat.ID}},
 		{"Composed/SearchAndPRStatus", database.GetChatsParams{Search: "authentication", PullRequestStatuses: []string{"merged"}}, []uuid.UUID{mergedChat.ID}},
 		{"EmptySearch/ReturnsAll", database.GetChatsParams{Search: ""}, allRootIDs},
+		{"WhitespaceSearch/ReturnsAll", database.GetChatsParams{Search: "   "}, allRootIDs},
 		{"EmptySearch/TitleQueryStillWorks", database.GetChatsParams{Search: "", TitleQuery: "pipeline alpha"}, []uuid.UUID{titleChat.ID}},
 		{"EmptySearch/PRTitleQueryStillWorks", database.GetChatsParams{Search: "", PrTitleQuery: "authentication bug"}, []uuid.UUID{prTitleChat.ID}},
 	}

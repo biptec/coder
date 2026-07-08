@@ -8689,11 +8689,11 @@ WHERE
         )
         ELSE true
     END
-    -- Free-text search across chat title, PR title, message bodies, and
-    -- PR number. websearch_to_tsquery accepts quoted phrases, OR, and
-    -- -negation; the 'simple' config folds case and skips stemming.
+    -- websearch_to_tsquery accepts quoted phrases, OR, and -negation;
+    -- the 'simple' config folds case and skips stemming. btrim makes
+    -- whitespace-only search behave like empty.
     AND CASE
-        WHEN $16::text != '' THEN (
+        WHEN btrim($16::text) != '' THEN (
             -- Served by idx_chats_title_fts.
             to_tsvector('simple', chats_expanded.title) @@ websearch_to_tsquery('simple', $16)
             -- Served by idx_chat_diff_statuses_pr_title_fts.
@@ -8704,8 +8704,7 @@ WHERE
                     AND to_tsvector('simple', cds.pull_request_title) @@ websearch_to_tsquery('simple', $16)
             )
             -- The WHERE clause must repeat the partial predicate of
-            -- idx_chat_messages_search_tsv exactly so the planner can use
-            -- it. Rows pending backfill (search_tsv IS NULL) match nothing.
+            -- idx_chat_messages_search_tsv exactly so the planner can use it.
             OR EXISTS (
                 SELECT 1
                 FROM chat_messages cm
@@ -8717,8 +8716,7 @@ WHERE
                     AND cm.search_tsv @@ websearch_to_tsquery('simple', $16)
             )
             -- CASE forces the digits guard before the ::bigint cast; AND
-            -- operand order is not guaranteed. The length cap prevents
-            -- overflow on oversized digit strings.
+            -- operand order is not guaranteed.
             OR CASE
                 WHEN $16 ~ '^[0-9]{1,18}$' THEN EXISTS (
                     SELECT 1
