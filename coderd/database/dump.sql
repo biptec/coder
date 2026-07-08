@@ -1358,6 +1358,7 @@ CREATE FUNCTION set_chat_message_revision_before() RETURNS trigger
     AS $$
 DECLARE
     chat_snapshot_version bigint;
+    cmp chat_messages;
 BEGIN
     IF TG_OP = 'INSERT' AND NEW.revision IS NOT NULL THEN
         RAISE EXCEPTION 'chat_messages.revision must be assigned by trigger';
@@ -1376,7 +1377,9 @@ BEGIN
             RETURN NEW;
         END IF;
 
-        IF to_jsonb(OLD) - 'search_tsv' = to_jsonb(NEW) - 'search_tsv' THEN
+        cmp := NEW;
+        cmp.search_tsv := OLD.search_tsv;
+        IF OLD IS NOT DISTINCT FROM cmp THEN
             RETURN NEW;
         END IF;
     END IF;
@@ -1443,6 +1446,7 @@ BEGIN
         SELECT DISTINCT n.chat_id
         FROM chat_message_history_new_rows n
         JOIN chat_message_history_old_rows o ON o.id = n.id
+        -- jsonb-minus here: transition-table rows have no composite-copy idiom in pure SQL.
         WHERE (to_jsonb(o) - 'search_tsv') IS DISTINCT FROM (to_jsonb(n) - 'search_tsv')
     ) AS affected
     WHERE c.id = affected.chat_id
