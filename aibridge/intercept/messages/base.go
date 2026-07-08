@@ -360,8 +360,6 @@ func (i *interceptionBase) withBedrockMantleOptions(ctx context.Context) ([]opti
 		return nil, xerrors.Errorf("resolve AWS credentials: %w", err)
 	}
 
-	region := cfg.Region
-
 	signer := v4.NewSigner()
 	var out []option.RequestOption
 	out = append(out, option.WithBaseURL(cfg.BaseURL))
@@ -394,7 +392,7 @@ func (i *interceptionBase) withBedrockMantleOptions(ctx context.Context) ([]opti
 			return nil, err
 		}
 		hash := sha256.Sum256(body)
-		if err := signer.SignHTTP(req.Context(), creds, req, hex.EncodeToString(hash[:]), "bedrock-mantle", region, time.Now()); err != nil {
+		if err := signer.SignHTTP(req.Context(), creds, req, hex.EncodeToString(hash[:]), "bedrock-mantle", cfg.Region, time.Now()); err != nil {
 			return nil, err
 		}
 		return next(req)
