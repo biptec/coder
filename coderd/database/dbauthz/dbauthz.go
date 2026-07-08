@@ -1837,6 +1837,16 @@ func (q *querier) CalculateAIBridgeInterceptionsTelemetrySummary(ctx context.Con
 	return q.db.CalculateAIBridgeInterceptionsTelemetrySummary(ctx, arg)
 }
 
+func (q *querier) ChatSearchQueryIsEmpty(ctx context.Context, search string) (bool, error) {
+	// This evaluates a pure tokenization function and touches no rows,
+	// but the only caller is validating a chat list request, so gate it
+	// on the same read permission as listing chats.
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceChat); err != nil {
+		return false, err
+	}
+	return q.db.ChatSearchQueryIsEmpty(ctx, search)
+}
+
 func (q *querier) ClaimPrebuiltWorkspace(ctx context.Context, arg database.ClaimPrebuiltWorkspaceParams) (database.ClaimPrebuiltWorkspaceRow, error) {
 	empty := database.ClaimPrebuiltWorkspaceRow{}
 
