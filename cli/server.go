@@ -499,7 +499,7 @@ func (r *RootCmd) Server(newAPI func(context.Context, *coderd.Options) (*coderd.
 			// which is caught by goleaks.
 			defer http.DefaultClient.CloseIdleConnections()
 
-			tracerProvider, sqlDriver, closeTracing := ConfigureTraceProvider(ctx, logger, vals, "coderd")
+			tracerProvider, sqlDriver, closeTracing := ConfigureTraceProvider(ctx, logger, vals)
 			defer func() {
 				logger.Debug(ctx, "closing tracing")
 				traceCloseErr := shutdownWithTimeout(closeTracing, 5*time.Second)
@@ -2796,6 +2796,16 @@ func (s *HTTPServers) Close() {
 }
 
 func ConfigureTraceProvider(
+	ctx context.Context,
+	logger slog.Logger,
+	cfg *codersdk.DeploymentValues,
+) (trace.TracerProvider, string, func(context.Context) error) {
+	return ConfigureTraceProviderWithService(ctx, logger, cfg, "coderd")
+}
+
+// ConfigureTraceProviderWithService configures trace provider
+// with a specified service name.
+func ConfigureTraceProviderWithService(
 	ctx context.Context,
 	logger slog.Logger,
 	cfg *codersdk.DeploymentValues,

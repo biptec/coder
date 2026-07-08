@@ -59,11 +59,9 @@ func Middleware(tracerProvider trace.TracerProvider) func(http.Handler) http.Han
 	}
 }
 
-// StartHTTPSpan starts a span for the request, propagating inbound trace context
-// and writing the X-Trace-ID/X-Span-ID response headers. It returns the request
-// carrying the span context. Caller must end the span.
+// StartHTTPSpan starts a span, propagating inbound trace context and writing
+// X-Trace-ID/X-Span-ID response headers. The caller must end the span.
 func StartHTTPSpan(tracer trace.Tracer, rw http.ResponseWriter, r *http.Request, name string) (*http.Request, trace.Span) {
-	// Extract the trace context from the request headers.
 	propagator := otel.GetTextMapPropagator()
 	ctx := propagator.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
 
@@ -75,8 +73,6 @@ func StartHTTPSpan(tracer trace.Tracer, rw http.ResponseWriter, r *http.Request,
 		// they are easier to read for humans this way.
 		rw.Header().Set("X-Trace-ID", span.SpanContext().TraceID().String())
 		rw.Header().Set("X-Span-ID", span.SpanContext().SpanID().String())
-
-		// Inject the trace context into the response headers.
 		propagator.Inject(ctx, propagation.HeaderCarrier(rw.Header()))
 	}
 

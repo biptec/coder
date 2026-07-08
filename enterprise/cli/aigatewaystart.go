@@ -37,6 +37,9 @@ import (
 const (
 	shutdownTimeout = 5 * time.Minute
 
+	healthzPath = "/healthz"
+	readyzPath  = "/readyz"
+
 	keyFlagsExclusiveErr = "--key and --key-file options are mutually exclusive"
 	keyFlagsMissingErr   = "an AI Gateway key is required, set --key (CODER_AI_GATEWAY_KEY) or --key-file (CODER_AI_GATEWAY_KEY_FILE)"
 )
@@ -102,7 +105,7 @@ func (r *RootCmd) aiGatewayStart() *serpent.Command {
 			metrics := aibridge.NewMetrics(registry)
 			providerMetrics := aibridged.NewMetrics(registry)
 
-			tracerProvider, _, closeTracing := agpl.ConfigureTraceProvider(signalCtx, logger, vals, "coder-ai-gateway")
+			tracerProvider, _, closeTracing := agpl.ConfigureTraceProviderWithService(signalCtx, logger, vals, "coder-ai-gateway")
 			defer func() {
 				logger.Debug(signalCtx, "closing tracing")
 				traceCloseErr := shutdownWithTimeout(closeTracing, 5*time.Second)
@@ -150,7 +153,7 @@ func (r *RootCmd) aiGatewayStart() *serpent.Command {
 				return xerrors.Errorf("initialize ai providers: %w", err)
 			}
 
-			mw := coderd.AIGatewayDataPlaneMiddleware(vals.AI.BridgeConfig)
+			mw := gatewayMiddleware(vals.AI.BridgeConfig, tracer)
 
 			// Watch coderd for provider changes and refresh the pool on each
 			// signal.
@@ -169,28 +172,7 @@ func (r *RootCmd) aiGatewayStart() *serpent.Command {
 				watchWG.Wait()
 			}()
 
-			// The standalone listener is dedicated to Gateway traffic, so
-			// the daemon is served at the root. The /api/v2/ai-gateway
-			// and /api/v2/aibridge/ aliases are added for compatibility
-			// with the embedded route.
-			mux := http.NewServeMux()
-			mux.Handle("/api/v2/aibridge/", mw(http.StripPrefix("/api/v2/aibridge", srv)))
-			mux.Handle("/api/v2/ai-gateway/", mw(http.StripPrefix("/api/v2/ai-gateway", srv)))
-			mux.Handle("/", mw(srv))
-
-			// healthz: returns 200 once the HTTP server is listening.
-			mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(http.StatusOK)
-			})
-
-			// readyz: returns 200 only when the DRPC connection to coderd is established.
-			mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
-				if srv.Ready() {
-					w.WriteHeader(http.StatusOK)
-					return
-				}
-				w.WriteHeader(http.StatusServiceUnavailable)
-			})
+			mux := newGatewayMux(srv, srv.Ready, mw)
 
 			listener, err := net.Listen("tcp", httpAddress)
 			if err != nil {
@@ -205,7 +187,7 @@ func (r *RootCmd) aiGatewayStart() *serpent.Command {
 			)
 
 			httpServer := &http.Server{
-				Handler:           tracingMiddleware(tracer)(mux),
+				Handler:           mux,
 				ReadHeaderTimeout: time.Minute,
 			}
 
@@ -326,20 +308,50 @@ func (r *RootCmd) aiGatewayStart() *serpent.Command {
 	return cmd
 }
 
-// tracingMiddleware records a span for every HTTP request served by the
-// standalone Gateway. Unlike the shared coderd tracing middleware, it is not
-// restricted to coderd's route patterns (/api, ...), so it also covers Gateway
-// routes mounted at "/". It reuses tracing.StartHTTPSpan for span and context
-// propagation setup, and wraps the ResponseWriter in a tracing.StatusWriter to
-// capture the response status for the span.
+// gatewayMiddleware composes the standalone gateway's per-request middleware.
+// Tracing is outermost so request is traced even when the other guards short-circuit.
+func gatewayMiddleware(cfg codersdk.AIBridgeConfig, tracer trace.Tracer) func(http.Handler) http.Handler {
+	mw := coderd.AIGatewayDataPlaneMiddleware(cfg)
+	traced := tracingMiddleware(tracer)
+	return func(next http.Handler) http.Handler {
+		return traced(mw(next))
+	}
+}
+
+// newGatewayMux builds the standalone gateway's HTTP routes.
+// The middleware is applied only to the LLM data-plane routes.
+func newGatewayMux(aibridgedHandler http.Handler, aibridgedReady func() bool, middleware func(http.Handler) http.Handler) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.Handle("/api/v2/aibridge/", middleware(http.StripPrefix("/api/v2/aibridge", aibridgedHandler)))
+	mux.Handle("/api/v2/ai-gateway/", middleware(http.StripPrefix("/api/v2/ai-gateway", aibridgedHandler)))
+	mux.Handle("/", middleware(aibridgedHandler))
+
+	// healthz: returns 200 once the HTTP server is listening.
+	mux.HandleFunc(healthzPath, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// readyz: returns 200 only when the DRPC connection to coderd is established.
+	mux.HandleFunc(readyzPath, func(w http.ResponseWriter, _ *http.Request) {
+		if aibridgedReady() {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
+
+	return mux
+}
+
+// tracingMiddleware traces every request to the wrapped handler, unlike
+// tracing.Middleware which only spans coderd's route patterns.
 func tracingMiddleware(tracer trace.Tracer) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-			r, span := coderdtracing.StartHTTPSpan(tracer, rw, r, fmt.Sprintf("%s %s", r.Method, r.URL.Path))
+			sw := &coderdtracing.StatusWriter{ResponseWriter: rw}
+			r, span := coderdtracing.StartHTTPSpan(tracer, sw, r, fmt.Sprintf("%s %s", r.Method, r.URL.Path))
 			defer span.End()
 
-			// Wrap the writer so the response status can be recorded on the span.
-			sw := &coderdtracing.StatusWriter{ResponseWriter: rw}
 			next.ServeHTTP(sw, r)
 
 			status := sw.Status
@@ -348,7 +360,7 @@ func tracingMiddleware(tracer trace.Tracer) func(http.Handler) http.Handler {
 			}
 			span.SetAttributes(
 				semconv.HTTPMethodKey.String(r.Method),
-				semconv.HTTPTargetKey.String(r.URL.Path),
+				semconv.HTTPTargetKey.String(r.URL.RequestURI()),
 				semconv.HTTPStatusCodeKey.Int(status),
 			)
 			span.SetStatus(httpconv.ServerStatus(status))

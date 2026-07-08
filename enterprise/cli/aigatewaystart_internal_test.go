@@ -12,10 +12,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	tracenoop "go.opentelemetry.io/otel/trace/noop"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"golang.org/x/xerrors"
 
 	"cdr.dev/slog/v3"
+	agplaibridge "github.com/coder/coder/v2/coderd/aibridge"
+	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/testutil"
 )
 
@@ -231,9 +233,7 @@ func TestAIGatewayStart_ObservabilityOptions(t *testing.T) {
 	for _, group := range []struct {
 		name    string
 		present []flagEnv
-		// absent lists flags from the same coderd option group that the
-		// standalone Gateway must not expose.
-		absent []string
+		absent  []string
 	}{
 		{
 			name: "Logging",
@@ -257,6 +257,7 @@ func TestAIGatewayStart_ObservabilityOptions(t *testing.T) {
 			absent: []string{
 				"prometheus-collect-agent-stats",
 				"prometheus-collect-db-metrics",
+				"prometheus-aggregate-agent-stats-by",
 			},
 		},
 		{
@@ -288,40 +289,76 @@ func TestAIGatewayStart_ObservabilityOptions(t *testing.T) {
 	}
 }
 
-// TestAIGatewayStart_TracingMiddleware verifies that the standalone Gateway's
-// tracing middleware traces every route (including those mounted at "/") and
-// does not panic when the ResponseWriter has not already been wrapped in a
-// tracing.StatusWriter, while still propagating the downstream status code.
+// TestAIGatewayStart_TracingMiddleware verifies the gateway mux built by
+// newGatewayMux traces the LLM routes while leaving the health probes untraced.
 func TestAIGatewayStart_TracingMiddleware(t *testing.T) {
 	t.Parallel()
 
-	tracer := tracenoop.NewTracerProvider().Tracer("test")
-
-	// Includes coderd-style /api paths (which the shared middleware would try
-	// to trace and panic on without a StatusWriter) and Gateway paths mounted
-	// at "/" (which the shared middleware would skip entirely).
-	for _, path := range []string{
-		"/",
-		"/api/v2/aibridge/v1/messages",
-		"/api/v2/ai-gateway/v1/messages",
-		"/anthropic/v1/messages",
+	tracer := sdktrace.NewTracerProvider().Tracer("test")
+	for _, tc := range []struct {
+		name       string
+		path       string
+		ready      bool
+		traced     bool
+		wantStatus int
+	}{
+		{name: "root LLM route", path: "/anthropic/v1/messages", ready: true, traced: true, wantStatus: http.StatusTeapot},
+		{name: "aibridge alias", path: "/api/v2/aibridge/v1/messages", ready: true, traced: true, wantStatus: http.StatusTeapot},
+		{name: "healthz", path: healthzPath, ready: true, traced: false, wantStatus: http.StatusOK},
+		{name: "readyz ready", path: readyzPath, ready: true, traced: false, wantStatus: http.StatusOK},
+		{name: "readyz not ready", path: readyzPath, ready: false, traced: false, wantStatus: http.StatusServiceUnavailable},
 	} {
-		t.Run(path, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			var gotPath string
-			handler := tracingMiddleware(tracer)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				gotPath = r.URL.Path
+			handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusTeapot)
-			}))
+			})
+			mux := newGatewayMux(handler, func() bool { return tc.ready }, tracingMiddleware(tracer))
 
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, path, nil)
+			req := httptest.NewRequest(http.MethodPost, tc.path, nil)
 			require.NotPanics(t, func() {
-				handler.ServeHTTP(rec, req)
+				mux.ServeHTTP(rec, req)
 			})
-			require.Equal(t, path, gotPath, "handler should be invoked")
-			require.Equal(t, http.StatusTeapot, rec.Code)
+			require.Equal(t, tc.wantStatus, rec.Code)
+
+			if tc.traced {
+				require.NotEmpty(t, rec.Header().Get("X-Trace-ID"), "expected a span to be created")
+			} else {
+				require.Empty(t, rec.Header().Get("X-Trace-ID"), "health probes must not be traced")
+			}
 		})
 	}
+}
+
+// TestAIGatewayStart_TracingOutermost verifies the request
+// rejected by AIGatewayDataPlaneMiddleware middleware is still traced.
+func TestAIGatewayStart_TracingOutermost(t *testing.T) {
+	t.Parallel()
+
+	tracer := sdktrace.NewTracerProvider().Tracer("test")
+
+	cfg := codersdk.AIBridgeConfig{
+		AllowBYOK: false,
+	}
+
+	var handlerCalls atomic.Int32
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		handlerCalls.Add(1)
+		w.WriteHeader(http.StatusOK)
+	})
+	wrapped := gatewayMiddleware(cfg, tracer)(handler)
+
+	// BYOK request
+	req := httptest.NewRequest(http.MethodPost, "/anthropic/v1/messages", nil)
+	req.Header.Set(agplaibridge.HeaderCoderToken, "byok-token")
+
+	rec := httptest.NewRecorder()
+	wrapped.ServeHTTP(rec, req)
+
+	// req rejected but still traced
+	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.NotEmpty(t, rec.Header().Get("X-Trace-ID"), "rejected requests must still be traced")
+	require.Equal(t, int32(0), handlerCalls.Load(), "rejected request must not reach the handler")
 }

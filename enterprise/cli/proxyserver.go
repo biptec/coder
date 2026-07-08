@@ -153,7 +153,7 @@ func (r *RootCmd) proxyServer() *serpent.Command {
 			defer http.DefaultClient.CloseIdleConnections()
 			closers.Add(http.DefaultClient.CloseIdleConnections)
 
-			tracer, _, closeTracing := cli.ConfigureTraceProvider(ctx, logger, cfg, "coderd")
+			tracer, _, closeTracing := cli.ConfigureTraceProvider(ctx, logger, cfg)
 			defer func() {
 				logger.Debug(ctx, "closing tracing")
 				traceCloseErr := shutdownWithTimeout(closeTracing, 5*time.Second)
