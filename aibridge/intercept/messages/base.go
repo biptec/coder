@@ -69,6 +69,19 @@ var bedrockSupportedBetaFlags = map[string]bool{
 	"tool-examples-2025-10-29": true,
 }
 
+// bedrockPRMUserAgent is Coder's AWS attribution marker for outbound
+// Bedrock requests.
+//
+// It is appended to Bedrock User-Agent headers so AWS can recognize the
+// traffic as Coder-associated Bedrock usage.
+const bedrockPRMUserAgent = "sdk-ua-app-id/APN_1.1%2Fpc_cdfmjwn8i6u8l9fwz8h82e4w3%24"
+
+func appendBedrockPRMUserAgent(req *http.Request) {
+	if ua := req.Header.Get("User-Agent"); ua != "" {
+		req.Header.Set("User-Agent", ua+" "+bedrockPRMUserAgent)
+	}
+}
+
 // BedrockRuntime carries everything a Bedrock-backed interception needs: the
 // static Bedrock config plus the AWS credentials provider.
 type BedrockRuntime struct {
@@ -327,9 +340,7 @@ func (i *interceptionBase) withBedrockInvokeModelOptions(ctx context.Context) ([
 
 	var out []option.RequestOption
 	out = append(out, option.WithMiddleware(func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
-		if ua := req.Header.Get("User-Agent"); ua != "" {
-			req.Header.Set("User-Agent", ua+" sdk-ua-app-id/APN_1.1%2Fpc_cdfmjwn8i6u8l9fwz8h82e4w3%24")
-		}
+		appendBedrockPRMUserAgent(req)
 		return next(req)
 	}))
 	out = append(out, bedrock.WithConfig(awsCfg))
@@ -366,9 +377,7 @@ func (i *interceptionBase) withBedrockMantleOptions(ctx context.Context) ([]opti
 	// Appended last so it runs innermost (right before the HTTP send) and signs
 	// the request after all other headers are set.
 	out = append(out, option.WithMiddleware(func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
-		if ua := req.Header.Get("User-Agent"); ua != "" {
-			req.Header.Set("User-Agent", ua+" sdk-ua-app-id/APN_1.1%2Fpc_cdfmjwn8i6u8l9fwz8h82e4w3%24")
-		}
+		appendBedrockPRMUserAgent(req)
 
 		var body []byte
 		if req.Body != nil {
