@@ -98,6 +98,9 @@ jobs:
         run: |
           set -Eeuo pipefail
 
+          ./.github/scripts/retry.sh -- go mod download
+          make gen/mark-fresh
+
           make \
             "build/coder_${{ steps.meta.outputs.version }}_linux_amd64" \
             "build/coder_${{ steps.meta.outputs.version }}_linux_arm64"
