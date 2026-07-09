@@ -162,6 +162,7 @@ export const TemplateBuilderPageView: FC<TemplateBuilderPageViewProps> = ({
 							moduleVarMap,
 							createError,
 							handleProvisionerStatusChange,
+							handleDeselectModule,
 						)}
 					</div>
 
@@ -214,6 +215,7 @@ function renderStepContent(
 	moduleVarMap: Record<string, Record<string, string>>,
 	createError: Error | null,
 	onProvisionerStatusChange: (value: boolean | undefined) => void,
+	onRemoveModule: (moduleId: string) => void,
 ): ReactNode {
 	switch (stepId) {
 		case "base-infra":
@@ -259,6 +261,7 @@ function renderStepContent(
 							variables,
 						})
 					}
+					onRemoveModule={onRemoveModule}
 				/>
 			);
 		case "customizations":
