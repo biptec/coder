@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - main
+
+  release:
+    types:
+      - published
+
   workflow_dispatch:
     inputs:
       tag:
@@ -23,18 +28,19 @@ jobs:
   build:
     name: Build and push image
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
 
       - name: Set up mise tools
         uses: ./.github/actions/setup-mise
         with:
-          install-args: "go"
+          install-args: "go node pnpm"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -58,7 +64,7 @@ jobs:
           force_version=""
 
           if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
-            force_version="${{ github.event.release.tag_name }}"
+            force_version="${GITHUB_REF_NAME}"
           elif [[ "${GITHUB_REF_NAME}" =~ ^build/(v?[0-9]+\.[0-9]+\.[0-9]+.*)$ ]]; then
             force_version="${BASH_REMATCH[1]}"
           fi
@@ -87,22 +93,17 @@ jobs:
           echo "Version: ${version}"
           echo "Primary tag: ${repository}:sha-${short_sha}"
 
-      - name: Build Coder binary
+      - name: Build Coder binaries
         shell: bash
         run: |
           set -Eeuo pipefail
 
-          ./scripts/build_go.sh \
-            --os linux \
-            --arch amd64 \
-            --version "${{ steps.meta.outputs.version }}" \
-            --output build/coder-linux-amd64
+          make \
+            "build/coder_${{ steps.meta.outputs.version }}_linux_amd64" \
+            "build/coder_${{ steps.meta.outputs.version }}_linux_arm64"
 
-          ./scripts/build_go.sh \
-            --os linux \
-            --arch arm64 \
-            --version "${{ steps.meta.outputs.version }}" \
-            --output build/coder-linux-arm64
+          cp "build/coder_${{ steps.meta.outputs.version }}_linux_amd64" build/coder-linux-amd64
+          cp "build/coder_${{ steps.meta.outputs.version }}_linux_arm64" build/coder-linux-arm64
 
       - name: Build and push Docker image
         shell: bash
@@ -143,6 +144,20 @@ jobs:
             --tag "${{ steps.meta.outputs.repository }}:main" \
             "${{ steps.meta.outputs.sha_tag }}"
 
+      - name: Add release tag
+        if: github.event_name == 'release'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          release_tag="${{ github.event.release.tag_name }}"
+          safe_tag="$(printf '%s' "${release_tag}" | tr -c 'A-Za-z0-9_.-' '-')"
+
+          docker buildx imagetools create \
+            --tag "${{ steps.meta.outputs.repository }}:${safe_tag}" \
+            "${{ steps.meta.outputs.sha_tag }}-amd64" \
+            "${{ steps.meta.outputs.sha_tag }}-arm64"
+
       - name: Add manual extra tag
         if: github.event_name == 'workflow_dispatch' && inputs.tag != ''
         shell: bash
@@ -170,4 +185,12 @@ jobs:
 
             image.repository = ${{ steps.meta.outputs.repository }}
             image.tag        = sha-${{ steps.meta.outputs.short_sha }}
+
+          Release tag:
+
+            ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+
+          Manual extra tag:
+
+            ${{ github.event_name == 'workflow_dispatch' && inputs.tag || '' }}
           EOF
