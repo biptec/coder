@@ -40,7 +40,7 @@ jobs:
       - name: Set up mise tools
         uses: ./.github/actions/setup-mise
         with:
-          install-args: "go node pnpm"
+          install-args: "go node pnpm protoc"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
