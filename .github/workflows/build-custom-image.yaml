@@ -20,8 +20,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-amd64:
-    name: Build and push amd64 image
+  build:
+    name: Build and push image
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
@@ -83,6 +83,12 @@ jobs:
             --version "${{ steps.meta.outputs.version }}" \
             --output build/coder-linux-amd64
 
+          ./scripts/build_go.sh \
+            --os linux \
+            --arch arm64 \
+            --version "${{ steps.meta.outputs.version }}" \
+            --output build/coder-linux-arm64
+
       - name: Build and push Docker image
         shell: bash
         run: |
@@ -90,10 +96,27 @@ jobs:
 
           ./scripts/build_docker.sh \
             --arch amd64 \
-            --target "${{ steps.meta.outputs.sha_tag }}" \
+            --target "${{ steps.meta.outputs.sha_tag }}-amd64" \
             --version "${{ steps.meta.outputs.version }}" \
             --push \
             build/coder-linux-amd64
+
+          ./scripts/build_docker.sh \
+            --arch arm64 \
+            --target "${{ steps.meta.outputs.sha_tag }}-arm64" \
+            --version "${{ steps.meta.outputs.version }}" \
+            --push \
+            build/coder-linux-arm64
+
+      - name: Create multi-arch image
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          docker buildx imagetools create \
+            --tag "${{ steps.meta.outputs.sha_tag }}" \
+            "${{ steps.meta.outputs.sha_tag }}-amd64" \
+            "${{ steps.meta.outputs.sha_tag }}-arm64"
 
       - name: Add main tag
         if: github.ref == 'refs/heads/main'
@@ -115,7 +138,8 @@ jobs:
 
           docker buildx imagetools create \
             --tag "${{ steps.meta.outputs.repository }}:${safe_tag}" \
-            "${{ steps.meta.outputs.sha_tag }}"
+            "${{ steps.meta.outputs.sha_tag }}-amd64" \
+            "${{ steps.meta.outputs.sha_tag }}-arm64"
 
       - name: Print deploy image
         shell: bash
