@@ -53,8 +53,23 @@ jobs:
           set -Eeuo pipefail
 
           repository="$(echo "ghcr.io/${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
-          short_sha="${GITHUB_SHA::12}"
-          version="$(./scripts/version.sh)"
+          short_sha="$(git rev-parse --short=12 HEAD)"
+
+          force_version=""
+
+          if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
+            force_version="${{ github.event.release.tag_name }}"
+          elif [[ "${GITHUB_REF_NAME}" =~ ^build/(v?[0-9]+\.[0-9]+\.[0-9]+.*)$ ]]; then
+            force_version="${BASH_REMATCH[1]}"
+          fi
+
+          force_version="${force_version#v}"
+
+          if [[ -n "${force_version}" ]]; then
+            version="$(CODER_FORCE_VERSION="${force_version}" ./scripts/version.sh)"
+          else
+            version="$(./scripts/version.sh)"
+          fi
 
           {
             echo "repository=${repository}"
