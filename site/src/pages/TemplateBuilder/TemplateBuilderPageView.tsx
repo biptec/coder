@@ -200,7 +200,6 @@ export const TemplateBuilderPageView: FC<TemplateBuilderPageViewProps> = ({
 								? state.selectedModules
 								: undefined
 						}
-						onDeselectModule={handleDeselectModule}
 					/>
 				</div>
 			</div>
