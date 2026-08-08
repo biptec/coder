@@ -26,6 +26,8 @@ interface ModuleSettingsStepProps {
 		moduleId: string,
 		variables: Record<string, string>,
 	) => void;
+	onRemoveModule: (moduleId: string) => void;
+	registerModuleRef: (moduleId: string, node: HTMLDivElement | null) => void;
 }
 
 function variableToField(
@@ -107,6 +109,8 @@ export const ModuleSettingsStep: FC<ModuleSettingsStepProps> = ({
 	selectedModuleIds,
 	moduleVariables,
 	onChangeModuleVariables,
+	onRemoveModule,
+	registerModuleRef,
 }) => {
 	const { data } = useQuery(templateBuilderModules(baseId));
 	const modules = data?.modules ?? [];
@@ -127,8 +131,7 @@ export const ModuleSettingsStep: FC<ModuleSettingsStepProps> = ({
 				Set values for module variables.
 			</TemplateBuilderSubtitle>
 
-			{/* 340px accounts for navbar, page header, card padding, and nav controls */}
-			<div className="flex flex-col gap-6 max-h-[calc(100vh-340px)] overflow-y-auto">
+			<div className="flex flex-col gap-6">
 				{selectedModules.map((mod) => {
 					const configurableVars = mod.variables.filter((v) => !v.sensitive);
 					const sensitiveVars = mod.variables.filter((v) => v.sensitive);
@@ -149,7 +152,11 @@ export const ModuleSettingsStep: FC<ModuleSettingsStepProps> = ({
 					const optionalFields = optionalVars.map(toField);
 
 					return (
-						<div key={mod.id}>
+						<div
+							key={mod.id}
+							ref={(node) => registerModuleRef(mod.id, node)}
+							className="scroll-mt-24"
+						>
 							<ModuleConfiguration
 								name={mod.display_name}
 								description={mod.description}
@@ -157,10 +164,11 @@ export const ModuleSettingsStep: FC<ModuleSettingsStepProps> = ({
 								detailsUrl={moduleDetailsUrl(mod.id)}
 								fields={requiredFields}
 								optionalFields={optionalFields}
+								onRemove={() => onRemoveModule(mod.id)}
 							/>
 
 							{sensitiveVars.length > 0 && (
-								<div className="flex items-center gap-2 mt-2 p-3 rounded-md text-sm text-content-secondary">
+								<div className="flex items-center gap-2 mt-2 p-3 rounded-md text-xs text-content-secondary">
 									<InfoIcon className="size-icon-sm shrink-0 mt-0.5" />
 									<p>
 										{sensitiveVars.map((v) => (

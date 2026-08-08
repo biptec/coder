@@ -1,8 +1,6 @@
 import { cva } from "class-variance-authority";
-import { XIcon } from "lucide-react";
 import { createContext, type PropsWithChildren, useContext } from "react";
 import { Avatar } from "#/components/Avatar/Avatar";
-import { Button } from "#/components/Button/Button";
 import { cn } from "#/utils/cn";
 
 type Variant = "complete" | "current" | "upcoming" | null | undefined;
@@ -24,14 +22,18 @@ type SelectionSummaryProps = {
 	currentStep: number;
 	selectedTemplate?: SelectedTemplate;
 	selectedModules?: SelectedModule[];
-	onDeselectModule: (moduleId: string) => void;
+	/**
+	 * Jump to a specific module's configuration section. The consumer
+	 * switches to the module settings step and scrolls the module into view.
+	 */
+	onNavigateModule: (moduleId: string) => void;
 };
 
 export const SelectionSummary: React.FC<SelectionSummaryProps> = ({
 	currentStep,
 	selectedTemplate,
 	selectedModules,
-	onDeselectModule,
+	onNavigateModule,
 }) => {
 	const variant = (step: number) => {
 		if (currentStep === step) return "current";
@@ -55,7 +57,7 @@ export const SelectionSummary: React.FC<SelectionSummaryProps> = ({
 					{selectedModules ? (
 						<ModuleSelection
 							modules={selectedModules}
-							onDeselectModule={onDeselectModule}
+							onSelectModule={onNavigateModule}
 						/>
 					) : (
 						<StepDivider />
@@ -161,38 +163,32 @@ const BaseTemplateSelection: React.FC<BaseTemplateSelectionProps> = ({
 
 type ModuleSelectionProps = {
 	modules: SelectedModule[];
-	onDeselectModule: (moduleId: string) => void;
+	onSelectModule: (moduleId: string) => void;
 };
 
 const ModuleSelection: React.FC<ModuleSelectionProps> = ({
 	modules,
-	onDeselectModule,
+	onSelectModule,
 }) => {
 	return (
 		<StepDivider className="max-h-72 overflow-y-auto">
 			{modules.map((module) => (
-				<div
+				<button
 					key={module.id}
-					className="group flex items-start justify-between p-1 mb-1 rounded-sm hover:bg-surface-secondary"
+					type="button"
+					onClick={() => onSelectModule(module.id)}
+					aria-label={`Configure ${module.name}`}
+					className={cn(
+						"flex items-start w-full text-left p-1 mb-1 rounded-sm bg-transparent border-0 cursor-pointer",
+						"text-sm text-content-secondary hover:text-content-primary hover:bg-surface-secondary",
+						"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-primary",
+					)}
 				>
 					<div className="h-[1lh] content-center">
 						<Avatar src={module.iconUrl} size="sm" variant="icon" />
 					</div>
-					<span className="flex-1 ml-2 text-content-secondary">
-						{module.name}
-					</span>
-					<div className="h-[1lh] content-center">
-						<Button
-							size="xs"
-							variant="subtle"
-							className="flex opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-							onClick={() => onDeselectModule(module.id)}
-							aria-label="Deselect module"
-						>
-							<XIcon className="size-4" />
-						</Button>
-					</div>
-				</div>
+					<span className="flex-1 ml-2">{module.name}</span>
+				</button>
 			))}
 		</StepDivider>
 	);

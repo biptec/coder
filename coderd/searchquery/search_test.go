@@ -417,6 +417,27 @@ func TestSearchWorkspace(t *testing.T) {
 			},
 		},
 		{
+			Name: "SharedWithGroupInOrgMixedCase",
+			// The parser lowercases the whole query, so a group whose stored
+			// name contains uppercase letters must still resolve. See
+			// GetGroupByOrgAndName, which matches the name case-insensitively.
+			Query: "shared_with_group:wibble/SupportShare",
+			Setup: func(t *testing.T, db database.Store) {
+				org := dbgen.Organization(t, db, database.Organization{
+					ID:   uuid.MustParse("b5f9d1f4-6d0e-4f6a-9a4a-7b2c3d4e5f60"),
+					Name: "wibble",
+				})
+				dbgen.Group(t, db, database.Group{
+					ID:             uuid.MustParse("1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d"),
+					Name:           "SupportShare",
+					OrganizationID: org.ID,
+				})
+			},
+			Expected: database.GetWorkspacesParams{
+				SharedWithGroupID: uuid.MustParse("1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d"),
+			},
+		},
+		{
 			Name:  "SharedWithGroupID",
 			Query: "shared_with_group:a7d1ba00-53c7-4aa6-92ea-83157dd57480",
 			Setup: func(t *testing.T, db database.Store) {
@@ -962,6 +983,20 @@ func TestSearchTemplates(t *testing.T) {
 			},
 		},
 		{
+			Name:  "AgentsAllowedTrue",
+			Query: "agents-allowed:true",
+			Expected: database.GetTemplatesWithFilterParams{
+				AgentsAllowed: sql.NullBool{Bool: true, Valid: true},
+			},
+		},
+		{
+			Name:  "AgentsAllowedFalse",
+			Query: "agents-allowed:false",
+			Expected: database.GetTemplatesWithFilterParams{
+				AgentsAllowed: sql.NullBool{Bool: false, Valid: true},
+			},
+		},
+		{
 			Name:  "MyTemplates",
 			Query: "author:me",
 			Expected: database.GetTemplatesWithFilterParams{
@@ -1238,6 +1273,8 @@ func TestSearchChats(t *testing.T) {
 		Query                 string
 		Expected              database.GetChatsParams
 		ExpectedErrorContains string
+		// When non-zero, asserts the exact number of validation errors.
+		ExpectedErrorCount int
 	}{
 		{
 			Name:  "Empty",
@@ -1597,6 +1634,90 @@ func TestSearchChats(t *testing.T) {
 			Query:                 "some random words",
 			ExpectedErrorContains: `unsupported search term: "some random words"`,
 		},
+		{
+			Name:  "Search",
+			Query: "search:foo",
+			Expected: database.GetChatsParams{
+				Archived:  sql.NullBool{Bool: false, Valid: true},
+				OwnedOnly: true,
+				Search:    "foo",
+			},
+		},
+		{
+			Name:  "SearchQuoted",
+			Query: `search:"foo bar"`,
+			Expected: database.GetChatsParams{
+				Archived:  sql.NullBool{Bool: false, Valid: true},
+				OwnedOnly: true,
+				Search:    "foo bar",
+			},
+		},
+		{
+			Name:  "SearchWithStructuralFilters",
+			Query: `repo:coder/coder archived:true search:"foo bar"`,
+			Expected: database.GetChatsParams{
+				Archived:  sql.NullBool{Bool: true, Valid: true},
+				OwnedOnly: true,
+				RepoQuery: "coder/coder",
+				Search:    "foo bar",
+			},
+		},
+		{
+			Name:  "SearchWithAllStructuralFilters",
+			Query: `search:foo archived:true repo:coder/coder diff_url:"https://github.com/coder/coder/pull/1" has_unread:true pr_status:open source:created_by_me`,
+			Expected: database.GetChatsParams{
+				Archived:            sql.NullBool{Bool: true, Valid: true},
+				OwnedOnly:           true,
+				RepoQuery:           "coder/coder",
+				DiffURL:             sql.NullString{String: "https://github.com/coder/coder/pull/1", Valid: true},
+				HasUnread:           sql.NullBool{Bool: true, Valid: true},
+				PullRequestStatuses: []string{"open"},
+				Search:              "foo",
+			},
+		},
+		{
+			Name:                  "SearchRepeated",
+			Query:                 "search:foo search:bar",
+			ExpectedErrorContains: `search: Query param "search" provided more than once`,
+			ExpectedErrorCount:    1,
+		},
+		{
+			Name:                  "SearchConflictsWithTitle",
+			Query:                 "search:foo title:bar",
+			ExpectedErrorContains: `search: "search" cannot be combined with "title"`,
+		},
+		{
+			Name:                  "SearchConflictsWithPrTitle",
+			Query:                 "search:foo pr_title:bar",
+			ExpectedErrorContains: `search: "search" cannot be combined with "pr_title"`,
+		},
+		{
+			Name:                  "SearchConflictsWithPr",
+			Query:                 "search:foo pr:12",
+			ExpectedErrorContains: `search: "search" cannot be combined with "pr"`,
+		},
+		{
+			Name:                  "SearchConflictsOrderIndependent",
+			Query:                 "title:bar search:foo",
+			ExpectedErrorContains: `search: "search" cannot be combined with "title"`,
+		},
+		{
+			Name:                  "SearchConflictsWithMultiple",
+			Query:                 "search:foo title:bar pr:12",
+			ExpectedErrorContains: `search: "search" cannot be combined with "title", "pr"`,
+		},
+		{
+			// The tokenizer rejects trailing colons before search validation runs.
+			Name:                  "SearchBareKey",
+			Query:                 "search:",
+			ExpectedErrorContains: "cannot start or end with ':'",
+		},
+		{
+			Name:                  "SearchEmptyQuoted",
+			Query:                 `search:""`,
+			ExpectedErrorContains: `search: Query param "search" is required and cannot be empty`,
+			ExpectedErrorCount:    1,
+		},
 	}
 
 	for _, c := range testCases {
@@ -1606,6 +1727,9 @@ func TestSearchChats(t *testing.T) {
 			values, errs := searchquery.Chats(c.Query)
 			if c.ExpectedErrorContains != "" {
 				require.True(t, len(errs) > 0, "expect some errors")
+				if c.ExpectedErrorCount > 0 {
+					require.Len(t, errs, c.ExpectedErrorCount, "expected exact error count")
+				}
 				var s strings.Builder
 				for _, err := range errs {
 					_, _ = s.WriteString(fmt.Sprintf("%s: %s\n", err.Field, err.Detail))

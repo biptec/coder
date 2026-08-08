@@ -15,7 +15,11 @@ import {
 	templateVersionsQueryKey,
 } from "#/api/queries/templates";
 import { workspacesKey } from "#/api/queries/workspaces";
-import type { Workspace, WorkspaceAppHealth } from "#/api/typesGenerated";
+import type {
+	Workspace,
+	WorkspaceAppHealth,
+	WorkspaceBuild,
+} from "#/api/typesGenerated";
 import { workspaceChecks } from "#/modules/workspaces/permissions";
 import {
 	MockDefaultOrganization,
@@ -74,6 +78,7 @@ const meta = {
 		user: MockUserOwner,
 		permissions: {
 			viewDeploymentConfig: false,
+			createWorkspace: true,
 		},
 		queries: [
 			{
@@ -322,16 +327,8 @@ export const BatchUpdateSkipsUpToDateWorkspaces: Story = {
 		await user.click(within(modal).getByRole("button", { name: /Update/ }));
 
 		await waitFor(() => expect(API.updateWorkspace).toHaveBeenCalledTimes(2));
-		expect(API.updateWorkspace).toHaveBeenCalledWith(
-			skipUpToDateWorkspaces[2],
-			[],
-			false,
-		);
-		expect(API.updateWorkspace).toHaveBeenCalledWith(
-			skipUpToDateWorkspaces[3],
-			[],
-			false,
-		);
+		expect(API.updateWorkspace).toHaveBeenCalledWith(skipUpToDateWorkspaces[2]);
+		expect(API.updateWorkspace).toHaveBeenCalledWith(skipUpToDateWorkspaces[3]);
 	},
 };
 
@@ -370,19 +367,65 @@ export const BatchUpdateRunningWorkspace: Story = {
 		await waitFor(() => expect(API.updateWorkspace).toHaveBeenCalledTimes(3));
 		expect(API.updateWorkspace).toHaveBeenCalledWith(
 			updateRunningWorkspaces[0],
-			[],
-			false,
 		);
 		expect(API.updateWorkspace).toHaveBeenCalledWith(
 			updateRunningWorkspaces[1],
-			[],
-			false,
 		);
 		expect(API.updateWorkspace).toHaveBeenCalledWith(
 			updateRunningWorkspaces[2],
-			[],
-			false,
 		);
+	},
+};
+
+export const BatchUpdateShowsSubmittingState: Story = {
+	beforeEach: () => {
+		spyOn(API, "getWorkspaces").mockResolvedValue({
+			workspaces: updateRunningWorkspaces,
+			count: updateRunningWorkspaces.length,
+		});
+		spyOn(API, "getTemplateVersion").mockResolvedValue(MockTemplateVersion);
+	},
+	play: async ({ canvasElement, step }) => {
+		const canvas = within(canvasElement);
+		const body = within(document.body);
+		const user = userEvent.setup();
+
+		// Hold the mutation pending so the button's submitting state stays
+		// observable until the story explicitly resolves it.
+		let resolveUpdate!: () => void;
+		const pendingUpdate = new Promise<WorkspaceBuild>((resolve) => {
+			resolveUpdate = () => resolve(MockWorkspaceBuild);
+		});
+		spyOn(API, "updateWorkspace").mockReturnValue(pendingUpdate);
+
+		await selectWorkspaces(canvas, user, ["1", "2", "3"]);
+		await openBulkActions(canvas, user);
+		await user.click(await body.findByRole("menuitem", { name: /Update/ }));
+
+		const modal = await body.findByRole("dialog", { name: /Review Updates/i });
+		await user.click(
+			within(modal).getByRole("checkbox", {
+				name: /I acknowledge these risks\./,
+			}),
+		);
+		const updateButton = within(modal).getByRole("button", { name: /Update/ });
+		await user.click(updateButton);
+
+		await step("Button reflects the submitting state", async () => {
+			await waitFor(() => expect(updateButton).toBeDisabled());
+			await within(modal).findByText(
+				"Waiting for workspaces to finish processing",
+			);
+		});
+
+		await step("Resolving the update clears the submitting state", async () => {
+			resolveUpdate();
+			await waitFor(() =>
+				expect(
+					body.queryByText("Waiting for workspaces to finish processing"),
+				).not.toBeInTheDocument(),
+			);
+		});
 	},
 };
 
@@ -416,13 +459,9 @@ export const BatchUpdateIgnoresDormantWorkspaces: Story = {
 		await waitFor(() => expect(API.updateWorkspace).toHaveBeenCalledTimes(2));
 		expect(API.updateWorkspace).toHaveBeenCalledWith(
 			ignoreDormantWorkspaces[1],
-			[],
-			false,
 		);
 		expect(API.updateWorkspace).toHaveBeenCalledWith(
 			ignoreDormantWorkspaces[2],
-			[],
-			false,
 		);
 	},
 };
@@ -450,6 +489,9 @@ export const StopsOnlySelectedWorkspaces: Story = {
 		await openBulkActions(canvas, user);
 		await user.click(await body.findByRole("menuitem", { name: /stop/i }));
 
+		const dialog = await body.findByRole("dialog");
+		await user.click(within(dialog).getByRole("button", { name: "Stop" }));
+
 		await waitFor(() => expect(API.stopWorkspace).toHaveBeenCalledTimes(2));
 		expect(API.stopWorkspace).toHaveBeenCalledWith("1");
 		expect(API.stopWorkspace).toHaveBeenCalledWith("2");
@@ -459,6 +501,12 @@ export const StopsOnlySelectedWorkspaces: Story = {
 const stoppedWorkspaces: Workspace[] = [
 	{ ...MockStoppedWorkspace, id: "1" },
 	{ ...MockStoppedWorkspace, id: "2" },
+	{ ...MockStoppedWorkspace, id: "3" },
+];
+
+const mixedStateWorkspaces: Workspace[] = [
+	{ ...MockStoppedWorkspace, id: "1" },
+	{ ...MockWorkspace, id: "2" },
 	{ ...MockStoppedWorkspace, id: "3" },
 ];
 
@@ -488,6 +536,106 @@ export const StartsOnlySelectedWorkspaces: Story = {
 			"2",
 			MockStoppedWorkspace.latest_build.template_version_id,
 		);
+	},
+};
+
+export const StartIgnoresAlreadyRunningWorkspaces: Story = {
+	beforeEach: () => {
+		spyOn(API, "getWorkspaces").mockResolvedValue({
+			workspaces: mixedStateWorkspaces,
+			count: mixedStateWorkspaces.length,
+		});
+		spyOn(API, "startWorkspace").mockResolvedValue(MockWorkspaceBuild);
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const body = within(document.body);
+		const user = userEvent.setup();
+
+		await selectWorkspaces(canvas, user, ["1", "2", "3"]);
+		await openBulkActions(canvas, user);
+
+		const startItem = await body.findByRole("menuitem", { name: /start/i });
+		expect(startItem).not.toHaveAttribute("data-disabled");
+		await user.click(startItem);
+
+		await waitFor(() => expect(API.startWorkspace).toHaveBeenCalledTimes(2));
+		expect(API.startWorkspace).toHaveBeenCalledWith(
+			"1",
+			MockStoppedWorkspace.latest_build.template_version_id,
+		);
+		expect(API.startWorkspace).toHaveBeenCalledWith(
+			"3",
+			MockStoppedWorkspace.latest_build.template_version_id,
+		);
+	},
+};
+
+export const StopIgnoresAlreadyStoppedWorkspaces: Story = {
+	beforeEach: () => {
+		spyOn(API, "getWorkspaces").mockResolvedValue({
+			workspaces: mixedStateWorkspaces,
+			count: mixedStateWorkspaces.length,
+		});
+		spyOn(API, "stopWorkspace").mockResolvedValue(MockWorkspaceBuild);
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const body = within(document.body);
+		const user = userEvent.setup();
+
+		await selectWorkspaces(canvas, user, ["1", "2", "3"]);
+		await openBulkActions(canvas, user);
+
+		const stopItem = await body.findByRole("menuitem", { name: /stop/i });
+		expect(stopItem).not.toHaveAttribute("data-disabled");
+		await user.click(stopItem);
+
+		const dialog = await body.findByRole("dialog");
+		await user.click(within(dialog).getByRole("button", { name: "Stop" }));
+
+		await waitFor(() => expect(API.stopWorkspace).toHaveBeenCalledTimes(1));
+		expect(API.stopWorkspace).toHaveBeenCalledWith("2");
+	},
+};
+
+export const StartDisabledWhenNoWorkspacesAreStartable: Story = {
+	beforeEach: () => {
+		spyOn(API, "getWorkspaces").mockResolvedValue({
+			workspaces: runningWorkspaces,
+			count: runningWorkspaces.length,
+		});
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const body = within(document.body);
+		const user = userEvent.setup();
+
+		await selectWorkspaces(canvas, user, ["1", "2", "3"]);
+		await openBulkActions(canvas, user);
+
+		const startItem = await body.findByRole("menuitem", { name: /start/i });
+		expect(startItem).toHaveAttribute("data-disabled");
+	},
+};
+
+export const StopDisabledWhenNoWorkspacesAreStoppable: Story = {
+	beforeEach: () => {
+		spyOn(API, "getWorkspaces").mockResolvedValue({
+			workspaces: stoppedWorkspaces,
+			count: stoppedWorkspaces.length,
+		});
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const body = within(document.body);
+		const user = userEvent.setup();
+
+		await selectWorkspaces(canvas, user, ["1", "2", "3"]);
+		await openBulkActions(canvas, user);
+
+		const stopItem = await body.findByRole("menuitem", { name: /stop/i });
+		expect(stopItem).toHaveAttribute("data-disabled");
 	},
 };
 

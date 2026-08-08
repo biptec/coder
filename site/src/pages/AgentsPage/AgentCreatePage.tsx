@@ -3,10 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "react-query";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { getErrorMessage } from "#/api/errors";
+import { chatProviderConfigs } from "#/api/queries/aiProviders";
 import {
 	chatModelConfigs,
 	chatModels,
-	chatProviderConfigs,
 	createChat,
 	mcpServerConfigs,
 	userChatPersonalModelOverrides,
@@ -88,6 +88,7 @@ const AgentCreatePage: FC = () => {
 		fileIDs,
 		workspaceId,
 		model,
+		reasoningEffort,
 		mcpServerIds,
 		organizationId,
 		planMode,
@@ -110,6 +111,7 @@ const AgentCreatePage: FC = () => {
 			plan_mode: planMode === "plan" ? "plan" : undefined,
 			client_type: "ui",
 			...(model ? { model_config_id: model } : {}),
+			...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
 		};
 		const createdChat = await createMutation.mutateAsync(createRequest);
 

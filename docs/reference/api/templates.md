@@ -4,7 +4,7 @@
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/organizations/{organization}/templates \
   -H 'Accept: application/json' \
@@ -33,6 +33,7 @@ To include deprecated templates, specify `deprecated:true` in the search query.
     "active_user_count": 0,
     "active_version_id": "eae64611-bd53-4a80-bb77-df1e432c0fbc",
     "activity_bump_ms": 0,
+    "agents_allowed": true,
     "allow_user_autostart": true,
     "allow_user_autostop": true,
     "allow_user_cancel_workspace_jobs": true,
@@ -104,6 +105,7 @@ Status Code **200**
 | `» active_user_count`                | integer                                                                                  | false    |              | Active user count is set to -1 when loading.                                                                                                                               |
 | `» active_version_id`                | string(uuid)                                                                             | false    |              |                                                                                                                                                                            |
 | `» activity_bump_ms`                 | integer                                                                                  | false    |              |                                                                                                                                                                            |
+| `» agents_allowed`                   | boolean                                                                                  | false    |              |                                                                                                                                                                            |
 | `» allow_user_autostart`             | boolean                                                                                  | false    |              | Allow user autostart and AllowUserAutostop are enterprise-only. Their values are only used if your license is entitled to use the advanced template scheduling feature.    |
 | `» allow_user_autostop`              | boolean                                                                                  | false    |              |                                                                                                                                                                            |
 | `» allow_user_cancel_workspace_jobs` | boolean                                                                                  | false    |              |                                                                                                                                                                            |
@@ -159,7 +161,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X POST http://coder-server:8080/api/v2/organizations/{organization}/templates \
   -H 'Content-Type: application/json' \
@@ -174,6 +176,7 @@ curl -X POST http://coder-server:8080/api/v2/organizations/{organization}/templa
 ```json
 {
   "activity_bump_ms": 0,
+  "agents_allowed": true,
   "allow_user_autostart": true,
   "allow_user_autostop": true,
   "allow_user_cancel_workspace_jobs": true,
@@ -222,6 +225,7 @@ curl -X POST http://coder-server:8080/api/v2/organizations/{organization}/templa
   "active_user_count": 0,
   "active_version_id": "eae64611-bd53-4a80-bb77-df1e432c0fbc",
   "activity_bump_ms": 0,
+  "agents_allowed": true,
   "allow_user_autostart": true,
   "allow_user_autostop": true,
   "allow_user_cancel_workspace_jobs": true,
@@ -288,7 +292,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/organizations/{organization}/templates/examples \
   -H 'Accept: application/json' \
@@ -350,7 +354,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/organizations/{organization}/templates/{templatename} \
   -H 'Accept: application/json' \
@@ -375,6 +379,7 @@ curl -X GET http://coder-server:8080/api/v2/organizations/{organization}/templat
   "active_user_count": 0,
   "active_version_id": "eae64611-bd53-4a80-bb77-df1e432c0fbc",
   "activity_bump_ms": 0,
+  "agents_allowed": true,
   "allow_user_autostart": true,
   "allow_user_autostop": true,
   "allow_user_cancel_workspace_jobs": true,
@@ -441,7 +446,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/organizations/{organization}/templates/{templatename}/versions/{templateversionname} \
   -H 'Accept: application/json' \
@@ -544,7 +549,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/organizations/{organization}/templates/{templatename}/versions/{templateversionname}/previous \
   -H 'Accept: application/json' \
@@ -648,7 +653,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X POST http://coder-server:8080/api/v2/organizations/{organization}/templateversions \
   -H 'Content-Type: application/json' \
@@ -775,7 +780,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/templates \
   -H 'Accept: application/json' \
@@ -798,6 +803,7 @@ To include deprecated templates, specify `deprecated:true` in the search query.
     "active_user_count": 0,
     "active_version_id": "eae64611-bd53-4a80-bb77-df1e432c0fbc",
     "activity_bump_ms": 0,
+    "agents_allowed": true,
     "allow_user_autostart": true,
     "allow_user_autostop": true,
     "allow_user_cancel_workspace_jobs": true,
@@ -869,6 +875,7 @@ Status Code **200**
 | `» active_user_count`                | integer                                                                                  | false    |              | Active user count is set to -1 when loading.                                                                                                                               |
 | `» active_version_id`                | string(uuid)                                                                             | false    |              |                                                                                                                                                                            |
 | `» activity_bump_ms`                 | integer                                                                                  | false    |              |                                                                                                                                                                            |
+| `» agents_allowed`                   | boolean                                                                                  | false    |              |                                                                                                                                                                            |
 | `» allow_user_autostart`             | boolean                                                                                  | false    |              | Allow user autostart and AllowUserAutostop are enterprise-only. Their values are only used if your license is entitled to use the advanced template scheduling feature.    |
 | `» allow_user_autostop`              | boolean                                                                                  | false    |              |                                                                                                                                                                            |
 | `» allow_user_cancel_workspace_jobs` | boolean                                                                                  | false    |              |                                                                                                                                                                            |
@@ -924,7 +931,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/templates/examples \
   -H 'Accept: application/json' \
@@ -980,7 +987,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/templates/{template} \
   -H 'Accept: application/json' \
@@ -1004,6 +1011,7 @@ curl -X GET http://coder-server:8080/api/v2/templates/{template} \
   "active_user_count": 0,
   "active_version_id": "eae64611-bd53-4a80-bb77-df1e432c0fbc",
   "activity_bump_ms": 0,
+  "agents_allowed": true,
   "allow_user_autostart": true,
   "allow_user_autostop": true,
   "allow_user_cancel_workspace_jobs": true,
@@ -1070,7 +1078,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X DELETE http://coder-server:8080/api/v2/templates/{template} \
   -H 'Accept: application/json' \
@@ -1114,7 +1122,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X PATCH http://coder-server:8080/api/v2/templates/{template} \
   -H 'Content-Type: application/json' \
@@ -1129,6 +1137,7 @@ curl -X PATCH http://coder-server:8080/api/v2/templates/{template} \
 ```json
 {
   "activity_bump_ms": 0,
+  "agents_allowed": true,
   "allow_user_autostart": true,
   "allow_user_autostop": true,
   "allow_user_cancel_workspace_jobs": true,
@@ -1180,6 +1189,7 @@ curl -X PATCH http://coder-server:8080/api/v2/templates/{template} \
   "active_user_count": 0,
   "active_version_id": "eae64611-bd53-4a80-bb77-df1e432c0fbc",
   "activity_bump_ms": 0,
+  "agents_allowed": true,
   "allow_user_autostart": true,
   "allow_user_autostop": true,
   "allow_user_cancel_workspace_jobs": true,
@@ -1246,7 +1256,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/templates/{template}/daus \
   -H 'Accept: application/json' \
@@ -1289,7 +1299,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/templates/{template}/versions \
   -H 'Accept: application/json' \
@@ -1467,7 +1477,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X PATCH http://coder-server:8080/api/v2/templates/{template}/versions \
   -H 'Content-Type: application/json' \
@@ -1521,7 +1531,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X POST http://coder-server:8080/api/v2/templates/{template}/versions/archive \
   -H 'Content-Type: application/json' \
@@ -1575,7 +1585,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/templates/{template}/versions/{templateversionname} \
   -H 'Accept: application/json' \
@@ -1750,7 +1760,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/templateversions/{templateversion} \
   -H 'Accept: application/json' \
@@ -1851,7 +1861,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X PATCH http://coder-server:8080/api/v2/templateversions/{templateversion} \
   -H 'Content-Type: application/json' \
@@ -1963,7 +1973,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X POST http://coder-server:8080/api/v2/templateversions/{templateversion}/archive \
   -H 'Accept: application/json' \
@@ -2007,7 +2017,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X PATCH http://coder-server:8080/api/v2/templateversions/{templateversion}/cancel \
   -H 'Accept: application/json' \
@@ -2051,7 +2061,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X POST http://coder-server:8080/api/v2/templateversions/{templateversion}/dry-run \
   -H 'Content-Type: application/json' \
@@ -2148,7 +2158,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/templateversions/{templateversion}/dry-run/{jobID} \
   -H 'Accept: application/json' \
@@ -2224,7 +2234,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X PATCH http://coder-server:8080/api/v2/templateversions/{templateversion}/dry-run/{jobID}/cancel \
   -H 'Accept: application/json' \
@@ -2269,7 +2279,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/templateversions/{templateversion}/dry-run/{jobID}/logs \
   -H 'Accept: application/json' \
@@ -2345,7 +2355,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/templateversions/{templateversion}/dry-run/{jobID}/matched-provisioners \
   -H 'Accept: application/json' \
@@ -2385,7 +2395,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/templateversions/{templateversion}/dry-run/{jobID}/resources \
   -H 'Accept: application/json' \
@@ -2682,7 +2692,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/templateversions/{templateversion}/dynamic-parameters \
   -H 'Coder-Session-Token: API_KEY'
@@ -2708,7 +2718,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X POST http://coder-server:8080/api/v2/templateversions/{templateversion}/dynamic-parameters/evaluate \
   -H 'Content-Type: application/json' \
@@ -2828,7 +2838,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/templateversions/{templateversion}/external-auth \
   -H 'Accept: application/json' \
@@ -2839,9 +2849,10 @@ curl -X GET http://coder-server:8080/api/v2/templateversions/{templateversion}/e
 
 ### Parameters
 
-| Name              | In   | Type         | Required | Description         |
-|-------------------|------|--------------|----------|---------------------|
-| `templateversion` | path | string(uuid) | true     | Template version ID |
+| Name              | In    | Type         | Required | Description                                                               |
+|-------------------|-------|--------------|----------|---------------------------------------------------------------------------|
+| `templateversion` | path  | string(uuid) | true     | Template version ID                                                       |
+| `user_id`         | query | string(uuid) | false    | Owner to report external auth state for. Defaults to the requesting user. |
 
 ### Example responses
 
@@ -2888,7 +2899,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/templateversions/{templateversion}/logs \
   -H 'Accept: application/json' \
@@ -2963,7 +2974,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/templateversions/{templateversion}/parameters \
   -H 'Coder-Session-Token: API_KEY'
@@ -2989,7 +3000,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/templateversions/{templateversion}/presets \
   -H 'Accept: application/json' \
@@ -3056,7 +3067,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/templateversions/{templateversion}/resources \
   -H 'Accept: application/json' \
@@ -3352,7 +3363,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/templateversions/{templateversion}/rich-parameters \
   -H 'Accept: application/json' \
@@ -3451,7 +3462,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/templateversions/{templateversion}/schema \
   -H 'Coder-Session-Token: API_KEY'
@@ -3477,7 +3488,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X POST http://coder-server:8080/api/v2/templateversions/{templateversion}/unarchive \
   -H 'Accept: application/json' \
@@ -3521,7 +3532,7 @@ To perform this operation, you must be authenticated. [Learn more](authenticatio
 
 ### Code samples
 
-```shell
+```sh
 # Example request using curl
 curl -X GET http://coder-server:8080/api/v2/templateversions/{templateversion}/variables \
   -H 'Accept: application/json' \
