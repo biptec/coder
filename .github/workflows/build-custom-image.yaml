@@ -37,13 +37,14 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
 
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
+      - name: Set up mise tools
+        uses: ./.github/actions/setup-mise
         with:
+          install-args: "go node pnpm"
           use-cache: false
 
-      - name: Setup Node
-        uses: ./.github/actions/setup-node
+      - name: Install pnpm dependencies
+        uses: ./.github/actions/pnpm-install
 
       - name: Set up Docker QEMU
         uses: docker/setup-qemu-action@v3
