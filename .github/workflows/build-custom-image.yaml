@@ -122,7 +122,7 @@ jobs:
           ./scripts/build_docker.sh \
             --arch amd64 \
             --target "${{ steps.meta.outputs.sha_tag }}-amd64" \
-            --build-base "coder-base-v2.34.7-amd64" \
+            --build-base "coder-base-${{ steps.meta.outputs.version }}-amd64" \
             --version "${{ steps.meta.outputs.version }}" \
             --push \
             build/coder-linux-amd64
@@ -130,7 +130,7 @@ jobs:
           ./scripts/build_docker.sh \
             --arch arm64 \
             --target "${{ steps.meta.outputs.sha_tag }}-arm64" \
-            --build-base "coder-base-v2.34.7-arm64" \
+            --build-base "coder-base-${{ steps.meta.outputs.version }}-arm64" \
             --version "${{ steps.meta.outputs.version }}" \
             --push \
             build/coder-linux-arm64
