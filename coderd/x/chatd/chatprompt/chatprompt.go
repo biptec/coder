@@ -1142,8 +1142,8 @@ const (
 // sanitizeToolCallID keeps tool IDs portable across providers while preserving
 // Gemini thought signatures losslessly. Gemini signatures use standard base64,
 // which can contain characters rejected by providers that require
-// [a-zA-Z0-9_-] tool IDs. Encode only the opaque signature suffix as raw
-// base64url; the Coder LiteLLM compatibility bridge decodes it immediately
+// [a-zA-Z0-9_-] tool IDs. Encode only the opaque signature suffix with a compact provider-safe escape
+// encoding; the Coder LiteLLM compatibility bridge decodes it immediately
 // before LiteLLM receives the OpenAI-compatible request.
 func sanitizeToolCallID(id string) string {
 	if id == "" {
