@@ -89,6 +89,7 @@ func patchOpenAICompatChatCompletionsBody(body []byte, baseURL string, modelID s
 
 	changed := rewriteOpenAICompatSingleToolChoice(payload)
 	if googleopenai.ShouldPatchOpenAICompatRequest(baseURL, modelID) {
+		changed = stripLiteLLMThoughtSignaturesFromLatestTurn(payload) || changed
 		changed = googleopenai.AddThoughtSignaturesToLatestTurn(payload) || changed
 	}
 	if !changed {
@@ -100,6 +101,57 @@ func patchOpenAICompatChatCompletionsBody(body []byte, baseURL string, modelID s
 		return body
 	}
 	return patched
+}
+
+const liteLLMThoughtSignatureMarker = "__thought__"
+
+// stripLiteLLMThoughtSignaturesFromLatestTurn removes LiteLLM's transport-only
+// thought-signature suffix from matching tool call/result IDs. Coder keeps the
+// original IDs in chat history; only the outbound provider payload is normalized.
+// LiteLLM then applies Google's documented dummy-signature fallback itself.
+func stripLiteLLMThoughtSignaturesFromLatestTurn(payload map[string]any) bool {
+	messages, ok := payload["messages"].([]any)
+	if !ok {
+		return false
+	}
+	currentTurnStart := -1
+	for i, raw := range messages {
+		message, ok := raw.(map[string]any)
+		if ok && message["role"] == "user" {
+			currentTurnStart = i
+		}
+	}
+	if currentTurnStart == -1 {
+		return false
+	}
+	changed := false
+	for _, raw := range messages[currentTurnStart+1:] {
+		message, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if toolCallID, ok := message["tool_call_id"].(string); ok {
+			clean := strings.SplitN(toolCallID, liteLLMThoughtSignatureMarker, 2)[0]
+			if clean != "" && clean != toolCallID {
+				message["tool_call_id"] = clean
+				changed = true
+			}
+		}
+		toolCalls, _ := message["tool_calls"].([]any)
+		for _, rawToolCall := range toolCalls {
+			toolCall, ok := rawToolCall.(map[string]any)
+			if !ok {
+				continue
+			}
+			id, _ := toolCall["id"].(string)
+			clean := strings.SplitN(id, liteLLMThoughtSignatureMarker, 2)[0]
+			if clean != "" && clean != id {
+				toolCall["id"] = clean
+				changed = true
+			}
+		}
+	}
+	return changed
 }
 
 // rewriteOpenAICompatSingleToolChoice replaces a single named tool choice with

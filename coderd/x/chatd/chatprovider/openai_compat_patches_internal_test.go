@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/coder/coder/v2/internal/googleopenai"
 )
 
 func TestPatchOpenAICompatChatCompletionsBody_Guards(t *testing.T) {
@@ -100,6 +102,46 @@ func TestPatchOpenAICompatChatCompletionsBody_Guards(t *testing.T) {
 		body := decodeJSONMap(t, patched)
 		messages := body["messages"].([]any)
 		require.Equal(t, "real-signature", googleThoughtSignature(t, messages[1], 0))
+	})
+
+	t.Run("strips LiteLLM signature suffix from current Gemini tool IDs", func(t *testing.T) {
+		t.Parallel()
+		encodedID := "call-1__thought__provider-signature"
+		payload := map[string]any{
+			"messages": []any{
+				map[string]any{"role": "user", "content": "current turn"},
+				map[string]any{
+					"role":       "assistant",
+					"tool_calls": []any{functionToolCall(encodedID, "write_file")},
+				},
+				map[string]any{"role": "tool", "tool_call_id": encodedID, "content": `{}`},
+			},
+		}
+		patched := patchOpenAICompatChatCompletionsBody(mustJSON(t, payload), "http://coder-aibridge/v1", "gemini/gemini-3.5-flash-lite")
+		body := decodeJSONMap(t, patched)
+		messages := body["messages"].([]any)
+		assistant := messages[1].(map[string]any)
+		toolCall := assistant["tool_calls"].([]any)[0].(map[string]any)
+		require.Equal(t, "call-1", toolCall["id"])
+		require.Equal(t, googleopenai.DummyThoughtSignature, googleThoughtSignature(t, assistant, 0))
+		toolResult := messages[2].(map[string]any)
+		require.Equal(t, "call-1", toolResult["tool_call_id"])
+	})
+
+	t.Run("leaves LiteLLM-style IDs unchanged for non-Gemini models", func(t *testing.T) {
+		t.Parallel()
+		encodedID := "call-1__thought__opaque"
+		payload := map[string]any{"messages": []any{
+			map[string]any{"role": "user", "content": "current turn"},
+			map[string]any{"role": "assistant", "tool_calls": []any{functionToolCall(encodedID, "tool")}},
+			map[string]any{"role": "tool", "tool_call_id": encodedID, "content": `{}`},
+		}}
+		patched := patchOpenAICompatChatCompletionsBody(mustJSON(t, payload), "http://coder-aibridge/v1", "openai/gpt-oss-120b")
+		body := decodeJSONMap(t, patched)
+		messages := body["messages"].([]any)
+		toolCall := messages[1].(map[string]any)["tool_calls"].([]any)[0].(map[string]any)
+		require.Equal(t, encodedID, toolCall["id"])
+		require.Equal(t, encodedID, messages[2].(map[string]any)["tool_call_id"])
 	})
 }
 
