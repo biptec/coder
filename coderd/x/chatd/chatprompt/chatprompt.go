@@ -1169,19 +1169,19 @@ func encodeGeminiThoughtSignature(signature string) string {
 		c := signature[i]
 		switch {
 		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
-			b.WriteByte(c)
+			_ = b.WriteByte(c)
 		case c == '+':
-			b.WriteString("_p")
+			_, _ = b.WriteString("_p")
 		case c == '/':
-			b.WriteString("_s")
+			_, _ = b.WriteString("_s")
 		case c == '=':
-			b.WriteString("_e")
+			_, _ = b.WriteString("_e")
 		case c == '_':
-			b.WriteString("_u")
+			_, _ = b.WriteString("_u")
 		case c == '-':
-			b.WriteString("_d")
+			_, _ = b.WriteString("_d")
 		default:
-			fmt.Fprintf(&b, "_x%02X", c)
+			_, _ = fmt.Fprintf(&b, "_x%02X", c)
 		}
 	}
 	return b.String()
