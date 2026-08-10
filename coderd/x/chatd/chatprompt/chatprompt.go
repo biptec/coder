@@ -1134,11 +1134,57 @@ func syntheticToolUseMessage(
 	}
 }
 
+const (
+	geminiThoughtSignatureMarker        = "__thought__"
+	encodedGeminiThoughtSignaturePrefix = "esc_"
+)
+
+// sanitizeToolCallID keeps tool IDs portable across providers while preserving
+// Gemini thought signatures losslessly. Gemini signatures use standard base64,
+// which can contain characters rejected by providers that require
+// [a-zA-Z0-9_-] tool IDs. Encode only the opaque signature suffix with a compact provider-safe escape
+// encoding; the Coder LiteLLM compatibility bridge decodes it immediately
+// before LiteLLM receives the OpenAI-compatible request.
 func sanitizeToolCallID(id string) string {
 	if id == "" {
 		return ""
 	}
-	return toolCallIDSanitizer.ReplaceAllString(id, "_")
+	prefix, signature, found := strings.Cut(id, geminiThoughtSignatureMarker)
+	if !found || signature == "" {
+		return toolCallIDSanitizer.ReplaceAllString(id, "_")
+	}
+
+	cleanPrefix := toolCallIDSanitizer.ReplaceAllString(prefix, "_")
+	if strings.HasPrefix(signature, encodedGeminiThoughtSignaturePrefix) {
+		return cleanPrefix + geminiThoughtSignatureMarker + signature
+	}
+	encoded := encodeGeminiThoughtSignature(signature)
+	return cleanPrefix + geminiThoughtSignatureMarker + encodedGeminiThoughtSignaturePrefix + encoded
+}
+
+func encodeGeminiThoughtSignature(signature string) string {
+	var b strings.Builder
+	b.Grow(len(signature))
+	for i := 0; i < len(signature); i++ {
+		c := signature[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+			_ = b.WriteByte(c)
+		case c == '+':
+			_, _ = b.WriteString("_p")
+		case c == '/':
+			_, _ = b.WriteString("_s")
+		case c == '=':
+			_, _ = b.WriteString("_e")
+		case c == '_':
+			_, _ = b.WriteString("_u")
+		case c == '-':
+			_, _ = b.WriteString("_d")
+		default:
+			_, _ = fmt.Fprintf(&b, "_x%02X", c)
+		}
+	}
+	return b.String()
 }
 
 // MarshalParts encodes SDK chat message parts for persistence.
