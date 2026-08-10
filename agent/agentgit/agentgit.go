@@ -48,8 +48,8 @@ const (
 	// filesystem events arrive. scanCooldown caps the actual scan
 	// frequency; an outer guard in RunLoop further skips the tick
 	// when a trigger-driven scan already ran within this interval.
-	// Each tick forks 6 git subprocesses per subscribed repo plus
-	// one diff --no-index per untracked file.
+	// Each tick forks a fixed set of git subprocesses per subscribed repo plus
+	// at most maxUntrackedFiles diff --no-index subprocesses.
 	fallbackPollInterval = 5 * time.Second
 	// maxTotalDiffSize is the maximum size of the combined
 	// unified diff for an entire repository sent over the wire.
