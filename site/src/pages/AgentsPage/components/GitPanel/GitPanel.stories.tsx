@@ -4,6 +4,7 @@ import { API } from "#/api/api";
 import type {
 	ChatDiffContents,
 	ChatDiffStatus,
+	WorkspaceAgentGitDiffProgress,
 	WorkspaceAgentRepoChanges,
 } from "#/api/typesGenerated";
 import { generateLargeDiff } from "../DiffViewer/testHelpers";
@@ -239,6 +240,29 @@ export const WorkingChangesOnly: Story = {
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
 		await expect(canvas.getByLabelText("Refresh")).toBeEnabled();
+	},
+};
+
+/** Local diff is still arriving from the workspace agent. */
+export const ProgressiveScan: Story = {
+	args: {
+		repositories: new Map([["/home/coder/coder", makeRepo()]]),
+		progress: new Map([
+			[
+				"/home/coder/coder",
+				{
+					repo_root: "/home/coder/coder",
+					branch: "feat/add-logging",
+					processed_files: 37,
+					total_files: 500,
+				} satisfies WorkspaceAgentGitDiffProgress,
+			],
+		]),
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(canvas.getByText("Building Git diff")).toBeVisible();
+		await expect(canvas.getByText("37 / 500 files")).toBeVisible();
 	},
 };
 

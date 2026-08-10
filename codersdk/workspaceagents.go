@@ -734,6 +734,9 @@ const (
 	// WorkspaceAgentGitServerMessageTypeChanges contains a delta of
 	// repository changes since the last emitted update.
 	WorkspaceAgentGitServerMessageTypeChanges WorkspaceAgentGitServerMessageType = "changes"
+	// WorkspaceAgentGitServerMessageTypeProgress streams incremental diff
+	// progress while a repository scan is still running.
+	WorkspaceAgentGitServerMessageTypeProgress WorkspaceAgentGitServerMessageType = "progress"
 	// WorkspaceAgentGitServerMessageTypeError signals a server-side
 	// error.
 	WorkspaceAgentGitServerMessageTypeError WorkspaceAgentGitServerMessageType = "error"
@@ -745,7 +748,22 @@ type WorkspaceAgentGitServerMessage struct {
 	Type         WorkspaceAgentGitServerMessageType `json:"type"`
 	ScannedAt    *time.Time                         `json:"scanned_at,omitempty" format:"date-time"`
 	Repositories []WorkspaceAgentRepoChanges        `json:"repositories,omitempty"`
+	Progress     *WorkspaceAgentGitDiffProgress     `json:"progress,omitempty"`
 	Message      string                             `json:"message,omitempty"`
+}
+
+// WorkspaceAgentGitDiffProgress is an incremental update emitted while the
+// agent builds a repository diff. UnifiedDiffChunk is append-only for a scan
+// and Reset marks the start of a replacement snapshot.
+type WorkspaceAgentGitDiffProgress struct {
+	RepoRoot         string `json:"repo_root"`
+	Branch           string `json:"branch,omitempty"`
+	RemoteOrigin     string `json:"remote_origin,omitempty"`
+	UnifiedDiffChunk string `json:"unified_diff_chunk,omitempty"`
+	ProcessedFiles   int    `json:"processed_files"`
+	TotalFiles       int    `json:"total_files"`
+	Reset            bool   `json:"reset,omitempty"`
+	Complete         bool   `json:"complete,omitempty"`
 }
 
 // WorkspaceAgentRepoChanges describes the current state of a single
@@ -753,9 +771,10 @@ type WorkspaceAgentGitServerMessage struct {
 // directory or its .git subdirectory no longer exists; all other
 // fields (Branch, RemoteOrigin, UnifiedDiff) are empty/zero.
 type WorkspaceAgentRepoChanges struct {
-	RepoRoot     string `json:"repo_root"`
-	Branch       string `json:"branch"`
-	RemoteOrigin string `json:"remote_origin,omitempty"`
-	UnifiedDiff  string `json:"unified_diff,omitempty"`
-	Removed      bool   `json:"removed,omitempty"`
+	RepoRoot      string `json:"repo_root"`
+	Branch        string `json:"branch"`
+	RemoteOrigin  string `json:"remote_origin,omitempty"`
+	UnifiedDiff   string `json:"unified_diff,omitempty"`
+	DiffTruncated bool   `json:"diff_truncated,omitempty"`
+	Removed       bool   `json:"removed,omitempty"`
 }

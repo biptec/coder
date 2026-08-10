@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -671,6 +672,7 @@ func dialGitWatch(t *testing.T, opts ...agentgit.Option) *wsjson.Stream[
 	wsURL := "ws" + srv.URL[len("http"):] + "/watch"
 	conn, _, err := websocket.Dial(context.Background(), wsURL, nil)
 	require.NoError(t, err)
+	conn.SetReadLimit(1 << 22)
 	t.Cleanup(func() { _ = conn.Close(websocket.StatusNormalClosure, "") })
 
 	return wsjson.NewStream[
@@ -701,6 +703,7 @@ func dialGitWatchWithPathStore(
 	wsURL := "ws" + srv.URL[len("http"):] + "/watch?chat_id=" + chatID.String()
 	conn, _, err := websocket.Dial(context.Background(), wsURL, nil)
 	require.NoError(t, err)
+	conn.SetReadLimit(1 << 22)
 	t.Cleanup(func() { _ = conn.Close(websocket.StatusNormalClosure, "") })
 
 	return wsjson.NewStream[
@@ -709,9 +712,8 @@ func dialGitWatchWithPathStore(
 	](conn, websocket.MessageText, websocket.MessageText, logger)
 }
 
-// recvMsg reads the next server message, using the provided
-// context for the timeout instead of a raw time.After.
-func recvMsg(ctx context.Context, t *testing.T, ch <-chan codersdk.WorkspaceAgentGitServerMessage) codersdk.WorkspaceAgentGitServerMessage {
+// recvRawMsg reads the next server message, including progressive updates.
+func recvRawMsg(ctx context.Context, t *testing.T, ch <-chan codersdk.WorkspaceAgentGitServerMessage) codersdk.WorkspaceAgentGitServerMessage {
 	t.Helper()
 	select {
 	case msg, ok := <-ch:
@@ -720,6 +722,19 @@ func recvMsg(ctx context.Context, t *testing.T, ch <-chan codersdk.WorkspaceAgen
 	case <-ctx.Done():
 		t.Fatal("timed out waiting for server message")
 		return codersdk.WorkspaceAgentGitServerMessage{}
+	}
+}
+
+// recvMsg returns the next non-progress message so existing WebSocket behavior
+// tests continue to assert the final snapshot while progressive streaming is
+// covered explicitly by dedicated tests.
+func recvMsg(ctx context.Context, t *testing.T, ch <-chan codersdk.WorkspaceAgentGitServerMessage) codersdk.WorkspaceAgentGitServerMessage {
+	t.Helper()
+	for {
+		msg := recvRawMsg(ctx, t, ch)
+		if msg.Type != codersdk.WorkspaceAgentGitServerMessageTypeProgress {
+			return msg
+		}
 	}
 }
 
@@ -745,6 +760,96 @@ func TestWebSocketSubscribeAndReceiveChanges(t *testing.T) {
 	require.NotNil(t, msg.ScannedAt)
 	require.NotEmpty(t, msg.Repositories)
 	require.Equal(t, repoDir, msg.Repositories[0].RepoRoot)
+}
+
+func TestWebSocketStreamsProgressBeforeFinalSnapshot(t *testing.T) {
+	t.Parallel()
+
+	ctx := testutil.Context(t, testutil.WaitLong)
+	repoDir := initTestRepo(t)
+	const fileCount = 600
+	for i := range fileCount {
+		name := filepath.Join(repoDir, fmt.Sprintf("progress_%04d.txt", i))
+		require.NoError(t, os.WriteFile(name, []byte(fmt.Sprintf("value-%04d\n", i)), 0o600))
+	}
+
+	ps := agentgit.NewPathStore()
+	chatID := uuid.New()
+	ps.AddPaths([]uuid.UUID{chatID}, []string{filepath.Join(repoDir, "progress_0000.txt")})
+
+	stream := dialGitWatchWithPathStore(t, ps, chatID)
+	ch := stream.Chan()
+
+	var reconstructed strings.Builder
+	progressMessages := 0
+	lastProcessed := -1
+	sawReset := false
+	sawTotal := false
+	sawComplete := false
+
+	for {
+		msg := recvRawMsg(ctx, t, ch)
+		if msg.Type == codersdk.WorkspaceAgentGitServerMessageTypeProgress {
+			require.NotNil(t, msg.Progress)
+			update := msg.Progress
+			progressMessages++
+			if update.Reset {
+				require.False(t, sawReset, "a scan should reset exactly once")
+				sawReset = true
+				require.Zero(t, update.TotalFiles)
+				reconstructed.Reset()
+			} else if update.TotalFiles > 0 {
+				require.Equal(t, fileCount, update.TotalFiles)
+				sawTotal = true
+			}
+			require.GreaterOrEqual(t, update.ProcessedFiles, lastProcessed)
+			lastProcessed = update.ProcessedFiles
+			if update.UnifiedDiffChunk != "" {
+				reconstructed.WriteString(update.UnifiedDiffChunk)
+			}
+			if update.Complete {
+				sawComplete = true
+				require.Equal(t, fileCount, update.ProcessedFiles)
+			}
+			continue
+		}
+
+		require.Equal(t, codersdk.WorkspaceAgentGitServerMessageTypeChanges, msg.Type)
+		require.Len(t, msg.Repositories, 1)
+		require.True(t, sawReset)
+		require.True(t, sawTotal)
+		require.True(t, sawComplete)
+		require.GreaterOrEqual(t, progressMessages, 3)
+		require.Equal(t, msg.Repositories[0].UnifiedDiff, reconstructed.String())
+		break
+	}
+}
+
+func TestProgressiveScanCanBeCanceledByRefresh(t *testing.T) {
+	t.Parallel()
+
+	repoDir := initTestRepo(t)
+	for i := range 1000 {
+		name := filepath.Join(repoDir, fmt.Sprintf("cancel_%04d.txt", i))
+		require.NoError(t, os.WriteFile(name, []byte("cancel-me\n"), 0o600))
+	}
+
+	logger := slogtest.Make(t, nil)
+	h := agentgit.NewHandler(logger)
+	h.Subscribe([]string{filepath.Join(repoDir, "cancel_0000.txt")})
+
+	progressCount := 0
+	msg := h.ScanProgressive(context.Background(), func(update codersdk.WorkspaceAgentGitServerMessage) error {
+		require.Equal(t, codersdk.WorkspaceAgentGitServerMessageTypeProgress, update.Type)
+		progressCount++
+		if update.Progress != nil && !update.Progress.Reset && update.Progress.ProcessedFiles > 0 {
+			h.RequestScan()
+		}
+		return nil
+	})
+
+	require.Nil(t, msg, "a canceled scan must not publish a stale final snapshot")
+	require.GreaterOrEqual(t, progressCount, 2)
 }
 
 func TestWebSocketMultipleRepos(t *testing.T) {
@@ -891,6 +996,10 @@ func TestGetRepoChangesStagedModifiedDeleted(t *testing.T) {
 	// Create an untracked file.
 	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "untracked.txt"), []byte("hello\n"), 0o600))
 
+	indexPath := filepath.Join(repoDir, ".git", "index")
+	indexBefore, err := os.ReadFile(indexPath)
+	require.NoError(t, err)
+
 	h.Subscribe([]string{filepath.Join(repoDir, "README.md")})
 	msg := h.Scan(context.Background())
 	require.NotNil(t, msg)
@@ -909,9 +1018,13 @@ func TestGetRepoChangesStagedModifiedDeleted(t *testing.T) {
 	require.Contains(t, diff, "staged.go")
 	require.Contains(t, diff, "+package staged")
 
-	// untracked.txt is untracked (shown via --no-index diff).
+	// untracked.txt is included through the temporary intent-to-add index.
 	require.Contains(t, diff, "untracked.txt")
 	require.Contains(t, diff, "+hello")
+
+	indexAfter, err := os.ReadFile(indexPath)
+	require.NoError(t, err)
+	require.Equal(t, indexBefore, indexAfter, "Git watcher must not mutate the real index")
 }
 
 func TestFallbackPollTriggersScan(t *testing.T) {
@@ -936,16 +1049,25 @@ func TestFallbackPollTriggersScan(t *testing.T) {
 	msg1 := recvMsg(ctx, t, ch)
 	require.Equal(t, codersdk.WorkspaceAgentGitServerMessageTypeChanges, msg1.Type)
 
-	// Add a new dirty file so the next scan has a delta to report.
-	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "poll2.go"), []byte("package poll\n"), 0o600))
+	// An unchanged fallback poll is fingerprint-only and must not re-stream the
+	// existing diff.
+	mClock.Advance(5 * time.Second).MustWait(context.Background())
+	select {
+	case msg := <-ch:
+		t.Fatalf("unchanged fallback poll unexpectedly emitted %q", msg.Type)
+	case <-time.After(100 * time.Millisecond):
+	}
 
-	// Advance to the fallback poll interval. This should trigger a
-	// scan without any explicit refresh.
+	// Add a new dirty file. The next fallback fingerprint detects it and queues
+	// the normal progressive scan path.
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "poll2.go"), []byte("package poll\n"), 0o600))
 	mClock.Advance(5 * time.Second).MustWait(context.Background())
 
-	msg2 := recvMsg(ctx, t, ch)
-	require.Equal(t, codersdk.WorkspaceAgentGitServerMessageTypeChanges, msg2.Type)
-	require.NotEmpty(t, msg2.Repositories)
+	msg2 := recvRawMsg(ctx, t, ch)
+	require.Equal(t, codersdk.WorkspaceAgentGitServerMessageTypeProgress, msg2.Type)
+	final := recvMsg(ctx, t, ch)
+	require.Equal(t, codersdk.WorkspaceAgentGitServerMessageTypeChanges, final.Type)
+	require.NotEmpty(t, final.Repositories)
 }
 
 func TestMultipleConcurrentConnections(t *testing.T) {
@@ -1073,12 +1195,10 @@ func TestScanTotalDiffTooLargeForWire(t *testing.T) {
 
 	repoDir := initTestRepo(t)
 	logger := slogtest.Make(t, nil)
-
 	h := agentgit.NewHandler(logger)
 
-	// Create many files whose individual diffs are under 256 KiB
-	// but whose total exceeds maxTotalDiffSize (3 MiB).
-	// ~100 files x 50 KiB content each = ~5 MiB of diffs.
+	// The progressive stream must remain complete even after the final legacy
+	// compatibility snapshot reaches its 3 MiB budget.
 	var paths []string
 	for i := range 100 {
 		content := make([]byte, 50*1024)
@@ -1092,51 +1212,58 @@ func TestScanTotalDiffTooLargeForWire(t *testing.T) {
 	}
 
 	h.Subscribe(paths)
-
-	ctx := context.Background()
-	msg := h.Scan(ctx)
+	var lastProgress *codersdk.WorkspaceAgentGitDiffProgress
+	var progressiveDiff strings.Builder
+	msg := h.ScanProgressive(context.Background(), func(update codersdk.WorkspaceAgentGitServerMessage) error {
+		if update.Progress != nil {
+			copy := *update.Progress
+			lastProgress = &copy
+			progressiveDiff.WriteString(update.Progress.UnifiedDiffChunk)
+		}
+		return nil
+	})
 	require.NotNil(t, msg)
 	require.Len(t, msg.Repositories, 1)
 
 	repo := msg.Repositories[0]
-
-	// The total diff exceeds 3 MiB, so we should get the
-	// total-diff placeholder.
-	require.Contains(t, repo.UnifiedDiff, "Total diff too large to show")
-
-	// Branch and remote metadata should still be present.
-	require.NotEmpty(t, repo.Branch, "branch should still be populated")
-
-	// The placeholder message should be well under 3 MiB.
-	require.Less(t, len(repo.UnifiedDiff), 4*1024*1024,
-		"placeholder diff should be much smaller than maxTotalDiffSize")
+	require.True(t, repo.DiffTruncated)
+	require.NotEmpty(t, repo.Branch)
+	require.NotEmpty(t, repo.UnifiedDiff)
+	require.LessOrEqual(t, len(repo.UnifiedDiff), 3*1024*1024)
+	require.Contains(t, repo.UnifiedDiff, "file_000.txt")
+	require.NotContains(t, repo.UnifiedDiff, "Total diff too large to show")
+	require.Greater(t, progressiveDiff.Len(), len(repo.UnifiedDiff))
+	require.Contains(t, progressiveDiff.String(), "file_099.txt")
+	require.NotNil(t, lastProgress)
+	require.True(t, lastProgress.Complete)
+	require.Equal(t, 100, lastProgress.ProcessedFiles)
+	require.Equal(t, 100, lastProgress.TotalFiles)
 }
 
-func TestScanTooManyUntrackedFilesIsBounded(t *testing.T) {
+func TestScanUntrackedFilesHasNoFileCountLimit(t *testing.T) {
 	t.Parallel()
 
 	repoDir := initTestRepo(t)
 	logger := slogtest.Make(t, nil)
 	h := agentgit.NewHandler(logger)
 
-	// A generated tree with hundreds or thousands of untracked files must not
-	// spawn one git subprocess per file. The watcher should return a concise
-	// placeholder while preserving branch metadata and tracked diffs.
-	for i := range 250 {
-		name := filepath.Join(repoDir, fmt.Sprintf("generated_%03d.txt", i))
+	const fileCount = 1000
+	for i := range fileCount {
+		name := filepath.Join(repoDir, fmt.Sprintf("generated_%04d.txt", i))
 		require.NoError(t, os.WriteFile(name, []byte("generated\n"), 0o600))
 	}
 
-	h.Subscribe([]string{filepath.Join(repoDir, "generated_000.txt")})
+	h.Subscribe([]string{filepath.Join(repoDir, "generated_0000.txt")})
 	msg := h.Scan(context.Background())
 	require.NotNil(t, msg)
 	require.Len(t, msg.Repositories, 1)
 
 	repo := msg.Repositories[0]
+	require.False(t, repo.DiffTruncated)
 	require.NotEmpty(t, repo.Branch)
-	require.Contains(t, repo.UnifiedDiff, "Too many untracked files to show")
-	require.Contains(t, repo.UnifiedDiff, "250 files")
-	require.NotContains(t, repo.UnifiedDiff, "generated_000.txt")
+	require.Contains(t, repo.UnifiedDiff, "generated_0000.txt")
+	require.Contains(t, repo.UnifiedDiff, "generated_0999.txt")
+	require.NotContains(t, repo.UnifiedDiff, "Too many untracked files")
 }
 
 func TestScanBinaryFileDiff(t *testing.T) {
@@ -1527,7 +1654,7 @@ func TestRunLoopExitsPromptlyOnCancel_DuringPoll(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		h.RunLoop(ctx, func() {})
+		h.RunLoop(ctx, func() {}, func() {})
 	}()
 
 	// Wait until RunLoop has actually called clock.NewTicker, then
@@ -1592,7 +1719,7 @@ func TestRunLoopExitsPromptlyOnCancel_DuringCooldown(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		h.RunLoop(ctx, scanFn)
+		h.RunLoop(ctx, scanFn, scanFn)
 	}()
 
 	// Release the fallback ticker so RunLoop enters its select.
