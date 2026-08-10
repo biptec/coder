@@ -3,6 +3,7 @@ package agentgit
 import (
 	"context"
 	"net/http"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -88,16 +89,40 @@ func (a *API) handleWatch(rw http.ResponseWriter, r *http.Request) {
 	ctx = a.wsWatcher.Watch(ctx, logger, conn)
 	handler := NewHandler(logger, a.opts...)
 
-	// Scan returns nil only when no roots are subscribed; once any
-	// root lands it returns either a delta or a heartbeat message.
+	var sendMu sync.Mutex
+	send := func(msg codersdk.WorkspaceAgentGitServerMessage) error {
+		sendMu.Lock()
+		defer sendMu.Unlock()
+		return stream.Send(msg)
+	}
+
+	// Progressive scans stream partial diff chunks while retaining the final
+	// changes message for compatibility with clients that do not understand
+	// progress messages yet.
 	scanAndSend := func() {
-		msg := handler.Scan(ctx)
+		msg := handler.ScanProgressive(ctx, func(progress codersdk.WorkspaceAgentGitServerMessage) error {
+			if err := send(progress); err != nil {
+				logger.Debug(ctx, "failed to send git progress", slog.Error(err))
+				cancel()
+				return err
+			}
+			return nil
+		})
 		if msg == nil {
 			return
 		}
-		if err := stream.Send(*msg); err != nil {
+		if err := send(*msg); err != nil {
 			logger.Debug(ctx, "failed to send changes", slog.Error(err))
 			cancel()
+		}
+	}
+
+	// Fallback polls only fingerprint repository state. A real change queues the
+	// normal progressive path; an unchanged large repository produces no diff
+	// work and no UI churn.
+	fallbackCheck := func() {
+		if handler.NeedsProgressiveScan(ctx) {
+			handler.RequestScan()
 		}
 	}
 
@@ -135,7 +160,7 @@ func (a *API) handleWatch(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	// Start the main run loop in a goroutine.
-	go handler.RunLoop(ctx, scanAndSend)
+	go handler.RunLoop(ctx, scanAndSend, fallbackCheck)
 
 	// Read client messages.
 	updates := stream.Chan()
@@ -153,7 +178,7 @@ func (a *API) handleWatch(rw http.ResponseWriter, r *http.Request) {
 			case codersdk.WorkspaceAgentGitClientMessageTypeRefresh:
 				handler.RequestScan()
 			default:
-				if err := stream.Send(codersdk.WorkspaceAgentGitServerMessage{
+				if err := send(codersdk.WorkspaceAgentGitServerMessage{
 					Type:    codersdk.WorkspaceAgentGitServerMessageTypeError,
 					Message: "unknown message type",
 				}); err != nil {

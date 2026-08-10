@@ -15,6 +15,7 @@ import { type FC, type RefObject, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type {
 	ChatDiffStatus,
+	WorkspaceAgentGitDiffProgress,
 	WorkspaceAgentRepoChanges,
 } from "#/api/typesGenerated";
 import { Button } from "#/components/Button/Button";
@@ -44,6 +45,9 @@ interface DiffStats {
 	deletions: number;
 }
 
+const EMPTY_GIT_PROGRESS: ReadonlyMap<string, WorkspaceAgentGitDiffProgress> =
+	new Map();
+
 interface GitPanelProps {
 	/** PR tab data. Omitted if no PR is associated. */
 	prTab?: {
@@ -52,6 +56,8 @@ interface GitPanelProps {
 	};
 	/** Repository data from git watcher. */
 	repositories: ReadonlyMap<string, WorkspaceAgentRepoChanges>;
+	/** Progressive local diff scans, keyed by repository root. */
+	progress?: ReadonlyMap<string, WorkspaceAgentGitDiffProgress>;
 	/** Callback to send a refresh to the git watcher. Returns false when disconnected. */
 	onRefresh: () => boolean;
 	/** Called when the user clicks the Commit button in any repo tab. */
@@ -81,6 +87,7 @@ function repoTabLabel(repoRoot: string): string {
 export const GitPanel: FC<GitPanelProps> = ({
 	prTab,
 	repositories,
+	progress = EMPTY_GIT_PROGRESS,
 	onRefresh,
 	onCommit,
 	isExpanded,
@@ -97,6 +104,9 @@ export const GitPanel: FC<GitPanelProps> = ({
 	const showRemoteTab = Boolean(prTab) || hasRemoteDiff;
 	const hasGitContext = repositories.size > 0 || showRemoteTab;
 	const isWaitingForGitStatus = !hasGitContext && isGitStatusLoading;
+	const isGitScanActive = Array.from(progress.values()).some(
+		(update) => !update.complete,
+	);
 
 	const prTitle = remoteDiffStats?.pull_request_title;
 	const prState = remoteDiffStats?.pull_request_state;
@@ -132,6 +142,11 @@ export const GitPanel: FC<GitPanelProps> = ({
 				if (repositories.has(root)) {
 					roots.add(root);
 				}
+			}
+		}
+		for (const root of progress.keys()) {
+			if (repositories.has(root)) {
+				roots.add(root);
 			}
 		}
 		return Array.from(roots).sort((a, b) => a.localeCompare(b));
@@ -316,7 +331,9 @@ export const GitPanel: FC<GitPanelProps> = ({
 							<RefreshCwIcon
 								className={cn(
 									"size-3.5",
-									spinning && "motion-safe:animate-spin-once",
+									isGitScanActive
+										? "motion-safe:animate-spin"
+										: spinning && "motion-safe:animate-spin-once",
 								)}
 							/>
 						</Button>
@@ -339,6 +356,7 @@ export const GitPanel: FC<GitPanelProps> = ({
 					<LocalRepoContent
 						repoRoot={view.repoRoot}
 						repo={repositories.get(view.repoRoot)}
+						progress={progress.get(view.repoRoot)}
 						diffStats={
 							repoStats.get(view.repoRoot) ?? { additions: 0, deletions: 0 }
 						}
@@ -419,6 +437,7 @@ const RemoteContent: FC<{
 const LocalRepoContent: FC<{
 	repoRoot: string;
 	repo: WorkspaceAgentRepoChanges | undefined;
+	progress: WorkspaceAgentGitDiffProgress | undefined;
 	diffStats: DiffStats;
 	onCommit: (repoRoot: string) => void;
 	isExpanded?: boolean;
@@ -427,6 +446,7 @@ const LocalRepoContent: FC<{
 }> = ({
 	repoRoot,
 	repo,
+	progress,
 	diffStats,
 	onCommit,
 	isExpanded,
@@ -445,12 +465,49 @@ const LocalRepoContent: FC<{
 				diffStats={diffStats}
 				onCommit={() => onCommit(repoRoot)}
 			/>
+			<GitDiffProgressBanner progress={progress} />
 			<LocalDiffPanel
 				repo={repo}
 				isExpanded={isExpanded}
 				diffStyle={diffStyle}
 				chatInputRef={chatInputRef}
 			/>
+		</div>
+	);
+};
+
+const GitDiffProgressBanner: FC<{
+	progress: WorkspaceAgentGitDiffProgress | undefined;
+}> = ({ progress }) => {
+	if (!progress || progress.complete) {
+		return null;
+	}
+
+	const processed = progress.processed_files;
+	const total = progress.total_files;
+	const percent = total > 0 ? Math.min(100, (processed / total) * 100) : 0;
+
+	return (
+		<div className="shrink-0 border-0 border-b border-solid border-border-default bg-surface-secondary/50 px-3 py-2 text-xs text-content-secondary">
+			<div className="flex items-center gap-2">
+				<RefreshCwIcon className="size-3.5 motion-safe:animate-spin" />
+				<span className="font-medium text-content-primary">
+					Building Git diff
+				</span>
+				{total > 0 && (
+					<span className="ml-auto tabular-nums">
+						{processed.toLocaleString()} / {total.toLocaleString()} files
+					</span>
+				)}
+			</div>
+			{total > 0 && (
+				<div className="mt-1.5 h-1 overflow-hidden rounded-full bg-surface-quaternary/40">
+					<div
+						className="h-full bg-content-link transition-[width] duration-150"
+						style={{ width: `${percent}%` }}
+					/>
+				</div>
+			)}
 		</div>
 	);
 };

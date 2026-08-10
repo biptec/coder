@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { watchChatGit } from "#/api/api";
 import type {
 	WorkspaceAgentGitClientMessage,
+	WorkspaceAgentGitDiffProgress,
 	WorkspaceAgentGitServerMessage,
 	WorkspaceAgentRepoChanges,
 	WorkspaceAgentStatus,
@@ -19,6 +20,7 @@ const _repoFieldGuard: Record<keyof _ComparedRepoFields, true> = {
 	branch: true,
 	remote_origin: true,
 	unified_diff: true,
+	diff_truncated: true,
 };
 
 interface UseGitWatcherOptions {
@@ -35,6 +37,8 @@ interface UseGitWatcherResult {
 	 * chatId change. Consumers should intersect with `repositories`.
 	 */
 	everDirty: ReadonlySet<string>;
+	/** Progressive diff state, keyed by repo root path. */
+	progress: ReadonlyMap<string, WorkspaceAgentGitDiffProgress>;
 	/** Whether the WebSocket is currently connected. */
 	isConnected: boolean;
 	/** Whether the watcher has received repository state for this chat. */
@@ -53,6 +57,9 @@ export function useGitWatcher({
 	const [everDirty, setEverDirty] = useState<ReadonlySet<string>>(
 		() => new Set(),
 	);
+	const [progress, setProgress] = useState<
+		ReadonlyMap<string, WorkspaceAgentGitDiffProgress>
+	>(new Map());
 	const [isConnected, setIsConnected] = useState(false);
 	const [hasReceivedChanges, setHasReceivedChanges] = useState(false);
 
@@ -120,13 +127,24 @@ export function useGitWatcher({
 										}
 									} else {
 										const existing = next.get(repo.repo_root);
+										// Progressive clients may already hold more diff data than the
+										// capped final compatibility snapshot. Never replace that full
+										// stream with the shorter legacy payload.
+										const resolvedRepo =
+											repo.diff_truncated &&
+											existing?.unified_diff &&
+											existing.unified_diff.length >
+												(repo.unified_diff?.length ?? 0)
+												? { ...repo, unified_diff: existing.unified_diff }
+												: repo;
 										if (
 											!existing ||
-											existing.branch !== repo.branch ||
-											existing.remote_origin !== repo.remote_origin ||
-											existing.unified_diff !== repo.unified_diff
+											existing.branch !== resolvedRepo.branch ||
+											existing.remote_origin !== resolvedRepo.remote_origin ||
+											existing.unified_diff !== resolvedRepo.unified_diff ||
+											existing.diff_truncated !== resolvedRepo.diff_truncated
 										) {
-											next.set(repo.repo_root, repo);
+											next.set(repo.repo_root, resolvedRepo);
 											changed = true;
 										}
 									}
@@ -148,7 +166,56 @@ export function useGitWatcher({
 								}
 								return changed ? next : prev;
 							});
+							setProgress((prev) => {
+								let changed = false;
+								const next = new Map(prev);
+								for (const repo of data.repositories!) {
+									if (repo.removed && next.delete(repo.repo_root)) {
+										changed = true;
+									}
+								}
+								return changed ? next : prev;
+							});
 						}
+					} else if (data.type === "progress" && data.progress) {
+						const update = data.progress;
+						setHasReceivedChanges(true);
+						setRepositories((prev) => {
+							const next = new Map(prev);
+							const existing = next.get(update.repo_root);
+							const currentDiff = update.reset
+								? ""
+								: (existing?.unified_diff ?? "");
+							const unifiedDiff =
+								currentDiff + (update.unified_diff_chunk ?? "");
+							next.set(update.repo_root, {
+								...existing,
+								repo_root: update.repo_root,
+								branch: update.branch ?? existing?.branch ?? "",
+								remote_origin: update.remote_origin ?? existing?.remote_origin,
+								unified_diff: unifiedDiff || undefined,
+							});
+							return next;
+						});
+						if (update.unified_diff_chunk) {
+							setEverDirty((prev) => {
+								if (prev.has(update.repo_root)) {
+									return prev;
+								}
+								const next = new Set(prev);
+								next.add(update.repo_root);
+								return next;
+							});
+						}
+						setProgress((prev) => {
+							const next = new Map(prev);
+							if (update.complete) {
+								next.delete(update.repo_root);
+							} else {
+								next.set(update.repo_root, update);
+							}
+							return next;
+						});
 					} else if (data.type === "error") {
 						console.warn("[useGitWatcher] server error:", data.message);
 					}
@@ -164,6 +231,7 @@ export function useGitWatcher({
 			onDisconnect() {
 				setIsConnected(false);
 				setHasReceivedChanges(false);
+				setProgress(new Map());
 				socketRef.current = null;
 			},
 
@@ -179,9 +247,17 @@ export function useGitWatcher({
 			setIsConnected(false);
 			setHasReceivedChanges(false);
 			setRepositories(new Map());
+			setProgress(new Map());
 			socketRef.current = null;
 		};
 	}, [chatId, agentStatus]);
 
-	return { repositories, everDirty, isConnected, hasReceivedChanges, refresh };
+	return {
+		repositories,
+		everDirty,
+		progress,
+		isConnected,
+		hasReceivedChanges,
+		refresh,
+	};
 }

@@ -10171,6 +10171,23 @@ export const WorkspaceAgentGitClientMessageTypes: WorkspaceAgentGitClientMessage
 
 // From codersdk/workspaceagents.go
 /**
+ * WorkspaceAgentGitDiffProgress is an incremental update emitted while the
+ * agent builds a repository diff. UnifiedDiffChunk is append-only for a scan
+ * and Reset marks the start of a replacement snapshot.
+ */
+export interface WorkspaceAgentGitDiffProgress {
+	readonly repo_root: string;
+	readonly branch?: string;
+	readonly remote_origin?: string;
+	readonly unified_diff_chunk?: string;
+	readonly processed_files: number;
+	readonly total_files: number;
+	readonly reset?: boolean;
+	readonly complete?: boolean;
+}
+
+// From codersdk/workspaceagents.go
+/**
  * WorkspaceAgentGitServerMessage is a message sent from the agent to
  * the client over the git watch WebSocket.
  */
@@ -10178,14 +10195,18 @@ export interface WorkspaceAgentGitServerMessage {
 	readonly type: WorkspaceAgentGitServerMessageType;
 	readonly scanned_at?: string;
 	readonly repositories?: readonly WorkspaceAgentRepoChanges[];
+	readonly progress?: WorkspaceAgentGitDiffProgress;
 	readonly message?: string;
 }
 
 // From codersdk/workspaceagents.go
-export type WorkspaceAgentGitServerMessageType = "changes" | "error";
+export type WorkspaceAgentGitServerMessageType =
+	| "changes"
+	| "error"
+	| "progress";
 
 export const WorkspaceAgentGitServerMessageTypes: WorkspaceAgentGitServerMessageType[] =
-	["changes", "error"];
+	["changes", "error", "progress"];
 
 // From codersdk/workspaceagents.go
 export interface WorkspaceAgentHealth {
@@ -10352,6 +10373,7 @@ export interface WorkspaceAgentRepoChanges {
 	readonly branch: string;
 	readonly remote_origin?: string;
 	readonly unified_diff?: string;
+	readonly diff_truncated?: boolean;
 	readonly removed?: boolean;
 }
 

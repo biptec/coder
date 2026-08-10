@@ -89,6 +89,7 @@ const buildGitWatcher = (): ComponentProps<
 >["gitWatcher"] => ({
 	repositories: new Map(),
 	everDirty: new Set(),
+	progress: new Map(),
 	hasReceivedChanges: true,
 	refresh: fn().mockReturnValue(true),
 });

@@ -233,6 +233,138 @@ describe("useGitWatcher", () => {
 		});
 	});
 
+	it("streams progressive diff chunks and clears progress on completion", async () => {
+		const socket = createMockSocket();
+		const { result } = renderHook(() =>
+			useGitWatcher({ chatId: "chat-123", agentStatus: "connected" }),
+		);
+
+		act(() => socket.simulateOpen());
+		act(() => {
+			socket.simulateMessage({
+				type: "progress",
+				progress: {
+					repo_root: "/home/user/project-a",
+					branch: "main",
+					processed_files: 0,
+					total_files: 0,
+					reset: true,
+				},
+			});
+		});
+
+		await waitFor(() => {
+			expect(result.current.repositories.has("/home/user/project-a")).toBe(
+				true,
+			);
+		});
+		expect(result.current.hasReceivedChanges).toBe(true);
+		expect(result.current.progress.get("/home/user/project-a")?.reset).toBe(
+			true,
+		);
+
+		act(() => {
+			socket.simulateMessage({
+				type: "progress",
+				progress: {
+					repo_root: "/home/user/project-a",
+					branch: "main",
+					processed_files: 1,
+					total_files: 2,
+					unified_diff_chunk: "diff-a\n",
+				},
+			});
+			socket.simulateMessage({
+				type: "progress",
+				progress: {
+					repo_root: "/home/user/project-a",
+					branch: "main",
+					processed_files: 2,
+					total_files: 2,
+					unified_diff_chunk: "diff-b\n",
+					complete: true,
+				},
+			});
+		});
+
+		await waitFor(() => {
+			expect(
+				result.current.repositories.get("/home/user/project-a")?.unified_diff,
+			).toBe("diff-a\ndiff-b\n");
+		});
+		expect(result.current.progress.has("/home/user/project-a")).toBe(false);
+		expect(result.current.everDirty.has("/home/user/project-a")).toBe(true);
+	});
+
+	it("preserves the full progressive diff when the legacy snapshot is truncated", async () => {
+		const socket = createMockSocket();
+		const { result } = renderHook(() =>
+			useGitWatcher({ chatId: "chat-123", agentStatus: "connected" }),
+		);
+
+		act(() => socket.simulateOpen());
+		act(() => {
+			socket.simulateMessage({
+				type: "progress",
+				progress: {
+					repo_root: "/home/user/project-a",
+					branch: "main",
+					processed_files: 0,
+					total_files: 2,
+					reset: true,
+				},
+			});
+			socket.simulateMessage({
+				type: "progress",
+				progress: {
+					repo_root: "/home/user/project-a",
+					branch: "main",
+					processed_files: 1,
+					total_files: 2,
+					unified_diff_chunk: "full-part-1\n",
+				},
+			});
+			socket.simulateMessage({
+				type: "progress",
+				progress: {
+					repo_root: "/home/user/project-a",
+					branch: "main",
+					processed_files: 2,
+					total_files: 2,
+					unified_diff_chunk: "full-part-2\n",
+					complete: true,
+				},
+			});
+		});
+
+		await waitFor(() => {
+			expect(
+				result.current.repositories.get("/home/user/project-a")?.unified_diff,
+			).toBe("full-part-1\nfull-part-2\n");
+		});
+		expect(result.current.progress.has("/home/user/project-a")).toBe(false);
+
+		act(() => {
+			socket.simulateMessage({
+				type: "changes",
+				repositories: [
+					{
+						repo_root: "/home/user/project-a",
+						branch: "main",
+						unified_diff: "legacy-part\n",
+						diff_truncated: true,
+					},
+				],
+			});
+		});
+
+		await waitFor(() => {
+			const repo = result.current.repositories.get("/home/user/project-a");
+			expect(repo?.unified_diff).toBe("full-part-1\nfull-part-2\n");
+			expect(repo?.diff_truncated).toBe(true);
+		});
+	});
+
 	it("marks empty changes messages as received", async () => {
 		const socket = createMockSocket();
 

@@ -169,6 +169,7 @@ interface AgentChatPageViewProps {
 	gitWatcher: {
 		repositories: ReadonlyMap<string, TypesGen.WorkspaceAgentRepoChanges>;
 		everDirty: ReadonlySet<string>;
+		progress: ReadonlyMap<string, TypesGen.WorkspaceAgentGitDiffProgress>;
 		hasReceivedChanges: boolean;
 
 		refresh: () => boolean;
@@ -681,6 +682,7 @@ export const AgentChatPageView: FC<AgentChatPageViewProps> = ({
 						}
 						repositories={gitWatcher.repositories}
 						everDirty={gitWatcher.everDirty}
+						progress={gitWatcher.progress}
 						isGitStatusLoading={
 							workspaceAgent?.status === "connected" &&
 							!gitWatcher.hasReceivedChanges
