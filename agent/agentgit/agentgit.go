@@ -7,6 +7,7 @@ package agentgit
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,13 +48,17 @@ const (
 	// filesystem events arrive. scanCooldown caps the actual scan
 	// frequency; an outer guard in RunLoop further skips the tick
 	// when a trigger-driven scan already ran within this interval.
-	// Each tick forks 6 git subprocesses per subscribed repo plus
-	// one diff --no-index per untracked file.
+	// Each tick forks a fixed set of git subprocesses per subscribed repo plus
+	// at most maxUntrackedFiles diff --no-index subprocesses.
 	fallbackPollInterval = 5 * time.Second
 	// maxTotalDiffSize is the maximum size of the combined
 	// unified diff for an entire repository sent over the wire.
 	// This must stay under the WebSocket message size limit.
 	maxTotalDiffSize = 3 * 1024 * 1024 // 3 MiB
+	// maxUntrackedFiles bounds the number of per-file diff subprocesses.
+	// Large generated trees (for example language SDKs or package caches)
+	// can otherwise make a single Git watcher scan take minutes.
+	maxUntrackedFiles = 200
 )
 
 // Handler manages per-connection git watch state.
@@ -430,6 +435,16 @@ func computeGitDiff(ctx context.Context, logger slog.Logger, gitBin string, repo
 	}
 
 	untrackedFiles := strings.Split(strings.TrimSpace(string(lsOut)), "\n")
+	if len(untrackedFiles) == 1 && untrackedFiles[0] == "" {
+		untrackedFiles = nil
+	}
+	if len(untrackedFiles) > maxUntrackedFiles {
+		diffParts = append(diffParts, fmt.Sprintf(
+			"Too many untracked files to show (%d files; limit %d). Add generated files to .gitignore to view untracked diffs.\n",
+			len(untrackedFiles), maxUntrackedFiles,
+		))
+		return strings.Join(diffParts, ""), nil
+	}
 	for _, f := range untrackedFiles {
 		f = strings.TrimSpace(f)
 		if f == "" {
