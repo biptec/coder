@@ -11,7 +11,7 @@ const defaultFilters: AgentSidebarFilters = {
 	groupBy: "date",
 	prStatuses: [],
 	chatStatuses: ["unread", "read"],
-	sources: ["created_by_me"],
+	sources: ["created_by_me", "shared_with_me"],
 };
 
 const archivedFilters: AgentSidebarFilters = {
@@ -122,6 +122,6 @@ describe(getAgentSidebarFilters.name, () => {
 		expect(search.get("group_by")).toBe("chat_status");
 		expect(search.get("pr_status")).toBe("draft,merged");
 		expect(search.get("chat_status")).toBe("unread");
-		expect(search.get("source")).toBe("created_by_me,shared_with_me");
+		expect(search.get("source")).toBe(null);
 	});
 });
