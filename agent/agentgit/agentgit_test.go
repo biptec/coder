@@ -1112,6 +1112,33 @@ func TestScanTotalDiffTooLargeForWire(t *testing.T) {
 		"placeholder diff should be much smaller than maxTotalDiffSize")
 }
 
+func TestScanTooManyUntrackedFilesIsBounded(t *testing.T) {
+	t.Parallel()
+
+	repoDir := initTestRepo(t)
+	logger := slogtest.Make(t, nil)
+	h := agentgit.NewHandler(logger)
+
+	// A generated tree with hundreds or thousands of untracked files must not
+	// spawn one git subprocess per file. The watcher should return a concise
+	// placeholder while preserving branch metadata and tracked diffs.
+	for i := range 250 {
+		name := filepath.Join(repoDir, fmt.Sprintf("generated_%03d.txt", i))
+		require.NoError(t, os.WriteFile(name, []byte("generated\n"), 0o600))
+	}
+
+	h.Subscribe([]string{filepath.Join(repoDir, "generated_000.txt")})
+	msg := h.Scan(context.Background())
+	require.NotNil(t, msg)
+	require.Len(t, msg.Repositories, 1)
+
+	repo := msg.Repositories[0]
+	require.NotEmpty(t, repo.Branch)
+	require.Contains(t, repo.UnifiedDiff, "Too many untracked files to show")
+	require.Contains(t, repo.UnifiedDiff, "250 files")
+	require.NotContains(t, repo.UnifiedDiff, "generated_000.txt")
+}
+
 func TestScanBinaryFileDiff(t *testing.T) {
 	t.Parallel()
 
