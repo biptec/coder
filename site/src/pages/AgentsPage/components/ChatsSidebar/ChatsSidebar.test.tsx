@@ -259,7 +259,7 @@ describe("ChatsSidebar filters", () => {
 			...sidebarFilters,
 			prStatuses: [],
 			chatStatuses: ["unread", "read"],
-			sources: ["created_by_me", "shared_with_me"],
+			sources: ["created_by_me"],
 		});
 	});
 
