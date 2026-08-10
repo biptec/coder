@@ -39,7 +39,7 @@ export const DEFAULT_AGENT_SIDEBAR_FILTERS: AgentSidebarFilters = {
 	groupBy: "date",
 	prStatuses: [],
 	chatStatuses: AGENT_CHAT_STATUS_ORDER,
-	sources: ["created_by_me"],
+	sources: ["created_by_me", "shared_with_me"],
 };
 
 const clearSidebarFilterParams = (searchParams: URLSearchParams) => {
