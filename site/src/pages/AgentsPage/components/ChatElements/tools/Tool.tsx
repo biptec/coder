@@ -1,9 +1,10 @@
 import { useTheme } from "@emotion/react";
 import { File as FileViewer } from "@pierre/diffs/react";
-import { type ComponentPropsWithRef, type FC, memo } from "react";
+import { type ComponentPropsWithRef, type FC, memo, useState } from "react";
 import type * as TypesGen from "#/api/typesGenerated";
 import { ScrollArea } from "#/components/ScrollArea/ScrollArea";
 import { cn } from "#/utils/cn";
+import { ImageLightbox } from "../../ImageLightbox";
 import { AdvisorTool, type AdvisorToolResultType } from "./AdvisorTool";
 import {
 	type AskUserQuestion,
@@ -874,12 +875,62 @@ const ToolFileViewer: FC<ToolFileViewerProps> = ({ label, file, options }) => (
 	</>
 );
 
+type GenericImageResult = {
+	data: string;
+	mimeType: string;
+	text: string;
+};
+
+const getGenericImageResult = (result: unknown): GenericImageResult | null => {
+	const blocks = Array.isArray(result) ? result : [result];
+	let text = "";
+	for (const block of blocks) {
+		const rec = asRecord(block);
+		if (!rec) {
+			continue;
+		}
+		text ||= asString(rec.text);
+		const data = asString(rec.data);
+		const mimeType = asString(rec.mime_type);
+		if (data && mimeType.startsWith("image/")) {
+			return { data, mimeType, text: asString(rec.text) || text };
+		}
+	}
+	return null;
+};
+
+const GenericImagePreview: FC<{ image: GenericImageResult }> = ({ image }) => {
+	const [showLightbox, setShowLightbox] = useState(false);
+	const src = `data:${image.mimeType};base64,${image.data}`;
+	return (
+		<>
+			<div className="mt-1.5 overflow-hidden rounded-md border border-solid border-border-default">
+				<button
+					type="button"
+					className="cursor-pointer bg-transparent p-0 border-none"
+					onClick={() => setShowLightbox(true)}
+				>
+					<img
+						src={src}
+						alt="MCP tool result"
+						className="max-h-96 w-auto object-contain"
+					/>
+				</button>
+			</div>
+			{showLightbox && (
+				<ImageLightbox src={src} onClose={() => setShowLightbox(false)} />
+			)}
+		</>
+	);
+};
+
 type GenericToolContentProps = {
 	toolInput: string | null;
 	fileContent: ReturnType<typeof getFileContentForViewer>;
 	fileContentOptions: ComponentPropsWithRef<typeof FileViewer>["options"];
 	isDark: boolean;
 	resultOutput: string | null;
+	imageResult: GenericImageResult | null;
 };
 
 const GenericToolContent: FC<GenericToolContentProps> = ({
@@ -888,6 +939,7 @@ const GenericToolContent: FC<GenericToolContentProps> = ({
 	fileContentOptions,
 	isDark,
 	resultOutput,
+	imageResult,
 }) => {
 	const output = fileContent
 		? {
@@ -910,9 +962,10 @@ const GenericToolContent: FC<GenericToolContentProps> = ({
 					options={getFileViewerOptionsNoHeader(isDark)}
 				/>
 			)}
+			{imageResult && <GenericImagePreview image={imageResult} />}
 			{output && (
 				<ToolFileViewer
-					label={toolInput ? "Output" : undefined}
+					label={toolInput || imageResult ? "Output" : undefined}
 					file={output.file}
 					options={output.options}
 				/>
@@ -945,7 +998,10 @@ const GenericToolRenderer: FC<ToolRendererProps> = ({
 	const theme = useTheme();
 	const isDark = theme.palette.mode === "dark";
 	const toolInput = formatToolInput(args);
-	const resultOutput = formatResultOutput(result);
+	const imageResult = getGenericImageResult(result);
+	const resultOutput =
+		imageResult?.text.trim() ||
+		(imageResult ? null : formatResultOutput(result));
 	const fileContent = getFileContentForViewer(name, args, result);
 	const fileViewerOpts = getFileViewerOptions(isDark);
 	const fileContentOptions = fileContent
@@ -961,7 +1017,9 @@ const GenericToolRenderer: FC<ToolRendererProps> = ({
 		? mcpServers?.find((s) => s.id === mcpServerConfigId)
 		: undefined;
 
-	const hasContent = Boolean(toolInput || fileContent || resultOutput);
+	const hasContent = Boolean(
+		toolInput || fileContent || resultOutput || imageResult,
+	);
 	const rec = asRecord(result);
 	const errorMessage = rec ? asString(rec.error || rec.message) : "";
 	const fallbackErrorMessage = getGenericToolErrorMessage({
@@ -975,6 +1033,7 @@ const GenericToolRenderer: FC<ToolRendererProps> = ({
 			isError={isError}
 			errorMessage={errorMessage || fallbackErrorMessage}
 			hasContent={hasContent}
+			defaultExpanded={Boolean(imageResult)}
 		>
 			<ToolCall.Header
 				iconName={name}
@@ -1000,6 +1059,7 @@ const GenericToolRenderer: FC<ToolRendererProps> = ({
 					fileContentOptions={fileContentOptions}
 					isDark={isDark}
 					resultOutput={resultOutput}
+					imageResult={imageResult}
 				/>
 			</ToolCall.Content>
 		</ToolCall.Root>

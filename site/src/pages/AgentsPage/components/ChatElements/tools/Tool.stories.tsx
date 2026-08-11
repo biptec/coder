@@ -1324,6 +1324,30 @@ const sampleMCPServers = [
 	},
 ] satisfies readonly import("#/api/typesGenerated").MCPServerConfig[];
 
+export const MCPToolImageResult: Story = {
+	args: {
+		name: "linear__take_screenshot",
+		status: "completed",
+		args: { url: "https://example.com" },
+		result: {
+			data: DESKTOP_SCREENSHOT_BASE64,
+			text: "Screenshot captured",
+			mime_type: "image/png",
+		},
+		mcpServerConfigId: "mcp-server-1",
+		mcpServers: sampleMCPServers,
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const image = canvas.getByRole("img", {
+			name: "MCP tool result",
+		});
+		expect(image).toBeInTheDocument();
+		expect(image.getAttribute("src")).toContain("data:image/png;base64,");
+		expect(canvas.getByText("Screenshot captured")).toBeInTheDocument();
+	},
+};
+
 export const MCPToolRunning: Story = {
 	args: {
 		name: "linear__list_issues",
