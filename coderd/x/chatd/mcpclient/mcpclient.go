@@ -97,6 +97,11 @@ func ConnectAll(
 		tokensByConfigID[tok.MCPServerConfigID] = tok
 	}
 
+	// Streamable HTTP servers may keep a GET SSE listener open for server-initiated
+	// requests and notifications. Detach that listener from the per-step caller
+	// context and tie it to this MCP connection set instead.
+	sessionCtx, cancelSession := context.WithCancel(context.WithoutCancel(ctx))
+
 	var (
 		mu      sync.Mutex
 		clients []*client.Client
@@ -106,6 +111,7 @@ func ConnectAll(
 	// Build cleanup eagerly so it always closes any clients
 	// that connected, even if a later connection fails.
 	cleanup := func() {
+		cancelSession()
 		mu.Lock()
 		defer mu.Unlock()
 		for _, c := range clients {
@@ -126,7 +132,7 @@ func ConnectAll(
 				fatalCallback = onFatalTransportError[0]
 			}
 			serverTools, mcpClient, connectErr := connectOne(
-				ctx, logger, cfg, tokensByConfigID, userID, oidcSrc, coderHeaders, fatalCallback,
+				ctx, sessionCtx, logger, cfg, tokensByConfigID, userID, oidcSrc, coderHeaders, fatalCallback,
 			)
 			if connectErr != nil {
 				logger.Warn(ctx,
@@ -212,6 +218,7 @@ func ConnectAll(
 // the server slug prefix applied.
 func connectOne(
 	ctx context.Context,
+	transportCtx context.Context,
 	logger slog.Logger,
 	cfg database.MCPServerConfig,
 	tokensByConfigID map[uuid.UUID]database.MCPServerUserToken,
@@ -259,7 +266,7 @@ func connectOne(
 	)
 	defer cancel()
 
-	if err := mcpClient.Start(connectCtx); err != nil {
+	if err := mcpClient.Start(transportCtx); err != nil {
 		_ = mcpClient.Close()
 		return nil, nil, xerrors.Errorf(
 			"start transport: %w", err,
@@ -340,7 +347,9 @@ func createTransport(
 	case "", "streamable_http":
 		// Default to streamable HTTP, the newer transport.
 		var opts []transport.StreamableHTTPCOption
-		opts = append(opts, transport.WithHTTPHeaders(headers))
+		// Keep the server event stream open. Some MCP servers, including Playwright,
+		// rely on it for server-initiated traffic while tool requests are in flight.
+		opts = append(opts, transport.WithHTTPHeaders(headers), transport.WithContinuousListening())
 		if httpClient != nil {
 			opts = append(opts, transport.WithHTTPBasicClient(httpClient))
 		}
