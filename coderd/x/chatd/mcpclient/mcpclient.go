@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -527,15 +528,16 @@ type MCPToolIdentifier interface {
 // fantasy.AgentTool. It stores the prefixed name for Info() but
 // strips the prefix when forwarding calls to the remote server.
 type mcpToolWrapper struct {
-	configID        uuid.UUID
-	prefixedName    string
-	originalName    string
-	description     string
-	parameters      map[string]any
-	required        []string
-	modelIntent     bool
-	client          *client.Client
-	providerOptions fantasy.ProviderOptions
+	configID              uuid.UUID
+	prefixedName          string
+	originalName          string
+	description           string
+	parameters            map[string]any
+	required              []string
+	modelIntent           bool
+	client                *client.Client
+	providerOptions       fantasy.ProviderOptions
+	forceInlineScreenshot bool
 }
 
 // MCPServerConfigID returns the database ID of the MCP server
@@ -553,15 +555,31 @@ func newMCPTool(
 	mcpClient *client.Client,
 	modelIntent bool,
 ) *mcpToolWrapper {
+	parameters := maps.Clone(tool.InputSchema.Properties)
+	required := slices.Clone(tool.InputSchema.Required)
+	description := tool.Description
+	forceInlineScreenshot := aidmcp.SanitizeToolName(serverSlug) == "playwright" && tool.Name == "browser_take_screenshot"
+	if forceInlineScreenshot {
+		// Playwright MCP only registers binary image content when the
+		// screenshot tool is called without filename. A named screenshot is
+		// returned only as a server-side file link, which Coder cannot render
+		// inline. Hide the argument from the model and strip it defensively at
+		// execution time so screenshot requests consistently return media.
+		delete(parameters, "filename")
+		required = slices.DeleteFunc(required, func(name string) bool { return name == "filename" })
+		description += " The screenshot is returned inline to the user; do not save it under a client-provided filename."
+	}
+
 	return &mcpToolWrapper{
-		configID:     configID,
-		prefixedName: truncateToolName(aidmcp.SanitizeToolName(serverSlug) + toolNameSep + aidmcp.SanitizeToolName(tool.Name)),
-		originalName: tool.Name,
-		description:  tool.Description,
-		parameters:   tool.InputSchema.Properties,
-		required:     tool.InputSchema.Required,
-		modelIntent:  modelIntent,
-		client:       mcpClient,
+		configID:              configID,
+		prefixedName:          truncateToolName(aidmcp.SanitizeToolName(serverSlug) + toolNameSep + aidmcp.SanitizeToolName(tool.Name)),
+		originalName:          tool.Name,
+		description:           description,
+		parameters:            parameters,
+		required:              required,
+		modelIntent:           modelIntent,
+		client:                mcpClient,
+		forceInlineScreenshot: forceInlineScreenshot,
 	}
 }
 
@@ -629,6 +647,9 @@ func (t *mcpToolWrapper) Run(
 				"invalid JSON input: " + err.Error(),
 			), nil
 		}
+	}
+	if t.forceInlineScreenshot {
+		delete(args, "filename")
 	}
 
 	callCtx, cancel := context.WithTimeout(ctx, toolCallTimeout)
