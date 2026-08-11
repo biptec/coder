@@ -762,6 +762,59 @@ func TestWebSocketSubscribeAndReceiveChanges(t *testing.T) {
 	require.Equal(t, repoDir, msg.Repositories[0].RepoRoot)
 }
 
+func TestWebSocketDiscoversWorkingDirectoryWhenPathStoreEmpty(t *testing.T) {
+	t.Parallel()
+
+	ctx := testutil.Context(t, testutil.WaitLong)
+	repoDir := initTestRepo(t)
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "initial.go"), []byte("package initial\n"), 0o600))
+
+	ps := agentgit.NewPathStore()
+	chatID := uuid.New()
+	stream := dialGitWatchWithPathStore(t, ps, chatID, agentgit.WithWorkingDirectory(func() string {
+		return repoDir
+	}))
+
+	msg := recvMsg(ctx, t, stream.Chan())
+	require.Equal(t, codersdk.WorkspaceAgentGitServerMessageTypeChanges, msg.Type)
+	require.NotNil(t, msg.ScannedAt)
+	require.Len(t, msg.Repositories, 1)
+	require.Equal(t, repoDir, msg.Repositories[0].RepoRoot)
+	require.Contains(t, msg.Repositories[0].UnifiedDiff, "initial.go")
+}
+
+func TestWebSocketRefreshRetriesWorkingDirectoryDiscovery(t *testing.T) {
+	t.Parallel()
+
+	ctx := testutil.Context(t, testutil.WaitLong)
+	dir := testutil.TempDirResolved(t)
+	ps := agentgit.NewPathStore()
+	chatID := uuid.New()
+	stream := dialGitWatchWithPathStore(t, ps, chatID, agentgit.WithWorkingDirectory(func() string {
+		return dir
+	}))
+
+	// The connection starts before this directory becomes a repository. Refresh
+	// must retry durable discovery instead of remaining stuck with zero roots.
+	gitCmd(t, dir, "init")
+	gitCmd(t, dir, "config", "user.name", "Test")
+	gitCmd(t, dir, "config", "user.email", "test@test.com")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Test\n"), 0o600))
+	gitCmd(t, dir, "add", "README.md")
+	gitCmd(t, dir, "commit", "-m", "initial commit")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "late.go"), []byte("package late\n"), 0o600))
+
+	require.NoError(t, stream.Send(codersdk.WorkspaceAgentGitClientMessage{
+		Type: codersdk.WorkspaceAgentGitClientMessageTypeRefresh,
+	}))
+
+	msg := recvMsg(ctx, t, stream.Chan())
+	require.Equal(t, codersdk.WorkspaceAgentGitServerMessageTypeChanges, msg.Type)
+	require.Len(t, msg.Repositories, 1)
+	require.Equal(t, dir, msg.Repositories[0].RepoRoot)
+	require.Contains(t, msg.Repositories[0].UnifiedDiff, "late.go")
+}
+
 func TestWebSocketStreamsProgressBeforeFinalSnapshot(t *testing.T) {
 	t.Parallel()
 

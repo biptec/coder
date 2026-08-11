@@ -43,6 +43,14 @@ func WithGitBinary(path string) Option {
 	}
 }
 
+// WithWorkingDirectory provides the agent workspace directory used for
+// initial Git discovery when no chat paths have been observed yet.
+func WithWorkingDirectory(fn func() string) Option {
+	return func(h *Handler) {
+		h.workingDirectory = fn
+	}
+}
+
 const (
 	// scanCooldown is the minimum interval between successive scans.
 	scanCooldown = 1 * time.Second
@@ -65,9 +73,10 @@ const (
 
 // Handler manages per-connection git watch state.
 type Handler struct {
-	logger slog.Logger
-	clock  quartz.Clock
-	gitBin string // path to git binary; empty means "git" (from PATH)
+	logger           slog.Logger
+	clock            quartz.Clock
+	gitBin           string // path to git binary; empty means "git" (from PATH)
+	workingDirectory func() string
 
 	mu             sync.Mutex
 	repoRoots      map[string]struct{}     // watched repo roots
@@ -146,6 +155,28 @@ func (h *Handler) Subscribe(paths []string) bool {
 		added = true
 	}
 	return added
+}
+
+// SubscribeWorkingDirectory resolves the configured agent workspace directory
+// to a Git repository. It is used as a durable discovery fallback when the
+// in-memory PathStore is empty, for example after an agent restart.
+func (h *Handler) SubscribeWorkingDirectory() bool {
+	if h.workingDirectory == nil {
+		return false
+	}
+	dir := strings.TrimSpace(h.workingDirectory())
+	if dir == "" || !filepath.IsAbs(dir) {
+		return false
+	}
+	return h.Subscribe([]string{dir})
+}
+
+// HasSubscriptions reports whether at least one repository root is currently
+// watched by this connection.
+func (h *Handler) HasSubscriptions() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.repoRoots) > 0
 }
 
 // RequestScan pokes the scan trigger so the run loop performs a scan.
