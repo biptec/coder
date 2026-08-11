@@ -482,7 +482,20 @@ func (a *agent) init() {
 		}
 		return ""
 	})
-	gitOpts := append([]agentgit.Option{agentgit.WithClock(a.clock)}, a.gitAPIOptions...)
+	gitOpts := append([]agentgit.Option{
+		agentgit.WithClock(a.clock),
+		agentgit.WithWorkingDirectory(func() string {
+			dir := ""
+			if m := a.manifest.Load(); m != nil {
+				dir = m.Directory
+			}
+			resolved, err := usershell.ResolveWorkingDirectory(a.filesystem, a.envInfo, dir)
+			if err != nil {
+				return ""
+			}
+			return resolved
+		}),
+	}, a.gitAPIOptions...)
 	a.gitAPI = agentgit.NewAPI(a.logger.Named("git"), pathStore, gitOpts...)
 	desktop := agentdesktop.NewPortableDesktop(
 		a.logger.Named("desktop"), a.execer, a.scriptRunner.ScriptBinDir(), nil,

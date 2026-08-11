@@ -138,10 +138,17 @@ func (a *API) handleWatch(rw http.ResponseWriter, r *http.Request) {
 		notifyCh, unsubscribe := a.pathStore.Subscribe(watchChatID)
 		defer unsubscribe()
 
-		// Load any paths that are already tracked for this chat.
+		// Load any paths that are already tracked for this chat. If the
+		// in-memory store is empty (for example after an agent restart),
+		// fall back to the manifest-provided workspace directory so the Git
+		// panel can discover an existing repository without requiring a new
+		// file operation first.
 		existingPaths := a.pathStore.GetPaths(watchChatID)
-		if len(existingPaths) > 0 {
-			handler.Subscribe(existingPaths)
+		subscribed := handler.Subscribe(existingPaths)
+		if !subscribed {
+			subscribed = handler.SubscribeWorkingDirectory()
+		}
+		if subscribed {
 			handler.RequestScan()
 		}
 
@@ -176,6 +183,11 @@ func (a *API) handleWatch(rw http.ResponseWriter, r *http.Request) {
 
 			switch msg.Type {
 			case codersdk.WorkspaceAgentGitClientMessageTypeRefresh:
+				// Retry durable discovery on refresh in case the repository was
+				// created after the WebSocket connected.
+				if !handler.HasSubscriptions() {
+					handler.SubscribeWorkingDirectory()
+				}
 				handler.RequestScan()
 			default:
 				if err := send(codersdk.WorkspaceAgentGitServerMessage{

@@ -194,15 +194,21 @@ func (server *Server) pinnedWorkspaceContext(
 	if err != nil {
 		return "", nil, xerrors.Errorf("list chat context resources: %w", err)
 	}
-	if len(resources) == 0 {
-		return "", nil, nil
-	}
-
 	directory := agent.ExpandedDirectory
 	if directory == "" {
 		directory = agent.Directory
 	}
+	if len(resources) == 0 {
+		return formatSystemInstructions(agent.OperatingSystem, directory, nil), nil, nil
+	}
+
 	instruction, skills, malformed := contextResourcesToPrompt(resources, agent.OperatingSystem, directory)
+	if instruction == "" {
+		// Workspace metadata is useful even when the pinned context contains
+		// only skills or filtered resources. In particular, the model must know
+		// the actual coder_agent.dir instead of guessing $HOME.
+		instruction = formatSystemInstructions(agent.OperatingSystem, directory, nil)
+	}
 	if malformed > 0 {
 		// A status-OK resource whose body cannot be decoded means the pin
 		// hydrated content that is now unreadable; surface it so a proto

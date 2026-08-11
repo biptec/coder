@@ -177,6 +177,37 @@ export function annotationsVersion(
 	);
 }
 
+// CodeView treats `version` as the caller-controlled revision for an item and
+// deliberately ignores a replacement item when the version is unchanged. Parsed
+// file objects are memoized by the unified diff string, so object identity is a
+// cheap and exact content revision: a new diff produces new FileDiffMetadata
+// objects, while an unchanged diff reuses the same ones. Keep annotation state in
+// the same revision so comment movement still invalidates the item.
+let nextCodeViewItemVersion = 1;
+const codeViewItemVersions = new WeakMap<
+	FileDiffMetadata,
+	Map<number, number>
+>();
+
+export function codeViewItemVersion(
+	fileDiff: FileDiffMetadata,
+	annotations: readonly DiffLineAnnotation<string>[] | undefined,
+): number {
+	const annotationRevision = annotationsVersion(annotations);
+	let byAnnotation = codeViewItemVersions.get(fileDiff);
+	if (!byAnnotation) {
+		byAnnotation = new Map();
+		codeViewItemVersions.set(fileDiff, byAnnotation);
+	}
+
+	let version = byAnnotation.get(annotationRevision);
+	if (version === undefined) {
+		version = nextCodeViewItemVersion++;
+		byAnnotation.set(annotationRevision, version);
+	}
+	return version;
+}
+
 // The library forces classic, space-reserving scrollbars via
 // scrollbar-gutter: stable, leaving a permanent empty strip on the right.
 // Restore the default gutter so the scrollbar overlays content while scrolling
@@ -493,7 +524,7 @@ export const DiffViewer: FC<DiffViewerProps> = ({
 			type: "diff",
 			fileDiff,
 			annotations,
-			version: annotationsVersion(annotations),
+			version: codeViewItemVersion(fileDiff, annotations),
 		};
 	});
 
