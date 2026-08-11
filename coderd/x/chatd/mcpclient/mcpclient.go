@@ -691,11 +691,11 @@ func unwrapModelIntent(input string) string {
 }
 
 // convertCallResult translates an MCP CallToolResult into a
-// fantasy.ToolResponse. The fantasy response model supports a
-// single content type per response, so we prioritize text. All
-// text items are collected first. Binary items (image, audio,
-// or embedded blob) are only returned when no text content is
-// available.
+// fantasy.ToolResponse. The fantasy response model supports one
+// binary payload plus an optional text annotation. Preserve the
+// first binary item when present and keep any text content in
+// ToolResponse.Content so screenshot-style MCP results do not lose
+// their image merely because the server also returned a caption.
 func convertCallResult(
 	result *mcp.CallToolResult,
 ) fantasy.ToolResponse {
@@ -823,17 +823,19 @@ func convertCallResult(
 		}
 	}
 
-	// Prefer text content. Only fall back to binary when no
-	// text was collected.
+	// Preserve binary media whenever the MCP server returned it.
+	// Any accompanying text remains available as an annotation and
+	// is persisted alongside the media result for the model and UI.
+	if binaryResult != nil {
+		binaryResult.Content = strings.Join(textParts, "\n")
+		return *binaryResult
+	}
 	if len(textParts) > 0 {
 		resp := fantasy.NewTextResponse(
 			strings.Join(textParts, "\n"),
 		)
 		resp.IsError = result.IsError
 		return resp
-	}
-	if binaryResult != nil {
-		return *binaryResult
 	}
 	return fantasy.NewTextResponse("")
 }

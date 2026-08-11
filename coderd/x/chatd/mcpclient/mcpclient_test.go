@@ -1163,6 +1163,44 @@ func TestConnectAll_EmbeddedResourceText(t *testing.T) {
 	assert.NotContains(t, resp.Content, "unsupported content type")
 }
 
+// TestConnectAll_MixedTextAndImagePreservesImage verifies that MCP tools
+// such as Playwright screenshots can return a caption and image together
+// without the text block causing the binary payload to be discarded.
+func TestConnectAll_MixedTextAndImagePreservesImage(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true})
+	imageData := []byte("png-image-bytes")
+	encoded := base64.StdEncoding.EncodeToString(imageData)
+
+	srv := mcpserver.NewMCPServer("screenshot-server", "1.0.0")
+	srv.AddTools(mcpserver.ServerTool{
+		Tool: mcp.NewTool("take_screenshot"),
+		Handler: func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return &mcp.CallToolResult{Content: []mcp.Content{
+				mcp.TextContent{Type: "text", Text: "Screenshot captured"},
+				mcp.ImageContent{Type: "image", Data: encoded, MIMEType: "image/png"},
+			}}, nil
+		},
+	})
+
+	httpSrv := mcpserver.NewStreamableHTTPServer(srv)
+	ts := httptest.NewServer(httpSrv)
+	t.Cleanup(ts.Close)
+	cfg := makeConfig("screenshot", ts.URL)
+	tools, cleanup := mcpclient.ConnectAll(ctx, logger, []database.MCPServerConfig{cfg}, nil, uuid.Nil, nil, nil)
+	t.Cleanup(cleanup)
+	require.Len(t, tools, 1)
+
+	resp, err := tools[0].Run(ctx, fantasy.ToolCall{ID: "call-shot", Name: "screenshot__take_screenshot", Input: "{}"})
+	require.NoError(t, err)
+	assert.False(t, resp.IsError)
+	assert.Equal(t, "image", resp.Type)
+	assert.Equal(t, imageData, resp.Data)
+	assert.Equal(t, "image/png", resp.MediaType)
+	assert.Contains(t, resp.Content, "Screenshot captured")
+}
+
 // TestConnectAll_EmbeddedResourceBlob verifies that a tool returning
 // an EmbeddedResource with BlobResourceContents has its blob decoded
 // into the binary response path, with the Type field reflecting the
