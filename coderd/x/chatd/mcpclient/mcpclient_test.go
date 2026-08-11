@@ -6,9 +6,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -1642,4 +1644,30 @@ func TestIsFatalTransportError(t *testing.T) {
 			require.Equal(t, tc.want, mcpclient.IsFatalTransportErrorForTest(tc.err))
 		})
 	}
+}
+
+func TestConnectAll_StreamableHTTPStartsContinuousListener(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true})
+
+	srv := mcpserver.NewMCPServer("listener-test", "1.0.0")
+	srv.AddTools(echoTool())
+	httpSrv := mcpserver.NewStreamableHTTPServer(srv)
+	var getSeen atomic.Bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			getSeen.Store(true)
+		}
+		httpSrv.ServeHTTP(w, r)
+	}))
+	t.Cleanup(ts.Close)
+
+	cfg := makeConfig("listener", ts.URL)
+	tools, cleanup := mcpclient.ConnectAll(ctx, logger, []database.MCPServerConfig{cfg}, nil, uuid.Nil, nil, nil)
+	t.Cleanup(cleanup)
+	require.Len(t, tools, 1)
+	require.Eventually(t, getSeen.Load, time.Second, 10*time.Millisecond,
+		"streamable HTTP MCP connection must maintain the server GET event stream")
 }

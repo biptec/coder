@@ -18,6 +18,8 @@ func cachedTestTool(name string) fantasy.AgentTool {
 }
 
 func TestMCPSessionCacheReusesWithinChat(t *testing.T) {
+	t.Parallel()
+
 	cache := newMCPSessionCache()
 	chatID := uuid.New()
 	fingerprint := [32]byte{1}
@@ -39,6 +41,8 @@ func TestMCPSessionCacheReusesWithinChat(t *testing.T) {
 }
 
 func TestMCPSessionCacheSeparatesChats(t *testing.T) {
+	t.Parallel()
+
 	cache := newMCPSessionCache()
 	fingerprint := [32]byte{2}
 	connects := 0
@@ -54,6 +58,8 @@ func TestMCPSessionCacheSeparatesChats(t *testing.T) {
 }
 
 func TestMCPSessionCacheReconnectsOnFingerprintChange(t *testing.T) {
+	t.Parallel()
+
 	cache := newMCPSessionCache()
 	chatID := uuid.New()
 	connects := 0
@@ -72,6 +78,8 @@ func TestMCPSessionCacheReconnectsOnFingerprintChange(t *testing.T) {
 }
 
 func TestCanCacheMCPSession(t *testing.T) {
+	t.Parallel()
+
 	require.True(t, canCacheMCPSession([]database.MCPServerConfig{{Transport: "streamable_http"}, {Transport: ""}}))
 	require.False(t, canCacheMCPSession([]database.MCPServerConfig{{Transport: "sse"}}))
 	require.False(t, canCacheMCPSession(nil))
