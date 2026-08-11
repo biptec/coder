@@ -86,6 +86,7 @@ func ConnectAll(
 	userID uuid.UUID,
 	oidcSrc UserOIDCTokenSource,
 	coderHeaders map[string]string,
+	onFatalTransportError ...func(uuid.UUID, error),
 ) ([]fantasy.AgentTool, func()) {
 	// Index tokens by server config ID so auth header
 	// construction is O(1) per server.
@@ -120,8 +121,12 @@ func ConnectAll(
 		}
 
 		eg.Go(func() error {
+			var fatalCallback func(uuid.UUID, error)
+			if len(onFatalTransportError) > 0 {
+				fatalCallback = onFatalTransportError[0]
+			}
 			serverTools, mcpClient, connectErr := connectOne(
-				ctx, logger, cfg, tokensByConfigID, userID, oidcSrc, coderHeaders,
+				ctx, logger, cfg, tokensByConfigID, userID, oidcSrc, coderHeaders, fatalCallback,
 			)
 			if connectErr != nil {
 				logger.Warn(ctx,
@@ -213,6 +218,7 @@ func connectOne(
 	userID uuid.UUID,
 	oidcSrc UserOIDCTokenSource,
 	coderHeaders map[string]string,
+	onFatalTransportError func(uuid.UUID, error),
 ) ([]fantasy.AgentTool, *client.Client, error) {
 	headers := buildAuthHeaders(ctx, logger, cfg, tokensByConfigID, userID, oidcSrc)
 
@@ -301,7 +307,7 @@ func connectOne(
 		}
 
 		tools = append(
-			tools, newMCPTool(cfg.ID, cfg.Slug, mcpTool, mcpClient, cfg.ModelIntent),
+			tools, newMCPTool(cfg.ID, cfg.Slug, mcpTool, mcpClient, cfg.ModelIntent, onFatalTransportError),
 		)
 	}
 
@@ -538,6 +544,7 @@ type mcpToolWrapper struct {
 	client                *client.Client
 	providerOptions       fantasy.ProviderOptions
 	forceInlineScreenshot bool
+	onFatalTransportError func(uuid.UUID, error)
 }
 
 // MCPServerConfigID returns the database ID of the MCP server
@@ -554,7 +561,12 @@ func newMCPTool(
 	tool mcp.Tool,
 	mcpClient *client.Client,
 	modelIntent bool,
+	onFatalTransportError ...func(uuid.UUID, error),
 ) *mcpToolWrapper {
+	var fatalCallback func(uuid.UUID, error)
+	if len(onFatalTransportError) > 0 {
+		fatalCallback = onFatalTransportError[0]
+	}
 	parameters := maps.Clone(tool.InputSchema.Properties)
 	required := slices.Clone(tool.InputSchema.Required)
 	description := tool.Description
@@ -580,6 +592,7 @@ func newMCPTool(
 		modelIntent:           modelIntent,
 		client:                mcpClient,
 		forceInlineScreenshot: forceInlineScreenshot,
+		onFatalTransportError: fatalCallback,
 	}
 }
 
@@ -665,10 +678,23 @@ func (t *mcpToolWrapper) Run(
 		},
 	)
 	if err != nil {
+		if isFatalTransportError(err) && t.onFatalTransportError != nil {
+			t.onFatalTransportError(t.configID, err)
+		}
 		return fantasy.NewTextErrorResponse(err.Error()), nil
 	}
 
 	return convertCallResult(result), nil
+}
+
+func isFatalTransportError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unexpected nil response") ||
+		strings.Contains(msg, "session terminated") ||
+		strings.Contains(msg, "server not initialized")
 }
 
 func (t *mcpToolWrapper) ProviderOptions() fantasy.ProviderOptions {

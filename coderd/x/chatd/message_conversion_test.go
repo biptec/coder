@@ -272,6 +272,45 @@ func TestCurrentTurnStepCount_CountsAssistantMessagesAfterLatestUser(t *testing.
 	require.Equal(t, 2, got)
 }
 
+func TestRepeatedFailedToolCall(t *testing.T) {
+	t.Parallel()
+
+	t.Run("stops after identical failures", func(t *testing.T) {
+		t.Parallel()
+		messages := []database.ChatMessage{
+			dbMessage(t, 1, database.ChatMessageRoleUser, false, codersdk.ChatMessageText("navigate")),
+			dbMessage(t, 2, database.ChatMessageRoleAssistant, false, codersdk.ChatMessageToolCall("c1", "playwright__browser_navigate", json.RawMessage(`{"url":"https://www.bbc.com"}`))),
+			dbMessage(t, 3, database.ChatMessageRoleTool, false, codersdk.ChatMessageToolResult("c1", "playwright__browser_navigate", json.RawMessage(`{"error":"transport"}`), true, false)),
+			dbMessage(t, 4, database.ChatMessageRoleAssistant, false, codersdk.ChatMessageToolCall("c2", "playwright__browser_navigate", json.RawMessage(`{ "url": "https://www.bbc.com" }`))),
+			dbMessage(t, 5, database.ChatMessageRoleTool, false, codersdk.ChatMessageToolResult("c2", "playwright__browser_navigate", json.RawMessage(`{"error":"transport"}`), true, false)),
+			dbMessage(t, 6, database.ChatMessageRoleAssistant, false, codersdk.ChatMessageToolCall("c3", "playwright__browser_navigate", json.RawMessage(`{"url":"https://www.bbc.com"}`))),
+			dbMessage(t, 7, database.ChatMessageRoleTool, false, codersdk.ChatMessageToolResult("c3", "playwright__browser_navigate", json.RawMessage(`{"error":"transport"}`), true, false)),
+		}
+		name, count, stop, err := repeatedFailedToolCall(messages, 3)
+		require.NoError(t, err)
+		require.True(t, stop)
+		require.Equal(t, "playwright__browser_navigate", name)
+		require.Equal(t, 3, count)
+	})
+
+	t.Run("success resets failures", func(t *testing.T) {
+		t.Parallel()
+		messages := []database.ChatMessage{
+			dbMessage(t, 1, database.ChatMessageRoleUser, false, codersdk.ChatMessageText("navigate")),
+			dbMessage(t, 2, database.ChatMessageRoleAssistant, false, codersdk.ChatMessageToolCall("c1", "tool", json.RawMessage(`{"x":1}`))),
+			dbMessage(t, 3, database.ChatMessageRoleTool, false, codersdk.ChatMessageToolResult("c1", "tool", json.RawMessage(`{"error":"one"}`), true, false)),
+			dbMessage(t, 4, database.ChatMessageRoleAssistant, false, codersdk.ChatMessageToolCall("c2", "tool", json.RawMessage(`{"x":1}`))),
+			dbMessage(t, 5, database.ChatMessageRoleTool, false, codersdk.ChatMessageToolResult("c2", "tool", json.RawMessage(`{"ok":true}`), false, false)),
+			dbMessage(t, 6, database.ChatMessageRoleAssistant, false, codersdk.ChatMessageToolCall("c3", "tool", json.RawMessage(`{"x":1}`))),
+			dbMessage(t, 7, database.ChatMessageRoleTool, false, codersdk.ChatMessageToolResult("c3", "tool", json.RawMessage(`{"error":"two"}`), true, false)),
+		}
+		_, count, stop, err := repeatedFailedToolCall(messages, 3)
+		require.NoError(t, err)
+		require.False(t, stop)
+		require.Zero(t, count)
+	})
+}
+
 func TestDecisionCompactsAgainAfterPostCompactionTurn(t *testing.T) {
 	t.Parallel()
 

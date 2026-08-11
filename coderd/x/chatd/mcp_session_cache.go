@@ -170,6 +170,14 @@ func (server *Server) connectExternalMCPForChat(
 			chat.OwnerID,
 			server.oidcTokenSource,
 			coderHeaders,
+			func(configID uuid.UUID, transportErr error) {
+				logger.Warn(ctx, "invalidating MCP chat session after transport failure",
+					slog.F("chat_id", chat.ID),
+					slog.F("mcp_server_config_id", configID),
+					slog.Error(transportErr),
+				)
+				server.mcpSessions.close(chat.ID)
+			},
 		)
 	}
 	if server.mcpSessions == nil || !canCacheMCPSession(configs) {
