@@ -1447,6 +1447,26 @@ func toolResultPartToMessagePart(logger slog.Logger, part codersdk.ChatMessagePa
 		if unmarshalErr == nil && media.Data != "" && media.MimeType != "" {
 			_, decErr := base64.StdEncoding.DecodeString(media.Data)
 			if decErr == nil {
+				// Generic MCP media is persisted for the Coder UI, but the
+				// OpenAI-compatible provider path cannot encode binary tool
+				// results. Sending it as media causes the tool result message
+				// to be dropped and leaves the request ending on the assistant
+				// tool-call turn. Keep the media in storage/UI and give the LLM
+				// the human-readable MCP annotation for continuation instead.
+				// Built-in computer-use media has no MCP server ID and must
+				// remain binary so vision-capable providers can inspect it.
+				if part.MCPServerConfigID.Valid {
+					annotation := strings.TrimSpace(strings.ToValidUTF8(media.Text, "\uFFFD"))
+					if annotation == "" {
+						annotation = fmt.Sprintf("[%s returned by MCP tool]", media.MimeType)
+					}
+					return fantasy.ToolResultPart{
+						ToolCallID:       toolCallID,
+						ProviderExecuted: part.ProviderExecuted,
+						Output:           fantasy.ToolResultOutputContentText{Text: annotation},
+						ProviderOptions:  opts,
+					}
+				}
 				return fantasy.ToolResultPart{
 					ToolCallID:       toolCallID,
 					ProviderExecuted: part.ProviderExecuted,
