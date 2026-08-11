@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -1619,6 +1620,26 @@ func TestConvertCallResult_UTF8Sanitization(t *testing.T) {
 			for _, want := range tt.wantContains {
 				require.Contains(t, resp.Content, want)
 			}
+		})
+	}
+}
+
+func TestIsFatalTransportError(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil response", err: errors.New("transport error: unexpected nil response"), want: true},
+		{name: "terminated", err: errors.New("session terminated (404). need to re-initialize"), want: true},
+		{name: "not initialized", err: errors.New("Bad Request: Server not initialized"), want: true},
+		{name: "ordinary tool error", err: errors.New("element not found"), want: false},
+		{name: "nil", err: nil, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, mcpclient.IsFatalTransportErrorForTest(tc.err))
 		})
 	}
 }

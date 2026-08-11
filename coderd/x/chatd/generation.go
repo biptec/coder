@@ -138,6 +138,8 @@ type generationRetryDecision struct {
 	delay             time.Duration
 }
 
+const repeatedToolFailureLimit = 3
+
 var errRetryStateDecisionOnly = xerrors.New("retry state decision only")
 
 // errTerminalGeneration marks a prepare or decide failure as terminal: a
@@ -207,6 +209,19 @@ func decideGenerationAction(input generationDecisionInput) (generationDecision, 
 	if stopAfter {
 		return generationDecision{kind: generationActionFinishTurn, finishReason: generationFinishReasonStopAfterTool}, nil
 	}
+	toolName, failureCount, repeatedFailure, err := repeatedFailedToolCall(input.messages, repeatedToolFailureLimit)
+	if err != nil {
+		return generationDecision{}, err
+	}
+	if repeatedFailure {
+		cause := xerrors.Errorf("tool %q failed %d times with identical arguments in the current turn", toolName, failureCount)
+		return generationDecision{}, terminalGeneration(chaterror.WithClassification(cause, chaterror.ClassifiedError{
+			Message:   "A tool failed repeatedly with the same request, so the turn was stopped to prevent an infinite tool loop. Retry after checking the tool or service.",
+			Kind:      codersdk.ChatErrorKindGeneric,
+			Retryable: false,
+		}))
+	}
+
 	complete, err := currentHistoryComplete(input.messages)
 	if err != nil {
 		return generationDecision{}, err
@@ -233,6 +248,67 @@ func decideGenerationAction(input generationDecisionInput) (generationDecision, 
 	default:
 		return generationDecision{}, terminalGeneration(xerrors.New("unknown compaction status"))
 	}
+}
+
+func repeatedFailedToolCall(messages []database.ChatMessage, limit int) (string, int, bool, error) {
+	if limit <= 0 {
+		return "", 0, false, nil
+	}
+	latestUser := -1
+	for i, msg := range messages {
+		if msg.Deleted || msg.Compressed {
+			continue
+		}
+		if msg.Role == database.ChatMessageRoleUser {
+			latestUser = i
+		}
+	}
+
+	callSignatures := make(map[string]string)
+	toolNames := make(map[string]string)
+	failures := make(map[string]int)
+	for i := latestUser + 1; i < len(messages); i++ {
+		msg := messages[i]
+		if msg.Deleted || msg.Compressed {
+			continue
+		}
+		parts, err := chatprompt.ParseContent(msg)
+		if err != nil {
+			return "", 0, false, xerrors.Errorf("parse message for repeated tool failure guard: %w", err)
+		}
+		for _, part := range parts {
+			switch part.Type {
+			case codersdk.ChatMessagePartTypeToolCall:
+				if part.ProviderExecuted || part.ToolCallID == "" {
+					continue
+				}
+				args := part.Args
+				var decoded any
+				if len(args) > 0 && json.Unmarshal(args, &decoded) == nil {
+					if normalized, marshalErr := json.Marshal(decoded); marshalErr == nil {
+						args = normalized
+					}
+				}
+				signature := part.ToolName + "\x00" + string(args)
+				callSignatures[part.ToolCallID] = signature
+				toolNames[signature] = part.ToolName
+			case codersdk.ChatMessagePartTypeToolResult:
+				signature, ok := callSignatures[part.ToolCallID]
+				if !ok {
+					continue
+				}
+				if !part.IsError {
+					delete(failures, signature)
+					continue
+				}
+				failures[signature]++
+				if failures[signature] >= limit {
+					return toolNames[signature], failures[signature], true, nil
+				}
+			}
+		}
+	}
+	return "", 0, false, nil
 }
 
 func generationCompactionThreshold(compaction *generationCompaction) int32 {
