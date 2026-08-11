@@ -289,6 +289,24 @@ func TestPinnedWorkspaceContext(t *testing.T) {
 		require.Empty(t, skills)
 	})
 
+	t.Run("NoRowsStillYieldsWorkspaceMetadata", func(t *testing.T) {
+		t.Parallel()
+
+		ctrl := gomock.NewController(t)
+		db := dbmock.NewMockStore(ctrl)
+		chatID := uuid.New()
+		db.EXPECT().ListChatContextResourcesByChatID(gomock.Any(), chatID).
+			Return([]database.ChatContextResource{}, nil)
+		server := newPinServer(t, db)
+
+		agent := database.WorkspaceAgent{OperatingSystem: "linux", ExpandedDirectory: "/home/coder/workspace"}
+		instruction, skills, err := server.pinnedWorkspaceContext(context.Background(), database.Chat{ID: chatID}, agent)
+		require.NoError(t, err)
+		require.Contains(t, instruction, "Operating System: linux")
+		require.Contains(t, instruction, "Working Directory: /home/coder/workspace")
+		require.Empty(t, skills)
+	})
+
 	t.Run("RowsPresent", func(t *testing.T) {
 		t.Parallel()
 
@@ -422,7 +440,7 @@ func TestPinnedWorkspaceContextFromHydratedPin(t *testing.T) {
 	require.Equal(t, "/home/coder/ws/.coder/skills/deploy", skills[0].Dir)
 
 	// A chat created after hydration keeps a NULL pinned hash and no pinned
-	// rows, so the pin yields no instruction or skills.
+	// rows, but still receives the workspace metadata needed for tool paths.
 	unpinnedChat := dbgen.Chat(t, db, database.Chat{
 		OwnerID:           user.ID,
 		OrganizationID:    org.ID,
@@ -433,7 +451,8 @@ func TestPinnedWorkspaceContextFromHydratedPin(t *testing.T) {
 	})
 	emptyInstruction, emptySkills, err := server.pinnedWorkspaceContext(ctx, unpinnedChat, agent)
 	require.NoError(t, err)
-	require.Empty(t, emptyInstruction)
+	require.Contains(t, emptyInstruction, "Operating System: linux")
+	require.Contains(t, emptyInstruction, "Working Directory: /home/coder/ws")
 	require.Empty(t, emptySkills)
 }
 
