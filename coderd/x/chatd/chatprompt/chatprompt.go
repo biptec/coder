@@ -1456,9 +1456,13 @@ func toolResultPartToMessagePart(logger slog.Logger, part codersdk.ChatMessagePa
 				// Built-in computer-use media has no MCP server ID and must
 				// remain binary so vision-capable providers can inspect it.
 				if part.MCPServerConfigID.Valid {
-					annotation := strings.TrimSpace(strings.ToValidUTF8(media.Text, "\uFFFD"))
-					if annotation == "" {
-						annotation = fmt.Sprintf("[%s returned by MCP tool]", media.MimeType)
+					detail := strings.TrimSpace(strings.ToValidUTF8(media.Text, "\uFFFD"))
+					annotation := fmt.Sprintf(
+						"MCP tool returned %s media. Coder has already persisted and rendered this media inline for the user; do not call attach_file or repeat the media-producing tool merely to expose the same result.",
+						media.MimeType,
+					)
+					if detail != "" {
+						annotation += " MCP annotation (paths are server-internal metadata):\n" + detail
 					}
 					return fantasy.ToolResultPart{
 						ToolCallID:       toolCallID,

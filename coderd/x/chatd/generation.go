@@ -883,6 +883,7 @@ func (s *taskStarter) enterRequiresAction(
 	if err != nil {
 		return normalizeTaskTransitionError(err, "enter requires action")
 	}
+	s.server.closeExternalMCPForChat(input.ChatID)
 	if err := s.publishWatchAndRoute(ctx, committed, codersdk.ChatWatchEventKindActionRequired); err != nil {
 		return xerrors.Errorf("publish watch and route: %w", err)
 	}
@@ -937,6 +938,7 @@ func (s *taskStarter) finishGenerationTurn(
 	if err != nil {
 		return normalizeTaskTransitionError(err, "finish generation turn")
 	}
+	s.server.closeExternalMCPForChat(input.ChatID)
 	input.DebugTurn.RecordOutcome(chatdebug.StatusCompleted)
 	watchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), postCommitWatchPublishTimeout)
 	defer cancel()
@@ -1006,6 +1008,7 @@ func (s *taskStarter) finishGenerationError(
 	if err != nil {
 		return normalizeTaskTransitionError(err, "finish generation error")
 	}
+	s.server.closeExternalMCPForChat(input.ChatID)
 	input.DebugTurn.RecordOutcome(chatdebug.StatusError)
 	if err := s.publishWatchAndRoute(ctx, committed, codersdk.ChatWatchEventKindStatusChange); err != nil {
 		return xerrors.Errorf("publish watch and route: %w", err)

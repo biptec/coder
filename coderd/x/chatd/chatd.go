@@ -179,6 +179,7 @@ type Server struct {
 	debugSvcInit                   sync.Once
 	configCache                    *chatConfigCache
 	configCacheUnsubscribe         func()
+	mcpSessions                    *mcpSessionCache
 
 	usageTracker      *workspacestats.UsageTracker
 	clock             quartz.Clock
@@ -3277,6 +3278,7 @@ func New(ps pubsub.Pubsub, cfg Config) *Server {
 		usageTracker:               cfg.UsageTracker,
 		clock:                      clk,
 		recordingSem:               make(chan struct{}, maxConcurrentRecordingUploads),
+		mcpSessions:                newMCPSessionCache(),
 	}
 	var chatAutoArchiveRecords prometheus.Counter
 	if cfg.PrometheusRegistry != nil {
@@ -4951,6 +4953,9 @@ func (p *Server) Close() error {
 	}
 	if p.messagePartBuffer != nil {
 		p.messagePartBuffer.Close()
+	}
+	if p.mcpSessions != nil {
+		p.mcpSessions.closeAll()
 	}
 	p.cancel()
 	p.wg.Wait()

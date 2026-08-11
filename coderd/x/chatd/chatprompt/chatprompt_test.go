@@ -3172,7 +3172,9 @@ func TestToolResultAntivenom(t *testing.T) {
 		require.False(t, isMedia, "MCP media should stay in persistence/UI, not provider tool history")
 		textOutput, isText := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentText](result.Output)
 		require.True(t, isText, "MCP media should become a text tool result for provider continuation")
-		require.Equal(t, "Screenshot captured", textOutput.Text)
+		require.Contains(t, textOutput.Text, "Coder has already persisted and rendered this media inline")
+		require.Contains(t, textOutput.Text, "do not call attach_file")
+		require.Contains(t, textOutput.Text, "Screenshot captured")
 	})
 
 	t.Run("MCPMediaWithoutTextUsesSafePlaceholder", func(t *testing.T) {
@@ -3196,7 +3198,8 @@ func TestToolResultAntivenom(t *testing.T) {
 		result := chatprompt.ToolResultPartToMessagePartForTest(logger, part)
 		textOutput, ok := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentText](result.Output)
 		require.True(t, ok)
-		require.Equal(t, "[image/png returned by MCP tool]", textOutput.Text)
+		require.Contains(t, textOutput.Text, "MCP tool returned image/png media")
+		require.Contains(t, textOutput.Text, "do not call attach_file")
 	})
 
 	t.Run("MediaWithInvalidUTF8TextSanitized", func(t *testing.T) {
