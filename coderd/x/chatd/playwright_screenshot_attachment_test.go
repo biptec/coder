@@ -24,9 +24,11 @@ func (t *identifiedScreenshotTool) Info() fantasy.ToolInfo       { return t.info
 func (t *identifiedScreenshotTool) ProviderOptions() fantasy.ProviderOptions {
 	return t.providerOptions
 }
+
 func (t *identifiedScreenshotTool) SetProviderOptions(options fantasy.ProviderOptions) {
 	t.providerOptions = options
 }
+
 func (t *identifiedScreenshotTool) Run(_ context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
 	t.lastInput = call.Input
 	return fantasy.ToolResponse{
