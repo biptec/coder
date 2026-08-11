@@ -365,6 +365,7 @@ func (server *Server) prepareGeneration(
 	setAdvisorPromptSnapshot(prompt)
 
 	storeChatAttachment := server.newStoreChatAttachmentFunc(&workspaceCtx)
+	mcpTools = appendPlaywrightScreenshotAttachmentTool(mcpTools, storeChatAttachment)
 	tools := []fantasy.AgentTool{
 		chattool.ReadFile(chattool.ReadFileOptions{GetWorkspaceConn: workspaceCtx.getWorkspaceConn}),
 		chattool.WriteFile(chattool.WriteFileOptions{
