@@ -283,15 +283,13 @@ func (server *Server) prepareGeneration(
 	if len(mcpConnectConfigs) > 0 {
 		g2.Go(func() error {
 			mcpTokens = server.refreshExpiredMCPTokens(ctx, logger, mcpConnectConfigs, mcpTokens)
-			mcpTools, mcpCleanup = mcpclient.ConnectAll(
-				ctx,
-				logger,
-				mcpConnectConfigs,
-				mcpTokens,
-				chat.OwnerID,
-				server.oidcTokenSource,
-				chatprovider.CoderHeaders(chat),
+			var err error
+			mcpTools, mcpCleanup, err = server.connectExternalMCPForChat(
+				ctx, logger, chat, mcpConnectConfigs, mcpTokens,
 			)
+			if err != nil {
+				return xerrors.Errorf("connect external MCP servers: %w", err)
+			}
 			return nil
 		})
 	}
@@ -379,15 +377,19 @@ func (server *Server) prepareGeneration(
 			ResolvePlanPath:  resolvePlanPathForTools,
 			IsPlanTurn:       isPlanModeTurn,
 		}),
-		chattool.AttachFile(chattool.AttachFileOptions{
+	}
+	if chat.WorkspaceID.Valid {
+		tools = append(tools, chattool.AttachFile(chattool.AttachFileOptions{
 			GetWorkspaceConn: workspaceCtx.getWorkspaceConn,
 			StoreFile:        storeChatAttachment,
-		}),
+		}))
+	}
+	tools = append(tools,
 		chattool.Execute(chattool.ExecuteOptions{GetWorkspaceConn: workspaceCtx.getWorkspaceConn}),
 		chattool.ProcessOutput(chattool.ProcessToolOptions{GetWorkspaceConn: workspaceCtx.getWorkspaceConn}),
 		chattool.ProcessList(chattool.ProcessToolOptions{GetWorkspaceConn: workspaceCtx.getWorkspaceConn}),
 		chattool.ProcessSignal(chattool.ProcessToolOptions{GetWorkspaceConn: workspaceCtx.getWorkspaceConn}),
-	}
+	)
 	if isPlanModeTurn && isRootChat {
 		tools = append(tools, chattool.NewAskUserQuestionTool())
 	}

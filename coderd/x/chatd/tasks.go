@@ -326,6 +326,7 @@ func (s *taskStarter) StartInterrupt(ctx context.Context, input chatWorkerTaskSt
 		}
 		return normalizeTaskTransitionError(err, "finish interruption")
 	}
+	s.server.closeExternalMCPForChat(input.ChatID)
 	input.DebugTurn.RecordOutcome(chatdebug.StatusInterrupted)
 	if err := s.publishWatchAndRoute(ctx, committed, codersdk.ChatWatchEventKindStatusChange); err != nil {
 		return xerrors.Errorf("publish watch and route: %w", err)
@@ -473,6 +474,7 @@ func (s *taskStarter) cancelRequiresAction(
 		}
 		return normalizeTaskTransitionError(err, "cancel requires action")
 	}
+	s.server.closeExternalMCPForChat(input.ChatID)
 	return s.publishWatchAndRoute(ctx, committed, codersdk.ChatWatchEventKindStatusChange)
 }
 
@@ -507,6 +509,7 @@ func (s *taskStarter) StartAbandon(ctx context.Context, input chatWorkerTaskStar
 		}
 		return normalizeTaskTransitionError(err, "abandon chat")
 	}
+	s.server.closeExternalMCPForChat(input.ChatID)
 	s.requestCleanup(ctx, runnerKey{ChatID: input.ChatID, RunnerID: input.RunnerID})
 	return nil
 }
