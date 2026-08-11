@@ -1,6 +1,6 @@
-import type { DiffLineAnnotation } from "@pierre/diffs/react";
+import type { DiffLineAnnotation, FileDiffMetadata } from "@pierre/diffs/react";
 import { describe, expect, it } from "vitest";
-import { annotationsVersion } from "./DiffViewer";
+import { annotationsVersion, codeViewItemVersion } from "./DiffViewer";
 
 const annotation = (
 	lineNumber: number,
@@ -40,5 +40,31 @@ describe("annotationsVersion", () => {
 
 	it("differs from the empty state for any annotation", () => {
 		expect(annotationsVersion([annotation(0)])).not.toBe(0);
+	});
+});
+
+describe("codeViewItemVersion", () => {
+	const fileDiff = (): FileDiffMetadata => ({}) as FileDiffMetadata;
+
+	it("is stable for the same parsed file and annotation state", () => {
+		const file = fileDiff();
+		expect(codeViewItemVersion(file, undefined)).toBe(
+			codeViewItemVersion(file, undefined),
+		);
+	});
+
+	it("changes when the parsed file object changes", () => {
+		// Regression: Git can publish a new diff for the same path while there are
+		// no annotations. CodeView skips the replacement when version stays 0.
+		expect(codeViewItemVersion(fileDiff(), undefined)).not.toBe(
+			codeViewItemVersion(fileDiff(), undefined),
+		);
+	});
+
+	it("changes when annotations change on the same parsed file", () => {
+		const file = fileDiff();
+		expect(codeViewItemVersion(file, [annotation(5)])).not.toBe(
+			codeViewItemVersion(file, [annotation(6)]),
+		);
 	});
 });
