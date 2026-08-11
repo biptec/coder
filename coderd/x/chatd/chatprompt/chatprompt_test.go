@@ -3146,6 +3146,59 @@ func TestToolResultAntivenom(t *testing.T) {
 		require.Equal(t, "screenshot", mediaOutput.Text)
 	})
 
+	t.Run("MCPMediaResultUsesTextForProviderContinuation", func(t *testing.T) {
+		t.Parallel()
+
+		validBase64 := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQAB"
+		mediaJSON, err := json.Marshal(map[string]string{
+			"data":      validBase64,
+			"mime_type": "image/png",
+			"text":      "Screenshot captured",
+		})
+		require.NoError(t, err)
+
+		part := codersdk.ChatMessagePart{
+			Type:              codersdk.ChatMessagePartTypeToolResult,
+			ToolCallID:        "call-mcp-image",
+			ToolName:          "playwright__browser_take_screenshot",
+			MCPServerConfigID: uuid.NullUUID{UUID: uuid.New(), Valid: true},
+			Result:            json.RawMessage(mediaJSON),
+			IsMedia:           true,
+		}
+
+		result := chatprompt.ToolResultPartToMessagePartForTest(logger, part)
+
+		_, isMedia := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentMedia](result.Output)
+		require.False(t, isMedia, "MCP media should stay in persistence/UI, not provider tool history")
+		textOutput, isText := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentText](result.Output)
+		require.True(t, isText, "MCP media should become a text tool result for provider continuation")
+		require.Equal(t, "Screenshot captured", textOutput.Text)
+	})
+
+	t.Run("MCPMediaWithoutTextUsesSafePlaceholder", func(t *testing.T) {
+		t.Parallel()
+
+		mediaJSON, err := json.Marshal(map[string]string{
+			"data":      "aW1hZ2U=",
+			"mime_type": "image/png",
+		})
+		require.NoError(t, err)
+
+		part := codersdk.ChatMessagePart{
+			Type:              codersdk.ChatMessagePartTypeToolResult,
+			ToolCallID:        "call-mcp-image-empty-text",
+			ToolName:          "playwright__browser_take_screenshot",
+			MCPServerConfigID: uuid.NullUUID{UUID: uuid.New(), Valid: true},
+			Result:            json.RawMessage(mediaJSON),
+			IsMedia:           true,
+		}
+
+		result := chatprompt.ToolResultPartToMessagePartForTest(logger, part)
+		textOutput, ok := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentText](result.Output)
+		require.True(t, ok)
+		require.Equal(t, "[image/png returned by MCP tool]", textOutput.Text)
+	})
+
 	t.Run("MediaWithInvalidUTF8TextSanitized", func(t *testing.T) {
 		t.Parallel()
 
