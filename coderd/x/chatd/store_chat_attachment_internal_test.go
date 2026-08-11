@@ -148,7 +148,47 @@ func TestStoreChatAttachment_AllowsUnsupportedPromptInputType(t *testing.T) {
 	}, attachment)
 }
 
-func TestStoreChatAttachment_NoWorkspace(t *testing.T) {
+func TestStoreChatAttachment_NoWorkspaceUsesChatOrganization(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	db := dbmock.NewMockStore(ctrl)
+	tx := dbmock.NewMockStore(ctrl)
+	server := &Server{db: db}
+
+	chatID := uuid.New()
+	ownerID := uuid.New()
+	orgID := uuid.New()
+	fileID := uuid.New()
+	chatSnapshot := database.Chat{
+		ID:             chatID,
+		OwnerID:        ownerID,
+		OrganizationID: orgID,
+	}
+
+	expectStoreChatAttachmentTx(t, db, tx)
+	tx.EXPECT().InsertChatFile(gomock.Any(), gomock.AssignableToTypeOf(database.InsertChatFileParams{})).DoAndReturn(
+		func(_ context.Context, arg database.InsertChatFileParams) (database.InsertChatFileRow, error) {
+			require.Equal(t, ownerID, arg.OwnerID)
+			require.Equal(t, orgID, arg.OrganizationID)
+			require.Equal(t, "cnn.png", arg.Name)
+			require.Equal(t, "image/png", arg.Mimetype)
+			return database.InsertChatFileRow{ID: fileID}, nil
+		},
+	)
+	tx.EXPECT().LinkChatFiles(gomock.Any(), database.LinkChatFilesParams{
+		ChatID:       chatID,
+		MaxFileLinks: int32(codersdk.MaxChatFileIDs),
+		FileIds:      []uuid.UUID{fileID},
+	}).Return(int32(0), nil)
+
+	attachment, err := server.storeChatAttachment(context.Background(), chatSnapshot, "cnn.png", "cnn.png", []byte("\x89PNG\r\n\x1a\n"))
+	require.NoError(t, err)
+	require.Equal(t, fileID, attachment.FileID)
+	require.Equal(t, "cnn.png", attachment.Name)
+}
+
+func TestStoreChatAttachment_NoWorkspaceMissingOrganization(t *testing.T) {
 	t.Parallel()
 
 	ctrl := gomock.NewController(t)
@@ -156,7 +196,7 @@ func TestStoreChatAttachment_NoWorkspace(t *testing.T) {
 	server := &Server{db: db}
 
 	attachment, err := server.storeChatAttachment(context.Background(), database.Chat{}, "build.log", "build.log", []byte("build output"))
-	require.ErrorContains(t, err, "no workspace is associated")
+	require.ErrorContains(t, err, "chat organization is not set")
 	require.Equal(t, chattool.AttachmentMetadata{}, attachment)
 }
 
