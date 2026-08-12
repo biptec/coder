@@ -82,6 +82,54 @@ func TestActiveServer_RetryStatePersistedDuringBackoff(t *testing.T) {
 	requireTextPart(t, messages[len(messages)-1], "recovered")
 }
 
+func TestActiveServer_EmptyCompletionRetriesAndRecovers(t *testing.T) {
+	t.Parallel()
+
+	ctx := testutil.Context(t, testutil.WaitLong)
+	db, ps := dbtestutil.NewDB(t)
+	clock := quartz.NewMock(t).WithLogger(quartz.NoOpLogger)
+	sink := testutil.NewFakeSink(t)
+	var calls atomic.Int32
+	openAIURL := chattest.NewOpenAI(t, func(req *chattest.OpenAIRequest) chattest.OpenAIResponse {
+		if !req.Stream {
+			return chattest.OpenAINonStreamingResponse("title")
+		}
+		if calls.Add(1) == 1 {
+			return chattest.OpenAIStreamingResponse(chattest.OpenAIChunk{
+				ID:      "chatcmpl-empty",
+				Object:  "chat.completion.chunk",
+				Created: time.Now().Unix(),
+				Model:   "gpt-4",
+				Choices: []chattest.OpenAIChunkChoice{{Index: 0, FinishReason: "stop"}},
+			})
+		}
+		return chattest.OpenAIStreamingResponse(openAITextChunksWithStop("recovered")...)
+	})
+	user, org, model := seedChatDependenciesWithProvider(t, db, "openai", openAIURL)
+	server := newActiveTestServer(t, db, ps, func(cfg *chatd.Config) {
+		cfg.Clock = clock
+		cfg.Logger = sink.Logger()
+	})
+
+	chat := createChatThroughServer(ctx, t, db, server, org.ID, user.ID, model.ID, "hello")
+	withRetry := waitForChatRetryState(ctx, t, db, chat.ID)
+	require.Equal(t, database.ChatStatusRunning, withRetry.Status)
+	require.Equal(t, int64(1), withRetry.GenerationAttempt)
+
+	advanceToNextTimer(ctx, clock)
+	advanceUntilProviderCall(ctx, clock, &calls, 2)
+	waitForChatStatus(ctx, t, db, chat.ID, database.ChatStatusWaiting)
+	require.Equal(t, int32(2), calls.Load())
+
+	messages, err := db.GetChatMessagesByChatID(ctx, database.GetChatMessagesByChatIDParams{ChatID: chat.ID})
+	require.NoError(t, err)
+	requireTextPart(t, messages[len(messages)-1], "recovered")
+	entries := retryEntriesWithMessage(sink, "chat generation retrying")
+	require.Len(t, entries, 1)
+	require.Equal(t, "generate_assistant", retrySinkFieldValue(t, entries[0].Fields, "action"))
+	require.Equal(t, "openai", retrySinkFieldValue(t, entries[0].Fields, "provider"))
+}
+
 func TestActiveServer_RetryStreamSilenceTimeoutAndClassification(t *testing.T) {
 	t.Parallel()
 

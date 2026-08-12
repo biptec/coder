@@ -696,8 +696,16 @@ func (s *taskStarter) generateAssistant(
 	if err != nil {
 		return xerrors.Errorf("generate assistant: %w", err)
 	}
-	if len(outcome.Step.Content) == 0 {
-		return s.finishGenerationTurn(ctx, machine, input, attempt, generationDecision{kind: generationActionFinishTurn, finishReason: generationFinishReasonComplete}, generationAttemptRequired)
+	if !assistantStepHasMeaningfulContent(outcome.Step.Content) {
+		return chaterror.WithClassification(
+			xerrors.New("AI provider returned an empty assistant completion"),
+			chaterror.ClassifiedError{
+				Message:   "The AI provider returned an empty response.",
+				Kind:      codersdk.ChatErrorKindGeneric,
+				Provider:  prepared.ResolvedProvider,
+				Retryable: true,
+			},
+		)
 	}
 	messages, err := buildCommitStepMessages(buildCommitStepMessagesInput{
 		modelConfigID:      prepared.ModelConfigID,
@@ -711,6 +719,23 @@ func (s *taskStarter) generateAssistant(
 		return s.finishGenerationError(ctx, machine, input, attempt, err, generationAttemptRequired)
 	}
 	return s.commitGenerationStep(ctx, machine, input, attempt, generationActionGenerateAssistant, messages)
+}
+
+func assistantStepHasMeaningfulContent(content []fantasy.Content) bool {
+	for _, block := range content {
+		part := chatprompt.PartFromContent(block)
+		switch part.Type {
+		case codersdk.ChatMessagePartTypeText, codersdk.ChatMessagePartTypeReasoning:
+			if strings.TrimSpace(part.Text) != "" {
+				return true
+			}
+		case "":
+			continue
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 func (s *taskStarter) executeLocalTools(

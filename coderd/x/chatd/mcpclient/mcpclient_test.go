@@ -1671,3 +1671,57 @@ func TestConnectAll_StreamableHTTPStartsContinuousListener(t *testing.T) {
 	require.Eventually(t, getSeen.Load, time.Second, 10*time.Millisecond,
 		"streamable HTTP MCP connection must maintain the server GET event stream")
 }
+
+func TestConvertCallResult_StructuredContentDeduplication(t *testing.T) {
+	t.Parallel()
+
+	jsonText := `{"text":"memory restored","usage":{"tokens":10}}`
+	tests := []struct {
+		name   string
+		result *mcp.CallToolResult
+		want   string
+	}{
+		{
+			name: "EquivalentJSONText",
+			result: &mcp.CallToolResult{
+				Content: []mcp.Content{mcp.TextContent{Text: jsonText}},
+				StructuredContent: map[string]any{
+					"text":  "memory restored",
+					"usage": map[string]any{"tokens": float64(10)},
+				},
+			},
+			want: jsonText,
+		},
+		{
+			name: "ResultWrapperMirrorsText",
+			result: &mcp.CallToolResult{
+				Content:           []mcp.Content{mcp.TextContent{Text: jsonText}},
+				StructuredContent: map[string]any{"result": jsonText},
+			},
+			want: jsonText,
+		},
+		{
+			name: "DistinctStructuredContentPreserved",
+			result: &mcp.CallToolResult{
+				Content:           []mcp.Content{mcp.TextContent{Text: "summary"}},
+				StructuredContent: map[string]any{"count": float64(2)},
+			},
+			want: "summary\n{\"count\":2}",
+		},
+		{
+			name: "StructuredOnlyPreserved",
+			result: &mcp.CallToolResult{
+				StructuredContent: map[string]any{"count": float64(2)},
+			},
+			want: `{"count":2}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			resp := mcpclient.ConvertCallResultForTest(tt.result)
+			require.Equal(t, tt.want, resp.Content)
+		})
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -865,8 +866,11 @@ func convertCallResult(
 		}
 	}
 
-	// If structured content is present, marshal it to JSON and
-	// append as a text part so the data is preserved for the LLM.
+	// If structured content is present, preserve it unless the MCP
+	// server already emitted the same payload as text. Some servers
+	// return a JSON TextContent plus StructuredContent of the form
+	// {"result": "<same JSON>"}; appending both doubles large tool
+	// results and can needlessly exhaust the model context.
 	if result.StructuredContent != nil {
 		data, err := json.Marshal(result.StructuredContent)
 		if err != nil {
@@ -874,7 +878,7 @@ func convertCallResult(
 				"[structured content marshal error: "+
 					err.Error()+"]",
 			)
-		} else {
+		} else if !structuredContentDuplicatesText(result.StructuredContent, string(data), textParts) {
 			textParts = append(textParts, string(data))
 		}
 	}
@@ -894,6 +898,34 @@ func convertCallResult(
 		return resp
 	}
 	return fantasy.NewTextResponse("")
+}
+
+func structuredContentDuplicatesText(structured any, structuredJSON string, textParts []string) bool {
+	for _, text := range textParts {
+		trimmed := strings.TrimSpace(text)
+		if trimmed == structuredJSON {
+			return true
+		}
+
+		var textJSON any
+		if json.Unmarshal([]byte(trimmed), &textJSON) == nil && reflect.DeepEqual(textJSON, structured) {
+			return true
+		}
+	}
+
+	// A number of MCP servers expose the human-readable content in
+	// Content and mirror it in StructuredContent under a single
+	// `result` field. Treat that wrapper as duplicate too.
+	if wrapped, ok := structured.(map[string]any); ok && len(wrapped) == 1 {
+		if result, ok := wrapped["result"].(string); ok {
+			for _, text := range textParts {
+				if strings.TrimSpace(text) == strings.TrimSpace(result) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // RefreshResult contains the outcome of an OAuth2 token refresh
