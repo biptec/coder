@@ -697,7 +697,15 @@ func (s *taskStarter) generateAssistant(
 		return xerrors.Errorf("generate assistant: %w", err)
 	}
 	if len(outcome.Step.Content) == 0 {
-		return s.finishGenerationTurn(ctx, machine, input, attempt, generationDecision{kind: generationActionFinishTurn, finishReason: generationFinishReasonComplete}, generationAttemptRequired)
+		return chaterror.WithClassification(
+			xerrors.New("AI provider returned an empty assistant completion"),
+			chaterror.ClassifiedError{
+				Message:   "The AI provider returned an empty response. Retrying automatically.",
+				Kind:      codersdk.ChatErrorKindGeneric,
+				Provider:  prepared.ResolvedProvider,
+				Retryable: true,
+			},
+		)
 	}
 	messages, err := buildCommitStepMessages(buildCommitStepMessagesInput{
 		modelConfigID:      prepared.ModelConfigID,
