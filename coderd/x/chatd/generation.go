@@ -700,7 +700,7 @@ func (s *taskStarter) generateAssistant(
 		return chaterror.WithClassification(
 			xerrors.New("AI provider returned an empty assistant completion"),
 			chaterror.ClassifiedError{
-				Message:   "The AI provider returned an empty response. Retrying automatically.",
+				Message:   "The AI provider returned an empty response.",
 				Kind:      codersdk.ChatErrorKindGeneric,
 				Provider:  prepared.ResolvedProvider,
 				Retryable: true,
