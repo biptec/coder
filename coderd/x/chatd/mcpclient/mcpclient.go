@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
-	"reflect"
 	"net/url"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -899,7 +899,6 @@ func convertCallResult(
 	}
 	return fantasy.NewTextResponse("")
 }
-
 
 func structuredContentDuplicatesText(structured any, structuredJSON string, textParts []string) bool {
 	for _, text := range textParts {
