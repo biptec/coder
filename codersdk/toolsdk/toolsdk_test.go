@@ -1051,10 +1051,10 @@ func TestTools(t *testing.T) {
 		// Setup a workspace and agent for end-to-end process execution
 		client, workspace, agentToken := setupWorkspaceForAgent(t, nil)
 
-		// Start agent and wait for it to be ready (following main SSH test pattern)
+		// Start the agent and wait until the workspace connection is ready.
 		_ = agenttest.New(t, client.URL, agentToken)
 
-		// Wait for workspace agents to be ready like main SSH tests do
+		// Agent-backed process tools require a connected workspace agent.
 		coderdtest.NewWorkspaceAgentWaiter(t, client, workspace.ID).Wait()
 
 		// Create tool dependencies using client

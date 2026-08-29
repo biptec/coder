@@ -3,6 +3,7 @@ package toolsdk_test
 import (
 	"context"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -16,7 +17,7 @@ import (
 func TestWorkspaceBash(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
-		t.Skip("Skipping on Windows: Workspace MCP bash tools rely on a Unix-like shell (bash) and POSIX/SSH semantics. Use Linux/macOS or WSL for these tests.")
+		t.Skip("Skipping on Windows: Workspace MCP bash tools rely on a Unix-like shell (bash) and POSIX process semantics. Use Linux/macOS or WSL for these tests.")
 	}
 
 	t.Run("ValidateArgs", func(t *testing.T) {
@@ -144,7 +145,7 @@ func TestWorkspaceProcessToolsValidateArgs(t *testing.T) {
 func TestWorkspaceBashTimeout(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
-		t.Skip("Skipping on Windows: Workspace MCP bash tools rely on a Unix-like shell (bash) and POSIX/SSH semantics. Use Linux/macOS or WSL for these tests.")
+		t.Skip("Skipping on Windows: Workspace MCP bash tools rely on a Unix-like shell (bash) and POSIX process semantics. Use Linux/macOS or WSL for these tests.")
 	}
 
 	t.Run("TimeoutDefaultValue", func(t *testing.T) {
@@ -227,7 +228,7 @@ func TestWorkspaceBashTimeout(t *testing.T) {
 func TestWorkspaceBashTimeoutIntegration(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
-		t.Skip("Skipping on Windows: Workspace MCP bash tools rely on a Unix-like shell (bash) and POSIX/SSH semantics. Use Linux/macOS or WSL for these tests.")
+		t.Skip("Skipping on Windows: Workspace MCP bash tools rely on a Unix-like shell (bash) and POSIX process semantics. Use Linux/macOS or WSL for these tests.")
 	}
 
 	t.Run("ActualTimeoutBehavior", func(t *testing.T) {
@@ -282,6 +283,77 @@ func TestWorkspaceBashTimeoutIntegration(t *testing.T) {
 		require.Equal(t, result.ProcessID, completed.ProcessID)
 		require.Contains(t, completed.Output, "123")
 		require.Contains(t, completed.Output, "456")
+	})
+
+	t.Run("CallerCancellationDoesNotKillProcess", func(t *testing.T) {
+		t.Parallel()
+
+		client, workspace, agentToken := setupWorkspaceForAgent(t, nil)
+		_ = agenttest.New(t, client.URL, agentToken)
+		coderdtest.NewWorkspaceAgentWaiter(t, client, workspace.ID).Wait()
+
+		deps, err := toolsdk.NewDeps(client)
+		require.NoError(t, err)
+
+		callerCtx, cancelCaller := context.WithCancel(t.Context())
+		defer cancelCaller()
+
+		type bashCallResult struct {
+			err error
+		}
+		callDone := make(chan bashCallResult, 1)
+		go func() {
+			_, err := toolsdk.WorkspaceBash.Handler(callerCtx, deps, toolsdk.WorkspaceBashArgs{
+				Workspace: workspace.Name,
+				Command:   `echo "caller-cancel-start" && sleep 3 && echo "caller-cancel-finished"`,
+				TimeoutMs: 60000,
+			})
+			callDone <- bashCallResult{err: err}
+		}()
+
+		var processID string
+		require.Eventually(t, func() bool {
+			listed, err := testTool(t, toolsdk.WorkspaceProcessList, deps, toolsdk.WorkspaceProcessListArgs{
+				Workspace: workspace.Name,
+			})
+			if err != nil {
+				return false
+			}
+			for _, process := range listed.Processes {
+				if process.Running && strings.Contains(process.Command, "caller-cancel-start") {
+					processID = process.ID
+					return true
+				}
+			}
+			return false
+		}, testutil.WaitMedium, testutil.IntervalMedium, "started process should become discoverable before caller cancellation")
+
+		cancelCaller()
+
+		var canceled bashCallResult
+		require.Eventually(t, func() bool {
+			select {
+			case canceled = <-callDone:
+				return true
+			default:
+				return false
+			}
+		}, testutil.WaitMedium, testutil.IntervalMedium, "canceled caller should return without waiting for process exit")
+		require.Error(t, canceled.err)
+		require.ErrorContains(t, canceled.err, "context canceled")
+
+		waitMs := 5000
+		recovered, err := testTool(t, toolsdk.WorkspaceProcessOutput, deps, toolsdk.WorkspaceProcessOutputArgs{
+			Workspace:     workspace.Name,
+			ProcessID:     processID,
+			WaitTimeoutMs: &waitMs,
+		})
+		require.NoError(t, err)
+		require.False(t, recovered.Running)
+		require.Equal(t, 0, recovered.ExitCode)
+		require.Equal(t, processID, recovered.ProcessID)
+		require.Contains(t, recovered.Output, "caller-cancel-start")
+		require.Contains(t, recovered.Output, "caller-cancel-finished")
 	})
 
 	t.Run("NormalCommandExecution", func(t *testing.T) {
@@ -368,7 +440,7 @@ func TestWorkspaceBashTimeoutIntegration(t *testing.T) {
 func TestWorkspaceBashBackgroundIntegration(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
-		t.Skip("Skipping on Windows: Workspace MCP bash tools rely on a Unix-like shell (bash) and POSIX/SSH semantics. Use Linux/macOS or WSL for these tests.")
+		t.Skip("Skipping on Windows: Workspace MCP bash tools rely on a Unix-like shell (bash) and POSIX process semantics. Use Linux/macOS or WSL for these tests.")
 	}
 
 	t.Run("BackgroundCommandCapturesOutput", func(t *testing.T) {
