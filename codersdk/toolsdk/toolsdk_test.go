@@ -1047,8 +1047,8 @@ func TestTools(t *testing.T) {
 		})
 	})
 
-	t.Run("WorkspaceSSHExec", func(t *testing.T) {
-		// Setup workspace exactly like main SSH tests
+	t.Run("WorkspaceProcessExec", func(t *testing.T) {
+		// Setup a workspace and agent for end-to-end process execution
 		client, workspace, agentToken := setupWorkspaceForAgent(t, nil)
 
 		// Start agent and wait for it to be ready (following main SSH test pattern)

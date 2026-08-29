@@ -102,7 +102,7 @@ func TestWorkspaceBash(t *testing.T) {
 func TestAllToolsIncludesBash(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
-		t.Skip("Skipping on Windows: Workspace MCP bash tools rely on a Unix-like shell (bash) and POSIX/SSH semantics. Use Linux/macOS or WSL for these tests.")
+		t.Skip("Skipping on Windows: Workspace MCP bash tools rely on a Unix-like shell (bash) and POSIX process semantics. Use Linux/macOS or WSL for these tests.")
 	}
 
 	// Verify that WorkspaceBash is included in the All slice
@@ -116,9 +116,30 @@ func TestAllToolsIncludesBash(t *testing.T) {
 	require.True(t, found, "WorkspaceBash tool should be included in toolsdk.All")
 }
 
-// Note: Unit testing ExecuteCommandWithTimeout is challenging because it expects
-// a concrete SSH session type. The integration tests above demonstrate the
-// timeout functionality with a real SSH connection and mock clock.
+func TestWorkspaceProcessToolsValidateArgs(t *testing.T) {
+	t.Parallel()
+
+	deps := toolsdk.Deps{}
+
+	_, err := testTool(t, toolsdk.WorkspaceProcessOutput, deps, toolsdk.WorkspaceProcessOutputArgs{
+		Workspace: "test-workspace",
+	})
+	require.ErrorContains(t, err, "process_id cannot be empty")
+
+	_, err = testTool(t, toolsdk.WorkspaceProcessList, deps, toolsdk.WorkspaceProcessListArgs{})
+	require.ErrorContains(t, err, "workspace name cannot be empty")
+
+	_, err = testTool(t, toolsdk.WorkspaceProcessSignal, deps, toolsdk.WorkspaceProcessSignalArgs{
+		Workspace: "test-workspace",
+		ProcessID: "process-id",
+		Signal:    "invalid",
+	})
+	require.ErrorContains(t, err, `signal must be "terminate" or "kill"`)
+}
+
+// Pure helper behavior for durable process execution is covered in
+// process_internal_test.go. The integration tests below exercise the full
+// Agent process API when the test environment provides its database runtime.
 
 func TestWorkspaceBashTimeout(t *testing.T) {
 	t.Parallel()
@@ -145,15 +166,11 @@ func TestWorkspaceBashTimeout(t *testing.T) {
 	t.Run("TimeoutNegativeValue", func(t *testing.T) {
 		t.Parallel()
 
-		// Test that negative values can be set and will be handled by the default logic
-		args := toolsdk.WorkspaceBashArgs{
-			TimeoutMs: -100,
-		}
-
+		// Direct struct construction can still contain a negative value. The handler
+		// normalizes non-positive values to the default observation window; JSON tool
+		// calls are additionally constrained by the schema minimum.
+		args := toolsdk.WorkspaceBashArgs{TimeoutMs: -100}
 		require.Equal(t, -100, args.TimeoutMs)
-
-		// The actual defaulting to 60000 happens inside the handler
-		// We can't test it without a full integration test setup
 	})
 
 	t.Run("TimeoutSchemaValidation", func(t *testing.T) {
@@ -168,7 +185,9 @@ func TestWorkspaceBashTimeout(t *testing.T) {
 		require.Equal(t, "integer", timeoutProperty["type"])
 		require.Equal(t, 60000, timeoutProperty["default"])
 		require.Equal(t, 1, timeoutProperty["minimum"])
-		require.Contains(t, timeoutProperty["description"], "timeout in milliseconds")
+		require.Equal(t, 60000, timeoutProperty["maximum"])
+		require.Contains(t, timeoutProperty["description"], "observes the durable process")
+		require.Contains(t, timeoutProperty["description"], "Maximum 60000ms")
 	})
 
 	t.Run("TimeoutDescriptionUpdated", func(t *testing.T) {
@@ -185,8 +204,8 @@ func TestWorkspaceBashTimeout(t *testing.T) {
 	t.Run("TimeoutCommandScenario", func(t *testing.T) {
 		t.Parallel()
 
-		// Scenario: echo "123"; sleep 60; echo "456" with 5ms timeout
-		// In this scenario, we'd expect to see "123" in the output and a cancellation message
+		// Scenario: the command outlives the 5ms observation window. The durable
+		// process must continue on the agent and be recovered by process_id.
 		args := toolsdk.WorkspaceBashArgs{
 			Workspace: "test-workspace",
 			Command:   `echo "123"; sleep 60; echo "456"`, // This command would take 60+ seconds
@@ -214,44 +233,55 @@ func TestWorkspaceBashTimeoutIntegration(t *testing.T) {
 	t.Run("ActualTimeoutBehavior", func(t *testing.T) {
 		t.Parallel()
 
-		// Scenario: echo "123"; sleep 60; echo "456" with 5s timeout
-		// In this scenario, we'd expect to see "123" in the output and a cancellation message
-
+		// A command may outlive a single MCP request, but it must be started exactly
+		// once and remain recoverable by its durable agent process ID.
 		client, workspace, agentToken := setupWorkspaceForAgent(t, nil)
-
-		// Start the agent and wait for it to be fully ready
 		_ = agenttest.New(t, client.URL, agentToken)
-
-		// Wait for workspace agents to be ready like other SSH tests do
 		coderdtest.NewWorkspaceAgentWaiter(t, client, workspace.ID).Wait()
 
-		// Use real clock for integration test
 		deps, err := toolsdk.NewDeps(client)
 		require.NoError(t, err)
 
-		args := toolsdk.WorkspaceBashArgs{
+		result, err := testTool(t, toolsdk.WorkspaceBash, deps, toolsdk.WorkspaceBashArgs{
 			Workspace: workspace.Name,
-			Command:   `echo "123" && sleep 60 && echo "456"`, // This command would take 60+ seconds
-			TimeoutMs: 2000,                                   // 2 seconds timeout - should timeout after first echo
-		}
-
-		result, err := testTool(t, toolsdk.WorkspaceBash, deps, args)
-
-		// Should not error (timeout is handled gracefully)
+			Command:   `echo "123" && sleep 2 && echo "456"`,
+			TimeoutMs: 100,
+		})
 		require.NoError(t, err)
-
-		t.Logf("Test results: exitCode=%d, output=%q, error=%v", result.ExitCode, result.Output, err)
-
-		// Should have a non-zero exit code (timeout or error)
-		require.NotEqual(t, 0, result.ExitCode, "Expected non-zero exit code for timeout")
-
-		t.Logf("result.Output: %s", result.Output)
-
-		// Should contain the first echo output
+		require.Equal(t, 124, result.ExitCode)
+		require.True(t, result.Running)
+		require.NotEmpty(t, result.ProcessID)
 		require.Contains(t, result.Output, "123")
+		require.NotContains(t, result.Output, "456")
 
-		// Should NOT contain the second echo (it never executed due to timeout)
-		require.NotContains(t, result.Output, "456", "Should not contain output after sleep")
+		// Recovery does not depend on the caller remembering the ID: process_list can
+		// rediscover it after a transport disconnect before anything is rerun.
+		listed, err := testTool(t, toolsdk.WorkspaceProcessList, deps, toolsdk.WorkspaceProcessListArgs{
+			Workspace: workspace.Name,
+		})
+		require.NoError(t, err)
+		found := false
+		for _, process := range listed.Processes {
+			if process.ID == result.ProcessID {
+				found = true
+				require.True(t, process.Running)
+				break
+			}
+		}
+		require.True(t, found, "timed-out command must remain discoverable")
+
+		waitMs := 5000
+		completed, err := testTool(t, toolsdk.WorkspaceProcessOutput, deps, toolsdk.WorkspaceProcessOutputArgs{
+			Workspace:     workspace.Name,
+			ProcessID:     result.ProcessID,
+			WaitTimeoutMs: &waitMs,
+		})
+		require.NoError(t, err)
+		require.False(t, completed.Running)
+		require.Equal(t, 0, completed.ExitCode)
+		require.Equal(t, result.ProcessID, completed.ProcessID)
+		require.Contains(t, completed.Output, "123")
+		require.Contains(t, completed.Output, "456")
 	})
 
 	t.Run("NormalCommandExecution", func(t *testing.T) {
@@ -292,6 +322,46 @@ func TestWorkspaceBashTimeoutIntegration(t *testing.T) {
 
 		// Should NOT contain timeout message
 		require.NotContains(t, result.Output, "Command canceled due to timeout")
+	})
+
+	t.Run("TrackedProcessSignal", func(t *testing.T) {
+		t.Parallel()
+
+		client, workspace, agentToken := setupWorkspaceForAgent(t, nil)
+		_ = agenttest.New(t, client.URL, agentToken)
+		coderdtest.NewWorkspaceAgentWaiter(t, client, workspace.ID).Wait()
+
+		deps, err := toolsdk.NewDeps(client)
+		require.NoError(t, err)
+
+		result, err := testTool(t, toolsdk.WorkspaceBash, deps, toolsdk.WorkspaceBashArgs{
+			Workspace: workspace.Name,
+			Command:   `echo "ready" && sleep 30 && echo "unexpected"`,
+			TimeoutMs: 100,
+		})
+		require.NoError(t, err)
+		require.True(t, result.Running)
+		require.NotEmpty(t, result.ProcessID)
+
+		signaled, err := testTool(t, toolsdk.WorkspaceProcessSignal, deps, toolsdk.WorkspaceProcessSignalArgs{
+			Workspace: workspace.Name,
+			ProcessID: result.ProcessID,
+			Signal:    "terminate",
+		})
+		require.NoError(t, err)
+		require.True(t, signaled.Success)
+
+		waitMs := 5000
+		stopped, err := testTool(t, toolsdk.WorkspaceProcessOutput, deps, toolsdk.WorkspaceProcessOutputArgs{
+			Workspace:     workspace.Name,
+			ProcessID:     result.ProcessID,
+			WaitTimeoutMs: &waitMs,
+		})
+		require.NoError(t, err)
+		require.False(t, stopped.Running)
+		require.NotEqual(t, 0, stopped.ExitCode)
+		require.Contains(t, stopped.Output, "ready")
+		require.NotContains(t, stopped.Output, "unexpected")
 	})
 }
 
@@ -425,7 +495,7 @@ func TestWorkspaceBashBackgroundIntegration(t *testing.T) {
 		// Should contain background continuation message
 		require.Contains(t, result.Output, "Command continues running in background")
 
-		// Wait for the background command to complete (even though SSH session timed out)
+		// Wait for the durable background process to complete after this observation returned.
 		require.Eventually(t, func() bool {
 			checkArgs := toolsdk.WorkspaceBashArgs{
 				Workspace: workspace.Name,

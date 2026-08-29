@@ -43,6 +43,9 @@ const (
 	ToolNameCreateTemplate              = "coder_create_template"
 	ToolNameDeleteTemplate              = "coder_delete_template"
 	ToolNameWorkspaceBash               = "coder_workspace_bash"
+	ToolNameWorkspaceProcessOutput      = "coder_workspace_process_output"
+	ToolNameWorkspaceProcessList        = "coder_workspace_process_list"
+	ToolNameWorkspaceProcessSignal      = "coder_workspace_process_signal"
 	ToolNameChatGPTSearch               = "search"
 	ToolNameChatGPTFetch                = "fetch"
 	ToolNameWorkspaceLS                 = "coder_workspace_ls"
@@ -323,6 +326,9 @@ var All = []GenericTool{
 	UploadTarFile.Generic(),
 	UpdateTemplateActiveVersion.Generic(),
 	WorkspaceBash.Generic(),
+	WorkspaceProcessOutput.Generic(),
+	WorkspaceProcessList.Generic(),
+	WorkspaceProcessSignal.Generic(),
 	ChatGPTSearch.Generic(),
 	ChatGPTFetch.Generic(),
 	WorkspaceLS.Generic(),
