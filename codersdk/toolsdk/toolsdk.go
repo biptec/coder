@@ -43,6 +43,7 @@ const (
 	ToolNameCreateTemplate              = "coder_create_template"
 	ToolNameDeleteTemplate              = "coder_delete_template"
 	ToolNameWorkspaceBash               = "coder_workspace_bash"
+	ToolNameWorkspaceProcessStart       = "coder_workspace_process_start"
 	ToolNameWorkspaceProcessOutput      = "coder_workspace_process_output"
 	ToolNameWorkspaceProcessList        = "coder_workspace_process_list"
 	ToolNameWorkspaceProcessSignal      = "coder_workspace_process_signal"
@@ -326,6 +327,7 @@ var All = []GenericTool{
 	UploadTarFile.Generic(),
 	UpdateTemplateActiveVersion.Generic(),
 	WorkspaceBash.Generic(),
+	WorkspaceProcessStart.Generic(),
 	WorkspaceProcessOutput.Generic(),
 	WorkspaceProcessList.Generic(),
 	WorkspaceProcessSignal.Generic(),

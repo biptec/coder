@@ -9,18 +9,6 @@ import (
 	"github.com/coder/coder/v2/codersdk/workspacesdk"
 )
 
-func TestWorkspaceBashCommand(t *testing.T) {
-	t.Parallel()
-
-	require.Equal(t, "exec bash -lc 'echo hi'", workspaceBashCommand("echo hi"))
-	require.Equal(t, "'a'\"'\"'b'", shellSingleQuote("a'b"))
-	require.Equal(
-		t,
-		"exec bash -lc 'printf '\"'\"'%s\\n'\"'\"' \"hello world\"'",
-		workspaceBashCommand(`printf '%s\n' "hello world"`),
-	)
-}
-
 func TestWorkspaceProcessWaitDuration(t *testing.T) {
 	t.Parallel()
 
@@ -90,7 +78,7 @@ func TestProcessToolsRegistered(t *testing.T) {
 	}
 
 	for _, name := range []string{
-		ToolNameWorkspaceBash,
+		ToolNameWorkspaceProcessStart,
 		ToolNameWorkspaceProcessOutput,
 		ToolNameWorkspaceProcessList,
 		ToolNameWorkspaceProcessSignal,
