@@ -15,6 +15,10 @@ on:
         description: "Optional extra image tag, for example: dev-001"
         required: false
         type: string
+      version:
+        description: "Optional Coder version override, for example: 2.35.3"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -68,12 +72,14 @@ jobs:
           repository="$(echo "ghcr.io/${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
           short_sha="$(git rev-parse --short=12 HEAD)"
 
-          force_version=""
+          force_version="${{ inputs.version }}"
 
-          if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
-            force_version="${GITHUB_REF_NAME}"
-          elif [[ "${GITHUB_REF_NAME}" =~ ^build/(v?[0-9]+\.[0-9]+\.[0-9]+.*)$ ]]; then
-            force_version="${BASH_REMATCH[1]}"
+          if [[ -z "${force_version}" ]]; then
+            if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
+              force_version="${GITHUB_REF_NAME}"
+            elif [[ "${GITHUB_REF_NAME}" =~ ^build/(v?[0-9]+\.[0-9]+\.[0-9]+.*)$ ]]; then
+              force_version="${BASH_REMATCH[1]}"
+            fi
           fi
 
           force_version="${force_version#v}"
@@ -83,11 +89,13 @@ jobs:
           else
             version="$(./scripts/version.sh)"
           fi
+          docker_version="$(printf '%s' "${version}" | tr -c 'A-Za-z0-9_.-' '-')"
 
           {
             echo "repository=${repository}"
             echo "short_sha=${short_sha}"
             echo "version=${version}"
+            echo "docker_version=${docker_version}"
             echo "sha_tag=${repository}:sha-${short_sha}"
           } >> "${GITHUB_OUTPUT}"
 
@@ -123,7 +131,7 @@ jobs:
           ./scripts/build_docker.sh \
             --arch amd64 \
             --target "${{ steps.meta.outputs.sha_tag }}-amd64" \
-            --build-base "coder-base-${{ steps.meta.outputs.version }}-amd64" \
+            --build-base "coder-base-${{ steps.meta.outputs.docker_version }}-amd64" \
             --version "${{ steps.meta.outputs.version }}" \
             --push \
             build/coder-linux-amd64
@@ -131,7 +139,7 @@ jobs:
           ./scripts/build_docker.sh \
             --arch arm64 \
             --target "${{ steps.meta.outputs.sha_tag }}-arm64" \
-            --build-base "coder-base-${{ steps.meta.outputs.version }}-arm64" \
+            --build-base "coder-base-${{ steps.meta.outputs.docker_version }}-arm64" \
             --version "${{ steps.meta.outputs.version }}" \
             --push \
             build/coder-linux-arm64
