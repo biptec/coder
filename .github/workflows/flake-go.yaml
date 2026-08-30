@@ -1,7 +1,10 @@
 name: flake-go
 
 on:
+  # Custom release branches use build-custom-image's focused PR validation.
   pull_request:
+    branches-ignore:
+      - "custom/**"
   workflow_dispatch:
     inputs:
       base_sha:

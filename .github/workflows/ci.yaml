@@ -13,7 +13,10 @@ on:
   # filtered out by the changes job condition.
   create:
 
+  # Custom release branches use build-custom-image's focused PR validation.
   pull_request:
+    branches-ignore:
+      - "custom/**"
   workflow_dispatch:
 
 permissions:
