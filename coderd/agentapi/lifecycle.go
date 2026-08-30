@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"golang.org/x/mod/semver"
 	"golang.org/x/xerrors"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"cdr.dev/slog/v3"
 	agentproto "github.com/coder/coder/v2/agent/proto"
+	"github.com/coder/coder/v2/buildinfo"
 	"github.com/coder/coder/v2/coderd/database"
 	"github.com/coder/coder/v2/coderd/database/dbtime"
 	"github.com/coder/coder/v2/coderd/wspubsub"
@@ -162,8 +162,8 @@ func (a *LifecycleAPI) UpdateStartup(ctx context.Context, req *agentproto.Update
 		slog.F("agent_version", req.Startup.Version),
 	)
 
-	if !semver.IsValid(req.Startup.Version) {
-		return nil, xerrors.Errorf("invalid agent semver version %q", req.Startup.Version)
+	if !buildinfo.IsValidVersion(req.Startup.Version) {
+		return nil, xerrors.Errorf("invalid agent version %q", req.Startup.Version)
 	}
 
 	// Validate subsystems.

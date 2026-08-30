@@ -5161,10 +5161,10 @@ type WorkspaceProxyBuildInfo struct {
 // CanonicalVersion trims build information from the version.
 // E.g. 'v0.7.4-devel+11573034' -> 'v0.7.4'.
 func (b BuildInfoResponse) CanonicalVersion() string {
-	// We do a little hack here to massage the string into a form
-	// that works well with semver.
+	// We do a little hack here to massage development versions into a form
+	// that works well with semver, then normalize custom Biptec releases.
 	trimmed := strings.ReplaceAll(b.Version, "-devel+", "+devel-")
-	return semver.Canonical(trimmed)
+	return semver.Canonical(buildinfo.Semver(trimmed))
 }
 
 // BuildInfo returns build information for this instance of Coder.

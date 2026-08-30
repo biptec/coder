@@ -114,6 +114,16 @@ jobs:
           set -Eeuo pipefail
 
           ./.github/scripts/retry.sh -- go mod download
+
+          # A custom release version is embedded into both coderd and the
+          # workspace Agent. Validate that exact linker value before spending
+          # time on the full multi-architecture build.
+          go test \
+            -ldflags "-X github.com/coder/coder/v2/buildinfo.tag=${{ steps.meta.outputs.version }}" \
+            ./buildinfo \
+            -run '^TestBuildInfo/Version$' \
+            -count=1
+
           make gen/mark-fresh
 
           make \

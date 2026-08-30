@@ -44,7 +44,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
-	"golang.org/x/mod/semver"
 	"golang.org/x/oauth2"
 	xgithub "golang.org/x/oauth2/github"
 	"golang.org/x/sync/errgroup"
@@ -760,7 +759,7 @@ func (r *RootCmd) Server(newAPI func(context.Context, *coderd.Options) (*coderd.
 					Interval: 24 * time.Hour,
 					// Inform server admins of new versions.
 					Notify: func(r updatecheck.Result) {
-						if semver.Compare(r.Version, buildinfo.Version()) > 0 {
+						if buildinfo.CompareVersions(r.Version, buildinfo.Version()) > 0 {
 							options.Logger.Info(
 								context.Background(),
 								"new version of coder available",

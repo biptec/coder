@@ -698,6 +698,34 @@ func TestUpdateStartup(t *testing.T) {
 		require.Equal(t, startup, resp)
 	})
 
+	t.Run("CustomReleaseVersion", func(t *testing.T) {
+		t.Parallel()
+
+		dbM := dbmock.NewMockStore(gomock.NewController(t))
+		api := &agentapi.LifecycleAPI{
+			AgentFn:     func(ctx context.Context) (database.WorkspaceAgent, error) { return agent, nil },
+			WorkspaceID: workspaceID,
+			Database:    dbM,
+			Log:         testutil.Logger(t),
+		}
+		startup := &agentproto.Startup{
+			Version:           "v2.35.3.3+abcdef0",
+			ExpandedDirectory: "/path/to/expanded/dir",
+		}
+		dbM.EXPECT().UpdateWorkspaceAgentStartupByID(gomock.Any(), database.UpdateWorkspaceAgentStartupByIDParams{
+			ID:                agent.ID,
+			Version:           startup.Version,
+			ExpandedDirectory: startup.ExpandedDirectory,
+			Subsystems:        []database.WorkspaceAgentSubsystem{},
+			APIVersion:        "2.0",
+		}).Return(nil)
+
+		ctx := agentapi.WithAPIVersion(context.Background(), "2.0")
+		resp, err := api.UpdateStartup(ctx, &agentproto.UpdateStartupRequest{Startup: startup})
+		require.NoError(t, err)
+		require.Equal(t, startup, resp)
+	})
+
 	t.Run("BadVersion", func(t *testing.T) {
 		t.Parallel()
 
@@ -725,7 +753,7 @@ func TestUpdateStartup(t *testing.T) {
 			Startup: startup,
 		})
 		require.Error(t, err)
-		require.ErrorContains(t, err, "invalid agent semver version")
+		require.ErrorContains(t, err, "invalid agent version")
 		require.Nil(t, resp)
 	})
 
