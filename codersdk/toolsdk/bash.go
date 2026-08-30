@@ -26,8 +26,9 @@ type WorkspaceBashArgs struct {
 }
 
 type WorkspaceBashResult struct {
-	Output   string `json:"output"`
-	ExitCode int    `json:"exit_code"`
+	Output     string         `json:"output"`
+	ExitCode   int            `json:"exit_code"`
+	Advisories []ToolAdvisory `json:"advisories,omitempty"`
 }
 
 var WorkspaceBash = Tool[WorkspaceBashArgs, WorkspaceBashResult]{
@@ -36,6 +37,8 @@ var WorkspaceBash = Tool[WorkspaceBashArgs, WorkspaceBashResult]{
 		Description: `Execute a bash command in a Coder workspace.
 
 Use this convenience tool for short, ordinary commands where repeating the command after a failed request would be safe. For long-running, expensive, side-effectful, or non-idempotent commands, use coder_workspace_process_start instead so the execution can be recovered by process_id after a timeout, 502, or disconnect.
+
+In the standard Developer Workspace, only /home/coder is persistent across workspace recreation. The system filesystem outside /home/coder is ephemeral. Prefer durable tools and dependencies under $HOME. sudo is available for temporary system changes and diagnostics, but changes made with sudo outside /home/coder can disappear when the workspace is recreated. When a command invokes sudo, this tool returns a structured advisory separately from command output; stdout/stderr are not modified.
 
 This tool provides the same functionality as the 'coder ssh <workspace> <command>' CLI command.
 It automatically starts the workspace if it's stopped and waits for the agent to be ready.
@@ -130,6 +133,7 @@ Examples:
 			timeoutMs = defaultTimeoutMs
 		}
 		command := args.Command
+		advisories := commandAdvisories(args.Command)
 		if args.Background {
 			// For background commands, use nohup directly to ensure they survive SSH session
 			// termination. This captures output normally but allows the process to continue
@@ -155,8 +159,9 @@ Examples:
 					outputStr += "\nCommand canceled due to timeout"
 				}
 				return WorkspaceBashResult{
-					Output:   outputStr,
-					ExitCode: 124,
+					Output:     outputStr,
+					ExitCode:   124,
+					Advisories: advisories,
 				}, nil
 			}
 
@@ -169,14 +174,16 @@ Examples:
 
 			// For other errors, use standard timeout or generic error code
 			return WorkspaceBashResult{
-				Output:   outputStr,
-				ExitCode: exitCode,
+				Output:     outputStr,
+				ExitCode:   exitCode,
+				Advisories: advisories,
 			}, nil
 		}
 
 		return WorkspaceBashResult{
-			Output:   outputStr,
-			ExitCode: 0,
+			Output:     outputStr,
+			ExitCode:   0,
+			Advisories: advisories,
 		}, nil
 	},
 }

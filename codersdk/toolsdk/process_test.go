@@ -45,12 +45,18 @@ func TestWorkspaceProcessToolInstructions(t *testing.T) {
 	require.Contains(t, toolsdk.WorkspaceProcessStart.Description, "does not wait for completion")
 	require.Contains(t, toolsdk.WorkspaceProcessStart.Description, "DO NOT start the command again")
 	require.Contains(t, toolsdk.WorkspaceProcessStart.Description, "coder_workspace_process_list")
+	require.Contains(t, toolsdk.WorkspaceProcessStart.Description, "only /home/coder is persistent")
+	require.Contains(t, toolsdk.WorkspaceProcessStart.Description, "sudo")
 	require.Contains(t, toolsdk.WorkspaceProcessOutput.Description, "coder_workspace_process_start")
+	require.Contains(t, toolsdk.WorkspaceProcessOutput.Description, "structured persistence advisory")
+	require.Contains(t, toolsdk.WorkspaceProcessList.Description, "structured persistence advisory")
 
 	// Keep the legacy bash execution contract, but make tool selection explicit.
 	require.Contains(t, toolsdk.WorkspaceBash.Description, "short, ordinary commands")
 	require.Contains(t, toolsdk.WorkspaceBash.Description, "coder_workspace_process_start")
 	require.Contains(t, toolsdk.WorkspaceBash.Description, "non-idempotent")
+	require.Contains(t, toolsdk.WorkspaceBash.Description, "only /home/coder is persistent")
+	require.Contains(t, toolsdk.WorkspaceBash.Description, "stdout/stderr are not modified")
 }
 
 func TestWorkspaceProcessIntegration(t *testing.T) {

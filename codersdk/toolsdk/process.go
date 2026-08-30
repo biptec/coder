@@ -28,8 +28,9 @@ type WorkspaceProcessStartArgs struct {
 }
 
 type WorkspaceProcessStartResult struct {
-	ProcessID string `json:"process_id"`
-	Started   bool   `json:"started"`
+	ProcessID  string         `json:"process_id"`
+	Started    bool           `json:"started"`
+	Advisories []ToolAdvisory `json:"advisories,omitempty"`
 }
 
 var WorkspaceProcessStart = Tool[WorkspaceProcessStartArgs, WorkspaceProcessStartResult]{
@@ -40,6 +41,8 @@ var WorkspaceProcessStart = Tool[WorkspaceProcessStartArgs, WorkspaceProcessStar
 Use this tool instead of coder_workspace_bash when a command may run for a long time, is expensive, has side effects, or must not be executed twice. This tool starts the command exactly once and does not wait for completion or return command output. After a successful start, use coder_workspace_process_output with the returned process_id to observe the same process.
 
 If this call ends with a timeout, 502, disconnect, or any other uncertain result after submission, DO NOT start the command again. First call coder_workspace_process_list for the same workspace and recover the existing process by matching its command, workdir, and start time.
+
+In the standard Developer Workspace, only /home/coder is persistent across workspace recreation. The system filesystem outside /home/coder is ephemeral. Prefer durable tools and dependencies under $HOME. sudo is available for temporary system changes and diagnostics, but changes made with sudo outside /home/coder can disappear when the workspace is recreated. When a command invokes sudo, this tool returns a structured advisory separately from process output.
 
 The command is executed by the workspace Agent using sh -c. If workdir is omitted, the Agent uses its configured workspace directory or the user's home directory. env values override variables inherited from the Agent environment. background only records background intent in tracked process metadata; Agent-tracked processes are durable regardless of this flag.`,
 		Schema: aisdk.Schema{
@@ -94,19 +97,21 @@ The command is executed by the workspace Agent using sh -c. If workdir is omitte
 			return WorkspaceProcessStartResult{}, xerrors.Errorf("start workspace process: %w", err)
 		}
 		return WorkspaceProcessStartResult{
-			ProcessID: started.ID,
-			Started:   started.Started,
+			ProcessID:  started.ID,
+			Started:    started.Started,
+			Advisories: commandAdvisories(args.Command),
 		}, nil
 	},
 }
 
 // WorkspaceProcessResult is the state returned for a tracked workspace process.
 type WorkspaceProcessResult struct {
-	Output    string                          `json:"output"`
-	ExitCode  int                             `json:"exit_code"`
-	ProcessID string                          `json:"process_id"`
-	Running   bool                            `json:"running"`
-	Truncated *workspacesdk.ProcessTruncation `json:"truncated,omitempty"`
+	Output     string                          `json:"output"`
+	ExitCode   int                             `json:"exit_code"`
+	ProcessID  string                          `json:"process_id"`
+	Running    bool                            `json:"running"`
+	Truncated  *workspacesdk.ProcessTruncation `json:"truncated,omitempty"`
+	Advisories []ToolAdvisory                  `json:"advisories,omitempty"`
 }
 
 type WorkspaceProcessOutputArgs struct {
@@ -122,7 +127,7 @@ var WorkspaceProcessOutput = Tool[WorkspaceProcessOutputArgs, WorkspaceProcessRe
 
 Use the process_id returned by coder_workspace_process_start or coder_workspace_process_list. This tool can wait briefly for more output or process exit, then returns the current state. The process itself is independent of this request and keeps running if this tool call disconnects.
 
-After any timeout, 502, reconnect, or uncertain result, use coder_workspace_process_list and this tool to recover the existing process before considering another command execution.`,
+After any timeout, 502, reconnect, or uncertain result, use coder_workspace_process_list and this tool to recover the existing process before considering another command execution. If the recovered process command invokes sudo, this tool also returns the same structured persistence advisory separately from process output.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
 				"workspace": map[string]any{
@@ -168,7 +173,8 @@ After any timeout, 502, reconnect, or uncertain result, use coder_workspace_proc
 		if err != nil {
 			return WorkspaceProcessResult{}, err
 		}
-		return workspaceProcessResult(args.ProcessID, resp), nil
+		advisories := workspaceProcessAdvisories(ctx, conn, args.ProcessID)
+		return workspaceProcessResult(args.ProcessID, resp, advisories), nil
 	},
 }
 
@@ -176,12 +182,21 @@ type WorkspaceProcessListArgs struct {
 	Workspace string `json:"workspace"`
 }
 
-var WorkspaceProcessList = Tool[WorkspaceProcessListArgs, workspacesdk.ListProcessesResponse]{
+type WorkspaceProcessInfo struct {
+	workspacesdk.ProcessInfo
+	Advisories []ToolAdvisory `json:"advisories,omitempty"`
+}
+
+type WorkspaceProcessListResult struct {
+	Processes []WorkspaceProcessInfo `json:"processes"`
+}
+
+var WorkspaceProcessList = Tool[WorkspaceProcessListArgs, WorkspaceProcessListResult]{
 	Tool: aisdk.Tool{
 		Name: ToolNameWorkspaceProcessList,
 		Description: `List durable processes tracked by a Coder workspace agent.
 
-Use this after a timeout, 502, reconnect, or any uncertain command result before running the command again. It lets you recover the original process_id and inspect whether the command is still running or already exited.`,
+Use this after a timeout, 502, reconnect, or any uncertain command result before running the command again. It lets you recover the original process_id and inspect whether the command is still running or already exited. Processes whose command invokes sudo include a structured persistence advisory alongside their metadata.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
 				"workspace": map[string]any{
@@ -193,22 +208,29 @@ Use this after a timeout, 502, reconnect, or any uncertain command result before
 		},
 	},
 	MCPAnnotations: mcpReadOnlyAnnotations,
-	Handler: func(ctx context.Context, deps Deps, args WorkspaceProcessListArgs) (workspacesdk.ListProcessesResponse, error) {
+	Handler: func(ctx context.Context, deps Deps, args WorkspaceProcessListArgs) (WorkspaceProcessListResult, error) {
 		if args.Workspace == "" {
-			return workspacesdk.ListProcessesResponse{}, xerrors.New("workspace name cannot be empty")
+			return WorkspaceProcessListResult{}, xerrors.New("workspace name cannot be empty")
 		}
 
 		conn, err := openAgentConn(ctx, deps, args.Workspace)
 		if err != nil {
-			return workspacesdk.ListProcessesResponse{}, err
+			return WorkspaceProcessListResult{}, err
 		}
 		defer conn.Close()
 
 		resp, err := conn.ListProcesses(ctx)
 		if err != nil {
-			return workspacesdk.ListProcessesResponse{}, xerrors.Errorf("list workspace processes: %w", err)
+			return WorkspaceProcessListResult{}, xerrors.Errorf("list workspace processes: %w", err)
 		}
-		return resp, nil
+		processes := make([]WorkspaceProcessInfo, 0, len(resp.Processes))
+		for _, process := range resp.Processes {
+			processes = append(processes, WorkspaceProcessInfo{
+				ProcessInfo: process,
+				Advisories:  commandAdvisories(process.Command),
+			})
+		}
+		return WorkspaceProcessListResult{Processes: processes}, nil
 	},
 }
 
@@ -335,7 +357,25 @@ func waitForWorkspaceProcess(
 	return workspacesdk.ProcessOutputResponse{}, xerrors.Errorf("get process output: %v; snapshot failed: %w", err, snapshotErr)
 }
 
-func workspaceProcessResult(processID string, resp workspacesdk.ProcessOutputResponse) WorkspaceProcessResult {
+func workspaceProcessAdvisories(ctx context.Context, conn workspacesdk.AgentConn, processID string) []ToolAdvisory {
+	resp, err := conn.ListProcesses(ctx)
+	if err != nil {
+		return nil
+	}
+	for _, process := range resp.Processes {
+		if process.ID == processID {
+			return commandAdvisories(process.Command)
+		}
+	}
+	return nil
+}
+
+func workspaceProcessResult(processID string, resp workspacesdk.ProcessOutputResponse, advisorySets ...[]ToolAdvisory) WorkspaceProcessResult {
+	var advisories []ToolAdvisory
+	if len(advisorySets) > 0 {
+		advisories = advisorySets[0]
+	}
+
 	exitCode := 124
 	if !resp.Running {
 		exitCode = 0
@@ -344,10 +384,11 @@ func workspaceProcessResult(processID string, resp workspacesdk.ProcessOutputRes
 		}
 	}
 	return WorkspaceProcessResult{
-		Output:    strings.TrimSpace(resp.Output),
-		ExitCode:  exitCode,
-		ProcessID: processID,
-		Running:   resp.Running,
-		Truncated: resp.Truncated,
+		Output:     strings.TrimSpace(resp.Output),
+		ExitCode:   exitCode,
+		ProcessID:  processID,
+		Running:    resp.Running,
+		Truncated:  resp.Truncated,
+		Advisories: advisories,
 	}
 }

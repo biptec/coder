@@ -80,6 +80,8 @@ func TestWorkspaceBash(t *testing.T) {
 		require.NotEmpty(t, tool.Description)
 		require.Contains(t, tool.Description, "Execute a bash command in a Coder workspace")
 		require.Contains(t, tool.Description, "output is trimmed of leading and trailing whitespace")
+		require.Contains(t, tool.Description, "only /home/coder is persistent")
+		require.Contains(t, tool.Description, "structured advisory")
 		require.Contains(t, tool.Schema.Required, "workspace")
 		require.Contains(t, tool.Schema.Required, "command")
 
