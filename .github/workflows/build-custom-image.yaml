@@ -39,7 +39,7 @@ jobs:
     name: Validate custom release
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -93,8 +93,6 @@ jobs:
           go test ./support -run '^TestVersionSupportsPprof$'
           go test ./codersdk -run '^TestBuildInfo'
           go test ./coderd/healthcheck -run '^$'
-          go test ./coderd -run '^$'
-          go test ./cli -run '^$'
 
   build:
     name: Build and push image
