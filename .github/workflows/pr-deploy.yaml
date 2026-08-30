@@ -53,8 +53,12 @@ jobs:
         run: |
           set -euo pipefail
           pr_open=true
-          if [[ "$(gh pr view --json state | jq -r '.state')" != "OPEN" ]]; then
+          pr_json="$(gh pr view --json state,baseRefName 2>/dev/null || true)"
+          if [[ -z "$pr_json" || "$(jq -r '.state // ""' <<<"$pr_json")" != "OPEN" ]]; then
             echo "PR doesn't exist or is closed."
+            pr_open=false
+          elif [[ "$(jq -r '.baseRefName' <<<"$pr_json")" == custom/* ]]; then
+            echo "Custom release PR detected; preview deployment is not part of the custom release pipeline."
             pr_open=false
           fi
           echo "pr_open=$pr_open" >> "$GITHUB_OUTPUT"
