@@ -27,6 +27,18 @@ func TestRenderAgentVersion(t *testing.T) {
 			expected:      "v1.2.3 (outdated)",
 		},
 		{
+			name:          "CustomReleaseOutdated",
+			agentVersion:  "v2.35.3.2+aaaaaaa",
+			serverVersion: "v2.35.3.3+bbbbbbb",
+			expected:      "v2.35.3.2+aaaaaaa (outdated)",
+		},
+		{
+			name:          "CustomReleaseCurrent",
+			agentVersion:  "v2.35.3.3+aaaaaaa",
+			serverVersion: "v2.35.3.3+bbbbbbb",
+			expected:      "v2.35.3.3+aaaaaaa",
+		},
+		{
 			name:          "AgentUnknown",
 			agentVersion:  "",
 			serverVersion: "v1.2.4",

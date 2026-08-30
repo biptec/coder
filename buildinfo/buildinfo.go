@@ -2,6 +2,7 @@ package buildinfo
 
 import (
 	"fmt"
+	"regexp"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -32,6 +33,8 @@ var (
 	agpl string // either "true" or "false", ldflags does not support bools
 )
 
+var biptecCustomReleaseVersion = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$`)
+
 const (
 	// noVersion is the reported version when the version cannot be determined.
 	// Usually because `go build` is run instead of `make build`.
@@ -44,8 +47,10 @@ const (
 	develPreRelease = "devel"
 )
 
-// Version returns the semantic version of the build.
-// Use golang.org/x/mod/semver to compare versions.
+// Version returns the user-facing version of the build. Official Coder builds
+// use semantic versions. Biptec custom releases use vMAJOR.MINOR.PATCH.REVISION
+// so operators can identify the exact custom release. Use Semver or
+// CompareVersions before applying golang.org/x/mod/semver operations.
 func Version() string {
 	readVersion.Do(func() {
 		revision, valid := Revision()
@@ -69,6 +74,82 @@ func Version() string {
 	return version
 }
 
+// Semver converts a user-facing Coder version into a semantic version suitable
+// for validation and semantic comparisons. Standard semantic versions are
+// returned unchanged. Biptec custom releases preserve their fourth numeric
+// component as build metadata, for example:
+//
+//	v2.35.3.2+ed8ad7d -> v2.35.3+biptec.2.ed8ad7d
+//
+// An empty string means the version is not recognized.
+func Semver(v string) string {
+	if semver.IsValid(v) {
+		return v
+	}
+
+	parts := biptecCustomReleaseVersion.FindStringSubmatch(v)
+	if parts == nil {
+		return ""
+	}
+
+	metadata := "biptec." + parts[4]
+	if parts[5] != "" {
+		metadata += "." + parts[5]
+	}
+	return fmt.Sprintf("v%s.%s.%s+%s", parts[1], parts[2], parts[3], metadata)
+}
+
+// IsValidVersion reports whether v is either a standard semantic version or a
+// Biptec custom release version.
+func IsValidVersion(v string) bool {
+	return Semver(v) != ""
+}
+
+// CompareVersions compares standard semantic versions and Biptec custom release
+// versions. Custom revisions are ordered numerically after the upstream patch
+// they extend, so v2.35.3.3 is newer than v2.35.3.2 and v2.35.3, but older
+// than v2.35.4. Invalid versions follow semver.Compare's invalid-version
+// ordering semantics.
+func CompareVersions(v1, v2 string) int {
+	s1 := Semver(v1)
+	s2 := Semver(v2)
+	if s1 == "" || s2 == "" {
+		return semver.Compare(s1, s2)
+	}
+
+	p1 := biptecCustomReleaseVersion.FindStringSubmatch(v1)
+	p2 := biptecCustomReleaseVersion.FindStringSubmatch(v2)
+
+	if cmp := semver.Compare(semver.Canonical(s1), semver.Canonical(s2)); cmp != 0 {
+		return cmp
+	}
+
+	switch {
+	case p1 != nil && p2 != nil:
+		// Custom revisions have no leading zeroes, so decimal string length
+		// followed by lexical order gives exact numeric ordering without an
+		// artificial integer-size limit.
+		switch {
+		case len(p1[4]) < len(p2[4]):
+			return -1
+		case len(p1[4]) > len(p2[4]):
+			return 1
+		case p1[4] < p2[4]:
+			return -1
+		case p1[4] > p2[4]:
+			return 1
+		default:
+			return 0
+		}
+	case p1 != nil:
+		return 1
+	case p2 != nil:
+		return -1
+	default:
+		return semver.Compare(s1, s2)
+	}
+}
+
 // VersionsMatch compares the two versions. It assumes the versions match if
 // the major and the minor versions are equivalent. Patch versions are
 // disregarded. If it detects that either version is a developer build it
@@ -80,7 +161,12 @@ func VersionsMatch(v1, v2 string) bool {
 		return true
 	}
 
-	return semver.MajorMinor(v1) == semver.MajorMinor(v2)
+	s1 := Semver(v1)
+	s2 := Semver(v2)
+	if s1 == "" || s2 == "" {
+		return false
+	}
+	return semver.MajorMinor(s1) == semver.MajorMinor(s2)
 }
 
 func IsDevVersion(v string) bool {

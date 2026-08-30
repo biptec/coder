@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jedib0t/go-pretty/v6/table"
-	"golang.org/x/mod/semver"
 
+	"github.com/coder/coder/v2/buildinfo"
 	"github.com/coder/coder/v2/coderd/database/dbtime"
 	"github.com/coder/coder/v2/coderd/util/slice"
 	"github.com/coder/coder/v2/codersdk"
@@ -333,10 +333,10 @@ func renderAgentVersion(agentVersion, serverVersion string) string {
 	if agentVersion == "" {
 		agentVersion = "(unknown)"
 	}
-	if !semver.IsValid(serverVersion) || !semver.IsValid(agentVersion) {
+	if !buildinfo.IsValidVersion(serverVersion) || !buildinfo.IsValidVersion(agentVersion) {
 		return pretty.Sprint(DefaultStyles.Placeholder, agentVersion)
 	}
-	outdated := semver.Compare(agentVersion, serverVersion) < 0
+	outdated := buildinfo.CompareVersions(agentVersion, serverVersion) < 0
 	if outdated {
 		return pretty.Sprint(DefaultStyles.Warn, agentVersion+" (outdated)")
 	}

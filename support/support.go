@@ -25,6 +25,7 @@ import (
 
 	"cdr.dev/slog/v3"
 	"cdr.dev/slog/v3/sloggers/sloghuman"
+	"github.com/coder/coder/v2/buildinfo"
 	"github.com/coder/coder/v2/coderd/healthcheck/derphealth"
 	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/codersdk/agentsdk"
@@ -1157,10 +1158,9 @@ func VersionSupportsPprof(version string) bool {
 	if version[0] != 'v' {
 		version = "v" + version
 	}
-	// For prerelease versions like "v2.28.0-devel+abc123", we compare
-	// the major.minor.patch portion since prereleases of 2.28.0 should
-	// have the pprof feature.
-	canonical := semver.Canonical(version)
+	// For prerelease and custom versions, compare the upstream
+	// major.minor.patch portion since those builds include the same feature set.
+	canonical := semver.Canonical(buildinfo.Semver(version))
 	if idx := strings.Index(canonical, "-"); idx != -1 {
 		canonical = canonical[:idx]
 	}

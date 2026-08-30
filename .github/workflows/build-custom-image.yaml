@@ -5,6 +5,12 @@ on:
     branches:
       - main
 
+  # Custom release development has its own focused validation pipeline. The
+  # upstream Coder PR suite is intentionally excluded from custom/** bases.
+  pull_request:
+    branches:
+      - "custom/**"
+
   release:
     types:
       - published
@@ -29,8 +35,68 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  validate:
+    name: Validate custom release
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: ./.github/actions/setup-mise
+        with:
+          install-args: "go"
+          use-cache: false
+
+      - name: Check changed files
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          git diff --check "${base_sha}...HEAD"
+
+          mapfile -t go_files < <(
+            git diff --name-only --diff-filter=ACMR "${base_sha}...HEAD" -- '*.go'
+          )
+          if ((${#go_files[@]} > 0)); then
+            unformatted="$(gofmt -l "${go_files[@]}")"
+            if [[ -n "${unformatted}" ]]; then
+              printf 'gofmt required for:\n%s\n' "${unformatted}" >&2
+              exit 1
+            fi
+          fi
+
+      - name: Test custom release contract
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          ./.github/scripts/retry.sh -- go mod download
+
+          # Exercise the same four-part version shape used by Biptec releases.
+          go test \
+            -ldflags "-X github.com/coder/coder/v2/buildinfo.tag=2.35.3.999" \
+            ./buildinfo \
+            -run '^TestBuildInfo/Version$' \
+            -count=1
+
+          go test ./codersdk/toolsdk \
+            -run '^(TestCommandInvokesSudo|TestCommandAdvisories|TestAdvisoryIsSeparateFromCommandOutput|TestProcessListAdvisoryPreservesFlatJSONShape|TestWorkspaceProcessToolsValidateArgs|TestWorkspaceProcessToolInstructions)$'
+          go test ./coderd/agentapi -run '^TestUpdateStartup$'
+          go test ./cli/cliui -run '^TestRenderAgentVersion$'
+          go test ./support -run '^TestVersionSupportsPprof$'
+          go test ./codersdk -run '^TestBuildInfo'
+          go test ./coderd/healthcheck -run '^$'
+
   build:
     name: Build and push image
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
@@ -114,6 +180,16 @@ jobs:
           set -Eeuo pipefail
 
           ./.github/scripts/retry.sh -- go mod download
+
+          # A custom release version is embedded into both coderd and the
+          # workspace Agent. Validate that exact linker value before spending
+          # time on the full multi-architecture build.
+          go test \
+            -ldflags "-X github.com/coder/coder/v2/buildinfo.tag=${{ steps.meta.outputs.version }}" \
+            ./buildinfo \
+            -run '^TestBuildInfo/Version$' \
+            -count=1
+
           make gen/mark-fresh
 
           make \

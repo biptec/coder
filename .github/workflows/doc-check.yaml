@@ -17,6 +17,8 @@ name: AI Documentation Check
 
 on:
   pull_request:
+    branches-ignore:
+      - "custom/**"
     types:
       - opened
       - synchronize

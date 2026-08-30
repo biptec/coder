@@ -23,6 +23,7 @@ func TestVersionSupportsPprof(t *testing.T) {
 		{"2.27.0", false},              // without v prefix
 		{"v2.28.0-devel+abc123", true}, // dev version
 		{"v2.27.0-devel+abc123", false},
+		{"v2.35.3.3+abcdef0", true}, // Biptec custom release
 	}
 	for _, tt := range tests {
 		t.Run(tt.version, func(t *testing.T) {

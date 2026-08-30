@@ -4,8 +4,6 @@ import (
 	"context"
 	"time"
 
-	"golang.org/x/mod/semver"
-
 	"github.com/coder/coder/v2/apiversion"
 	"github.com/coder/coder/v2/buildinfo"
 	"github.com/coder/coder/v2/coderd/database"
@@ -87,7 +85,7 @@ func (r *ProvisionerDaemonsReport) Run(ctx context.Context, opts *ProvisionerDae
 		}
 
 		// For release versions, just check MAJOR.MINOR and ignore patch.
-		if !semver.IsValid(daemon.Version) {
+		if !buildinfo.IsValidVersion(daemon.Version) {
 			if r.Severity.Value() < health.SeverityError.Value() {
 				r.Severity = health.SeverityError
 			}

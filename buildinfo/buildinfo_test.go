@@ -15,10 +15,13 @@ func TestBuildInfo(t *testing.T) {
 	t.Run("Version", func(t *testing.T) {
 		t.Parallel()
 		version := buildinfo.Version()
-		require.True(t, semver.IsValid(version))
-		prerelease := semver.Prerelease(version)
-		require.Equal(t, "-devel", prerelease)
-		require.Equal(t, "v0", semver.Major(version))
+		semanticVersion := buildinfo.Semver(version)
+		require.NotEmpty(t, semanticVersion)
+		if buildinfo.IsDevVersion(version) {
+			prerelease := semver.Prerelease(semanticVersion)
+			require.Equal(t, "-devel", prerelease)
+			require.Equal(t, "v0", semver.Major(semanticVersion))
+		}
 	})
 	t.Run("ExternalURL", func(t *testing.T) {
 		t.Parallel()
@@ -101,6 +104,36 @@ func TestBuildInfo(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestCustomReleaseVersions(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		version string
+		semver  string
+	}{
+		{name: "Standard", version: "v2.35.3+abc1234", semver: "v2.35.3+abc1234"},
+		{name: "Custom", version: "v2.35.3.2", semver: "v2.35.3+biptec.2"},
+		{name: "CustomBuildMetadata", version: "v2.35.3.2+ed8ad7d", semver: "v2.35.3+biptec.2.ed8ad7d"},
+		{name: "Invalid", version: "v2.35.3.02", semver: ""},
+		{name: "InvalidText", version: "asdf", semver: ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.semver, buildinfo.Semver(tc.version))
+			require.Equal(t, tc.semver != "", buildinfo.IsValidVersion(tc.version))
+		})
+	}
+
+	require.Equal(t, -1, buildinfo.CompareVersions("v2.35.3.2+aaaaaaa", "v2.35.3.3+bbbbbbb"))
+	require.Equal(t, 1, buildinfo.CompareVersions("v2.35.3.3", "v2.35.3"))
+	require.Equal(t, -1, buildinfo.CompareVersions("v2.35.3.3", "v2.35.4"))
+	require.Equal(t, 0, buildinfo.CompareVersions("v2.35.3.3+aaaaaaa", "v2.35.3.3+bbbbbbb"))
+	require.True(t, buildinfo.VersionsMatch("v2.35.3.2+aaaaaaa", "v2.35.3.3+bbbbbbb"))
 }
 
 func TestIsRCVersion(t *testing.T) {

@@ -1615,13 +1615,13 @@ func wrapTransportWithVersionCheck(rt http.RoundTripper, inv *serpent.Invocation
 				return
 			}
 
-			upgradeMessage := defaultUpgradeMessage(semver.Canonical(serverVersion))
+			upgradeMessage := defaultUpgradeMessage(semver.Canonical(buildinfo.Semver(serverVersion)))
 			if serverInfo, err := getBuildInfo(inv.Context()); err == nil {
 				switch {
 				case serverInfo.UpgradeMessage != "":
 					upgradeMessage = serverInfo.UpgradeMessage
 				// The site-local `install.sh` was introduced in v2.19.0
-				case serverInfo.DashboardURL != "" && semver.Compare(semver.MajorMinor(serverVersion), "v2.19") >= 0:
+				case serverInfo.DashboardURL != "" && semver.Compare(semver.MajorMinor(buildinfo.Semver(serverVersion)), "v2.19") >= 0:
 					upgradeMessage = fmt.Sprintf("download %s with: 'curl -fsSL %s/install.sh | sh'", serverVersion, serverInfo.DashboardURL)
 				}
 			}

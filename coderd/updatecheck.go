@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 
-	"golang.org/x/mod/semver"
 	"golang.org/x/xerrors"
 
 	"github.com/coder/coder/v2/buildinfo"
@@ -48,12 +47,15 @@ func (api *API) updateCheck(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Since our dev version (v0.12.9-devel+f7246386) is not semver compatible,
-	// ignore everything after "-"."
-	versionWithoutDevel := strings.SplitN(buildinfo.Version(), "-", 2)[0]
+	current := buildinfo.Version()
+	// Preserve the existing update-check behavior for development builds: a
+	// development build of the current upstream version is considered current.
+	if buildinfo.IsDevVersion(current) {
+		current = strings.SplitN(current, "-", 2)[0]
+	}
 
 	httpapi.Write(ctx, rw, http.StatusOK, codersdk.UpdateCheckResponse{
-		Current: semver.Compare(versionWithoutDevel, uc.Version) >= 0,
+		Current: buildinfo.CompareVersions(current, uc.Version) >= 0,
 		Version: uc.Version,
 		URL:     uc.URL,
 	})
