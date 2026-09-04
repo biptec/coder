@@ -2,7 +2,10 @@ import { useFormik } from "formik";
 import type { FC } from "react";
 import * as Yup from "yup";
 import { hasApiFieldErrors, isApiError } from "#/api/errors";
-import type { UpdateUserProfileRequest } from "#/api/typesGenerated";
+import type {
+	MCPToolset,
+	UpdateUserProfileRequest,
+} from "#/api/typesGenerated";
 import { ErrorAlert } from "#/components/Alert/ErrorAlert";
 import { Button } from "#/components/Button/Button";
 import { FormFooter } from "#/components/Form/Form";
@@ -10,6 +13,7 @@ import { FormField } from "#/components/FormField/FormField";
 import { FullPageForm } from "#/components/FullPageForm/FullPageForm";
 import { IconField } from "#/components/IconField/IconField";
 import { Spinner } from "#/components/Spinner/Spinner";
+import { MCPToolsetSelect } from "#/modules/users/MCPToolsetSelect";
 import {
 	displayNameValidator,
 	getFormHelpers,
@@ -23,13 +27,18 @@ const validationSchema = Yup.object({
 	avatar_url: Yup.string(),
 });
 
+export type EditUserFormData = UpdateUserProfileRequest & {
+	mcp_toolset: MCPToolset;
+};
+
 interface EditUserFormProps {
 	error?: unknown;
 	isLoading: boolean;
-	initialValues: UpdateUserProfileRequest;
+	initialValues: EditUserFormData;
 	/** Allows hiding the avatar setting when it would be overwritten later by the user's identity provider. */
 	canEditAvatar: boolean;
-	onSubmit: (values: UpdateUserProfileRequest) => void;
+	canEditMCPToolset: boolean;
+	onSubmit: (values: EditUserFormData) => void;
 	onCancel: () => void;
 }
 
@@ -38,10 +47,11 @@ export const EditUserForm: FC<EditUserFormProps> = ({
 	isLoading,
 	initialValues,
 	canEditAvatar,
+	canEditMCPToolset,
 	onSubmit,
 	onCancel,
 }) => {
-	const form = useFormik<UpdateUserProfileRequest>({
+	const form = useFormik<EditUserFormData>({
 		initialValues,
 		validationSchema,
 		onSubmit,
@@ -96,6 +106,12 @@ export const EditUserForm: FC<EditUserFormProps> = ({
 							fullWidth
 						/>
 					)}
+
+					<MCPToolsetSelect
+						value={form.values.mcp_toolset}
+						onChange={(toolset) => form.setFieldValue("mcp_toolset", toolset)}
+						disabled={!canEditMCPToolset}
+					/>
 				</div>
 
 				<FormFooter className="mt-8">

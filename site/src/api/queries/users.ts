@@ -13,6 +13,7 @@ import type {
 	MinimalUser,
 	RequestOneTimePasscodeRequest,
 	UpdateUserAppearanceSettingsRequest,
+	UpdateUserMCPToolsetRequest,
 	UpdateUserPasswordRequest,
 	UpdateUserPreferenceSettingsRequest,
 	UpdateUserProfileRequest,
@@ -20,6 +21,7 @@ import type {
 	User,
 	UserAIBudgetOverride,
 	UserAppearanceSettings,
+	UserMCPToolset,
 	UserPreferenceSettings,
 	UsersRequest,
 } from "#/api/typesGenerated";
@@ -92,6 +94,29 @@ export const createUser = (queryClient: QueryClient) => {
 		},
 	};
 };
+
+export const userMCPToolsetKey = (userId: string) =>
+	["user", userId, "mcpToolset"] as const;
+
+export const userMCPToolset = (
+	userId: string,
+): UseQueryOptions<UserMCPToolset> => ({
+	queryKey: userMCPToolsetKey(userId),
+	queryFn: () => API.getUserMCPToolset(userId),
+});
+
+export const updateUserMCPToolset = (
+	queryClient: QueryClient,
+	userId: string,
+) => ({
+	mutationFn: (request: UpdateUserMCPToolsetRequest) =>
+		API.updateUserMCPToolset(userId, request),
+	onSuccess: async () => {
+		await queryClient.invalidateQueries({
+			queryKey: userMCPToolsetKey(userId),
+		});
+	},
+});
 
 export const createFirstUser = () => {
 	return {

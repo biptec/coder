@@ -39,6 +39,7 @@ const CreateUserPage: FC = () => {
 							user_status: null,
 							service_account: user.service_account,
 							roles: [...user.roles],
+							mcp_toolset: user.mcp_toolset,
 						},
 						{
 							onSuccess: () => {

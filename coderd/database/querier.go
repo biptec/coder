@@ -850,6 +850,9 @@ type sqlcQuerier interface {
 	GetUserLinkByLinkedID(ctx context.Context, linkedID string) (UserLink, error)
 	GetUserLinkByUserIDLoginType(ctx context.Context, arg GetUserLinkByUserIDLoginTypeParams) (UserLink, error)
 	GetUserLinksByUserID(ctx context.Context, userID uuid.UUID) ([]UserLink, error)
+	// GetUserMCPToolset returns the Remote MCP toolset assigned to a user.
+	// Missing assignments fail safe to the developer toolset.
+	GetUserMCPToolset(ctx context.Context, userID uuid.UUID) (string, error)
 	GetUserNotificationPreferences(ctx context.Context, userID uuid.UUID) ([]NotificationPreference, error)
 	GetUserSecretByID(ctx context.Context, id uuid.UUID) (UserSecret, error)
 	GetUserSecretByUserIDAndName(ctx context.Context, arg GetUserSecretByUserIDAndNameParams) (UserSecret, error)
@@ -1447,6 +1450,7 @@ type sqlcQuerier interface {
 	// to avoid overwriting a valid binding.
 	UpdateUserLinkedID(ctx context.Context, arg UpdateUserLinkedIDParams) (UserLink, error)
 	UpdateUserLoginType(ctx context.Context, arg UpdateUserLoginTypeParams) (User, error)
+	UpdateUserMCPToolset(ctx context.Context, arg UpdateUserMCPToolsetParams) (UserConfig, error)
 	UpdateUserNotificationPreferences(ctx context.Context, arg UpdateUserNotificationPreferencesParams) (int64, error)
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (User, error)
 	UpdateUserQuietHoursSchedule(ctx context.Context, arg UpdateUserQuietHoursScheduleParams) (User, error)

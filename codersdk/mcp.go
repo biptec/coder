@@ -10,6 +10,63 @@ import (
 	"github.com/google/uuid"
 )
 
+// MCPToolset controls which Remote MCP tools are exposed to an authenticated user.
+type MCPToolset string
+
+const (
+	MCPToolsetDeveloper MCPToolset = "developer"
+	MCPToolsetAdmin     MCPToolset = "admin"
+	MCPToolsetReadonly  MCPToolset = "readonly"
+)
+
+// Valid reports whether the toolset can be assigned to a user.
+func (t MCPToolset) Valid() bool {
+	switch t {
+	case MCPToolsetDeveloper, MCPToolsetAdmin, MCPToolsetReadonly:
+		return true
+	default:
+		return false
+	}
+}
+
+// UserMCPToolset is the Remote MCP toolset assigned to a user.
+type UserMCPToolset struct {
+	Toolset MCPToolset `json:"toolset"`
+}
+
+// UpdateUserMCPToolsetRequest updates the Remote MCP toolset assigned to a user.
+type UpdateUserMCPToolsetRequest struct {
+	Toolset MCPToolset `json:"toolset" validate:"required"`
+}
+
+// UserMCPToolset returns the Remote MCP toolset assigned to a user.
+func (c *Client) UserMCPToolset(ctx context.Context, user string) (UserMCPToolset, error) {
+	res, err := c.Request(ctx, http.MethodGet, fmt.Sprintf("/api/v2/users/%s/mcp-toolset", user), nil)
+	if err != nil {
+		return UserMCPToolset{}, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return UserMCPToolset{}, ReadBodyAsError(res)
+	}
+	var toolset UserMCPToolset
+	return toolset, json.NewDecoder(res.Body).Decode(&toolset)
+}
+
+// UpdateUserMCPToolset updates the Remote MCP toolset assigned to a user.
+func (c *Client) UpdateUserMCPToolset(ctx context.Context, user string, req UpdateUserMCPToolsetRequest) (UserMCPToolset, error) {
+	res, err := c.Request(ctx, http.MethodPut, fmt.Sprintf("/api/v2/users/%s/mcp-toolset", user), req)
+	if err != nil {
+		return UserMCPToolset{}, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return UserMCPToolset{}, ReadBodyAsError(res)
+	}
+	var toolset UserMCPToolset
+	return toolset, json.NewDecoder(res.Body).Decode(&toolset)
+}
+
 // MCPServerOAuth2ConnectURL returns the URL the user should visit to
 // start the OAuth2 flow for an MCP server. The frontend opens this
 // in a new window/popup.

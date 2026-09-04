@@ -6117,6 +6117,21 @@ func (mr *MockStoreMockRecorder) GetUserLinksByUserID(ctx, userID any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserLinksByUserID", reflect.TypeOf((*MockStore)(nil).GetUserLinksByUserID), ctx, userID)
 }
 
+// GetUserMCPToolset mocks base method.
+func (m *MockStore) GetUserMCPToolset(ctx context.Context, userID uuid.UUID) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUserMCPToolset", ctx, userID)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUserMCPToolset indicates an expected call of GetUserMCPToolset.
+func (mr *MockStoreMockRecorder) GetUserMCPToolset(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserMCPToolset", reflect.TypeOf((*MockStore)(nil).GetUserMCPToolset), ctx, userID)
+}
+
 // GetUserNotificationPreferences mocks base method.
 func (m *MockStore) GetUserNotificationPreferences(ctx context.Context, userID uuid.UUID) ([]database.NotificationPreference, error) {
 	m.ctrl.T.Helper()
@@ -10699,6 +10714,21 @@ func (m *MockStore) UpdateUserLoginType(ctx context.Context, arg database.Update
 func (mr *MockStoreMockRecorder) UpdateUserLoginType(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUserLoginType", reflect.TypeOf((*MockStore)(nil).UpdateUserLoginType), ctx, arg)
+}
+
+// UpdateUserMCPToolset mocks base method.
+func (m *MockStore) UpdateUserMCPToolset(ctx context.Context, arg database.UpdateUserMCPToolsetParams) (database.UserConfig, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateUserMCPToolset", ctx, arg)
+	ret0, _ := ret[0].(database.UserConfig)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateUserMCPToolset indicates an expected call of UpdateUserMCPToolset.
+func (mr *MockStoreMockRecorder) UpdateUserMCPToolset(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUserMCPToolset", reflect.TypeOf((*MockStore)(nil).UpdateUserMCPToolset), ctx, arg)
 }
 
 // UpdateUserNotificationPreferences mocks base method.

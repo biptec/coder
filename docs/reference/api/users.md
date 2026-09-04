@@ -87,6 +87,7 @@ curl -X POST http://coder-server:8080/api/v2/users \
 {
   "email": "user@example.com",
   "login_type": "",
+  "mcp_toolset": "developer",
   "name": "string",
   "organization_ids": [
     "497f6eca-6276-4993-bfeb-53cbbbba6f08"
@@ -1138,6 +1139,90 @@ curl -X GET http://coder-server:8080/api/v2/users/{user}/login-type \
 | Status | Meaning                                                 | Description | Schema                                                     |
 |--------|---------------------------------------------------------|-------------|------------------------------------------------------------|
 | 200    | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | OK          | [codersdk.UserLoginType](schemas.md#codersdkuserlogintype) |
+
+To perform this operation, you must be authenticated. [Learn more](authentication.md).
+
+## Get user MCP toolset
+
+### Code samples
+
+```shell
+# Example request using curl
+curl -X GET http://coder-server:8080/api/v2/users/{user}/mcp-toolset \
+  -H 'Accept: application/json' \
+  -H 'Coder-Session-Token: API_KEY'
+```
+
+`GET /api/v2/users/{user}/mcp-toolset`
+
+### Parameters
+
+| Name   | In   | Type   | Required | Description          |
+|--------|------|--------|----------|----------------------|
+| `user` | path | string | true     | User ID, name, or me |
+
+### Example responses
+
+> 200 Response
+
+```json
+{
+  "toolset": "developer"
+}
+```
+
+### Responses
+
+| Status | Meaning                                                 | Description | Schema                                                       |
+|--------|---------------------------------------------------------|-------------|--------------------------------------------------------------|
+| 200    | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | OK          | [codersdk.UserMCPToolset](schemas.md#codersdkusermcptoolset) |
+
+To perform this operation, you must be authenticated. [Learn more](authentication.md).
+
+## Update user MCP toolset
+
+### Code samples
+
+```shell
+# Example request using curl
+curl -X PUT http://coder-server:8080/api/v2/users/{user}/mcp-toolset \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' \
+  -H 'Coder-Session-Token: API_KEY'
+```
+
+`PUT /api/v2/users/{user}/mcp-toolset`
+
+> Body parameter
+
+```json
+{
+  "toolset": "developer"
+}
+```
+
+### Parameters
+
+| Name   | In   | Type                                                                                   | Required | Description          |
+|--------|------|----------------------------------------------------------------------------------------|----------|----------------------|
+| `user` | path | string                                                                                 | true     | User ID, name, or me |
+| `body` | body | [codersdk.UpdateUserMCPToolsetRequest](schemas.md#codersdkupdateusermcptoolsetrequest) | true     | MCP toolset          |
+
+### Example responses
+
+> 200 Response
+
+```json
+{
+  "toolset": "developer"
+}
+```
+
+### Responses
+
+| Status | Meaning                                                 | Description | Schema                                                       |
+|--------|---------------------------------------------------------|-------------|--------------------------------------------------------------|
+| 200    | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | OK          | [codersdk.UserMCPToolset](schemas.md#codersdkusermcptoolset) |
 
 To perform this operation, you must be authenticated. [Learn more](authentication.md).
 

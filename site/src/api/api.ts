@@ -1604,6 +1604,26 @@ class ApiMethods {
 		return response.data;
 	};
 
+	getUserMCPToolset = async (
+		userId: TypesGen.User["id"],
+	): Promise<TypesGen.UserMCPToolset> => {
+		const response = await this.axios.get<TypesGen.UserMCPToolset>(
+			`/api/v2/users/${encodeURIComponent(userId)}/mcp-toolset`,
+		);
+		return response.data;
+	};
+
+	updateUserMCPToolset = async (
+		userId: TypesGen.User["id"],
+		request: TypesGen.UpdateUserMCPToolsetRequest,
+	): Promise<TypesGen.UserMCPToolset> => {
+		const response = await this.axios.put<TypesGen.UserMCPToolset>(
+			`/api/v2/users/${encodeURIComponent(userId)}/mcp-toolset`,
+			request,
+		);
+		return response.data;
+	};
+
 	createWorkspace = async (
 		userId: string,
 		workspace: TypesGen.CreateWorkspaceRequest,

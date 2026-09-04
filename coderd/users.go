@@ -255,6 +255,7 @@ func (api *API) postFirstUser(rw http.ResponseWriter, r *http.Request) {
 			// to login immediately anyways.
 			UserStatus:      ptr.Ref(codersdk.UserStatusActive),
 			OrganizationIDs: []uuid.UUID{defaultOrg.ID},
+			MCPToolset:      codersdk.MCPToolsetAdmin,
 		},
 		LoginType:          database.LoginTypePassword,
 		RBACRoles:          []string{rbac.RoleOwner().String()},
@@ -446,6 +447,16 @@ func (api *API) postUser(rw http.ResponseWriter, r *http.Request) {
 
 	var req codersdk.CreateUserRequestWithOrgs
 	if !httpapi.Read(ctx, rw, r, &req) {
+		return
+	}
+	if req.MCPToolset != "" && !req.MCPToolset.Valid() {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
+			Message: "Invalid MCP toolset.",
+			Validations: []codersdk.ValidationError{{
+				Field:  "mcp_toolset",
+				Detail: "Must be one of: developer, admin, readonly.",
+			}},
+		})
 		return
 	}
 
@@ -1735,6 +1746,90 @@ func (api *API) putUserPassword(rw http.ResponseWriter, r *http.Request) {
 	rw.WriteHeader(http.StatusNoContent)
 }
 
+// @Summary Get user MCP toolset
+// @ID get-user-mcp-toolset
+// @Security CoderSessionToken
+// @Produce json
+// @Tags Users
+// @Param user path string true "User ID, name, or me"
+// @Success 200 {object} codersdk.UserMCPToolset
+// @Router /api/v2/users/{user}/mcp-toolset [get]
+func (api *API) userMCPToolset(rw http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	user := httpmw.UserParam(r)
+
+	toolset, err := api.Database.GetUserMCPToolset(ctx, user.ID)
+	if dbauthz.IsNotAuthorizedError(err) {
+		httpapi.ResourceNotFound(rw)
+		return
+	}
+	if err != nil {
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
+			Message: "Internal error fetching user's MCP toolset.",
+			Detail:  err.Error(),
+		})
+		return
+	}
+
+	httpapi.Write(ctx, rw, http.StatusOK, codersdk.UserMCPToolset{Toolset: codersdk.MCPToolset(toolset)})
+}
+
+// @Summary Update user MCP toolset
+// @ID update-user-mcp-toolset
+// @Security CoderSessionToken
+// @Accept json
+// @Produce json
+// @Tags Users
+// @Param user path string true "User ID, name, or me"
+// @Param request body codersdk.UpdateUserMCPToolsetRequest true "MCP toolset"
+// @Success 200 {object} codersdk.UserMCPToolset
+// @Router /api/v2/users/{user}/mcp-toolset [put]
+func (api *API) putUserMCPToolset(rw http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	user := httpmw.UserParam(r)
+	apiKey := httpmw.APIKey(r)
+
+	if apiKey.UserID == user.ID {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
+			Message: "You cannot change your own MCP toolset.",
+		})
+		return
+	}
+
+	var req codersdk.UpdateUserMCPToolsetRequest
+	if !httpapi.Read(ctx, rw, r, &req) {
+		return
+	}
+	if !req.Toolset.Valid() {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
+			Message: "Invalid MCP toolset.",
+			Validations: []codersdk.ValidationError{{
+				Field:  "toolset",
+				Detail: "Must be one of: developer, admin, readonly.",
+			}},
+		})
+		return
+	}
+
+	config, err := api.Database.UpdateUserMCPToolset(ctx, database.UpdateUserMCPToolsetParams{
+		UserID:     user.ID,
+		McpToolset: string(req.Toolset),
+	})
+	if dbauthz.IsNotAuthorizedError(err) {
+		httpapi.Forbidden(rw)
+		return
+	}
+	if err != nil {
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
+			Message: "Internal error updating user's MCP toolset.",
+			Detail:  err.Error(),
+		})
+		return
+	}
+
+	httpapi.Write(ctx, rw, http.StatusOK, codersdk.UserMCPToolset{Toolset: codersdk.MCPToolset(config.Value)})
+}
+
 // @Summary Get user roles
 // @ID get-user-roles
 // @Security CoderSessionToken
@@ -1945,6 +2040,14 @@ func (api *API) CreateUser(ctx context.Context, store database.Store, req Create
 		return database.User{}, xerrors.Errorf("invalid username %q: %w", req.Username, usernameValid)
 	}
 
+	mcpToolset := req.MCPToolset
+	if mcpToolset == "" {
+		mcpToolset = codersdk.MCPToolsetDeveloper
+	}
+	if !mcpToolset.Valid() {
+		return database.User{}, xerrors.Errorf("invalid MCP toolset %q", mcpToolset)
+	}
+
 	// If the caller didn't specify rbac roles, default to
 	// a member of the site.
 	rbacRoles := []string{}
@@ -1986,6 +2089,14 @@ func (api *API) CreateUser(ctx context.Context, store database.Store, req Create
 		user, err = tx.InsertUser(ctx, params)
 		if err != nil {
 			return xerrors.Errorf("create user: %w", err)
+		}
+
+		_, err = tx.UpdateUserMCPToolset(ctx, database.UpdateUserMCPToolsetParams{
+			UserID:     user.ID,
+			McpToolset: string(mcpToolset),
+		})
+		if err != nil {
+			return xerrors.Errorf("set user MCP toolset: %w", err)
 		}
 
 		privateKey, publicKey, err := gitsshkey.Generate(api.SSHKeygenAlgorithm)

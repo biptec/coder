@@ -3897,6 +3897,11 @@ export interface CreateUserRequestWithOrgs {
 	 * Roles is an optional list of site-level roles to assign at creation.
 	 */
 	readonly roles?: readonly string[];
+	/**
+	 * MCPToolset controls the Remote MCP tools exposed to this user. It defaults
+	 * to the developer toolset when omitted.
+	 */
+	readonly mcp_toolset?: MCPToolset;
 }
 
 // From codersdk/usersecrets.go
@@ -5455,6 +5460,11 @@ export interface MCPServerConfig {
 	 */
 	readonly auth_connected: boolean;
 }
+
+// From codersdk/mcp.go
+export type MCPToolset = "admin" | "developer" | "readonly";
+
+export const MCPToolsets: MCPToolset[] = ["admin", "developer", "readonly"];
 
 // From codersdk/provisionerdaemons.go
 /**
@@ -9285,6 +9295,14 @@ export interface UpdateUserChatPersonalModelOverrideRequest {
 	readonly model_config_id: string;
 }
 
+// From codersdk/mcp.go
+/**
+ * UpdateUserMCPToolsetRequest updates the Remote MCP toolset assigned to a user.
+ */
+export interface UpdateUserMCPToolsetRequest {
+	readonly toolset: MCPToolset;
+}
+
 // From codersdk/notifications.go
 export interface UpdateUserNotificationPreferences {
 	readonly template_disabled_map: Record<string, boolean>;
@@ -9741,6 +9759,14 @@ export interface UserLatencyInsightsResponse {
 // From codersdk/users.go
 export interface UserLoginType {
 	readonly login_type: LoginType;
+}
+
+// From codersdk/mcp.go
+/**
+ * UserMCPToolset is the Remote MCP toolset assigned to a user.
+ */
+export interface UserMCPToolset {
+	readonly toolset: MCPToolset;
 }
 
 // From codersdk/users.go

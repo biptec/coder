@@ -10253,6 +10253,84 @@ const docTemplate = `{
                 ]
             }
         },
+        "/api/v2/users/{user}/mcp-toolset": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Get user MCP toolset",
+                "operationId": "get-user-mcp-toolset",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID, name, or me",
+                        "name": "user",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/codersdk.UserMCPToolset"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "CoderSessionToken": []
+                    }
+                ]
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Update user MCP toolset",
+                "operationId": "update-user-mcp-toolset",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID, name, or me",
+                        "name": "user",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "MCP toolset",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/codersdk.UpdateUserMCPToolsetRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/codersdk.UserMCPToolset"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "CoderSessionToken": []
+                    }
+                ]
+            }
+        },
         "/api/v2/users/{user}/notifications/preferences": {
             "get": {
                 "produces": [
@@ -18698,6 +18776,14 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "mcp_toolset": {
+                    "description": "MCPToolset controls the Remote MCP tools exposed to this user. It defaults\nto the developer toolset when omitted.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/codersdk.MCPToolset"
+                        }
+                    ]
+                },
                 "name": {
                     "type": "string"
                 },
@@ -20480,6 +20566,19 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "codersdk.MCPToolset": {
+            "type": "string",
+            "enum": [
+                "developer",
+                "admin",
+                "readonly"
+            ],
+            "x-enum-varnames": [
+                "MCPToolsetDeveloper",
+                "MCPToolsetAdmin",
+                "MCPToolsetReadonly"
+            ]
         },
         "codersdk.MatchedProvisioners": {
             "type": "object",
@@ -25176,6 +25275,17 @@ const docTemplate = `{
                 }
             }
         },
+        "codersdk.UpdateUserMCPToolsetRequest": {
+            "type": "object",
+            "required": [
+                "toolset"
+            ],
+            "properties": {
+                "toolset": {
+                    "$ref": "#/definitions/codersdk.MCPToolset"
+                }
+            }
+        },
         "codersdk.UpdateUserNotificationPreferences": {
             "type": "object",
             "properties": {
@@ -25742,6 +25852,14 @@ const docTemplate = `{
             "properties": {
                 "login_type": {
                     "$ref": "#/definitions/codersdk.LoginType"
+                }
+            }
+        },
+        "codersdk.UserMCPToolset": {
+            "type": "object",
+            "properties": {
+                "toolset": {
+                    "$ref": "#/definitions/codersdk.MCPToolset"
                 }
             }
         },
@@ -26452,11 +26570,43 @@ const docTemplate = `{
                 "WorkspaceAgentDevcontainerStatusError"
             ]
         },
+        "codersdk.WorkspaceAgentGitDiffProgress": {
+            "type": "object",
+            "properties": {
+                "branch": {
+                    "type": "string"
+                },
+                "complete": {
+                    "type": "boolean"
+                },
+                "processed_files": {
+                    "type": "integer"
+                },
+                "remote_origin": {
+                    "type": "string"
+                },
+                "repo_root": {
+                    "type": "string"
+                },
+                "reset": {
+                    "type": "boolean"
+                },
+                "total_files": {
+                    "type": "integer"
+                },
+                "unified_diff_chunk": {
+                    "type": "string"
+                }
+            }
+        },
         "codersdk.WorkspaceAgentGitServerMessage": {
             "type": "object",
             "properties": {
                 "message": {
                     "type": "string"
+                },
+                "progress": {
+                    "$ref": "#/definitions/codersdk.WorkspaceAgentGitDiffProgress"
                 },
                 "repositories": {
                     "type": "array",
@@ -26477,10 +26627,12 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "changes",
+                "progress",
                 "error"
             ],
             "x-enum-varnames": [
                 "WorkspaceAgentGitServerMessageTypeChanges",
+                "WorkspaceAgentGitServerMessageTypeProgress",
                 "WorkspaceAgentGitServerMessageTypeError"
             ]
         },
@@ -26704,6 +26856,9 @@ const docTemplate = `{
             "properties": {
                 "branch": {
                     "type": "string"
+                },
+                "diff_truncated": {
+                    "type": "boolean"
                 },
                 "remote_origin": {
                     "type": "string"
