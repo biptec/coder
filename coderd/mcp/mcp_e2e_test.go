@@ -1387,6 +1387,108 @@ func TestMCPHTTP_E2E_ChatGPTEndpoint(t *testing.T) {
 	t.Logf("ChatGPT endpoint E2E test successful: search and fetch tools working correctly")
 }
 
+// TestMCPHTTP_E2E_UserToolsets verifies that Remote MCP tools are selected
+// server-side from the authenticated user's assigned toolset.
+func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
+	t.Parallel()
+
+	coderClient, closer, api := coderdtest.NewWithAPI(t, nil)
+	defer closer.Close()
+
+	admin := coderdtest.CreateFirstUser(t, coderClient)
+	developerClient, developerUser := coderdtest.CreateAnotherUser(t, coderClient, admin.OrganizationID)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testutil.WaitLong)
+	defer cancel()
+
+	listTools := func(sessionToken string) []string {
+		mcpURL := api.AccessURL.String() + mcpserver.MCPEndpoint
+		mcpClient := newIsolatedMCPClient(t, mcpURL,
+			transport.WithHTTPHeaders(map[string]string{
+				"Authorization": "Bearer " + sessionToken,
+			}))
+		defer func() {
+			require.NoError(t, mcpClient.Close())
+		}()
+
+		require.NoError(t, mcpClient.Start(ctx))
+		_, err := mcpClient.Initialize(ctx, mcp.InitializeRequest{
+			Params: mcp.InitializeParams{
+				ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
+				ClientInfo: mcp.Implementation{
+					Name:    "test-client-toolsets",
+					Version: "1.0.0",
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		tools, err := mcpClient.ListTools(ctx, mcp.ListToolsRequest{})
+		require.NoError(t, err)
+		names := make([]string, 0, len(tools.Tools))
+		for _, tool := range tools.Tools {
+			names = append(names, tool.Name)
+		}
+		return names
+	}
+
+	// The first owner is migrated/created with the full admin toolset.
+	adminTools := listTools(coderClient.SessionToken())
+	assert.Contains(t, adminTools, toolsdk.ToolNameGetAuthenticatedUser)
+	assert.Contains(t, adminTools, toolsdk.ToolNameWorkspaceReadFile)
+	assert.Contains(t, adminTools, toolsdk.ToolNameCreateTemplate)
+	assert.NotContains(t, adminTools, "read_file")
+
+	// Newly created users default to the curated developer toolset.
+	assigned, err := coderClient.UserMCPToolset(ctx, developerUser.ID.String())
+	require.NoError(t, err)
+	require.Equal(t, codersdk.MCPToolsetDeveloper, assigned.Toolset)
+
+	developerTools := listTools(developerClient.SessionToken())
+	assert.Contains(t, developerTools, "status")
+	assert.Contains(t, developerTools, "read_file")
+	assert.Contains(t, developerTools, "write_file")
+	assert.Contains(t, developerTools, "bash")
+	assert.Contains(t, developerTools, "process_start")
+	assert.NotContains(t, developerTools, toolsdk.ToolNameWorkspaceReadFile)
+	assert.NotContains(t, developerTools, toolsdk.ToolNameCreateTemplate)
+
+	// Users cannot raise or otherwise change their own MCP toolset.
+	_, err = developerClient.UpdateUserMCPToolset(ctx, codersdk.Me, codersdk.UpdateUserMCPToolsetRequest{
+		Toolset: codersdk.MCPToolsetAdmin,
+	})
+	require.ErrorContains(t, err, "cannot change your own MCP toolset")
+
+	// An administrator can switch the user to readonly; a fresh MCP session
+	// immediately sees the reduced tool list while retaining the same API token.
+	_, err = coderClient.UpdateUserMCPToolset(ctx, developerUser.ID.String(), codersdk.UpdateUserMCPToolsetRequest{
+		Toolset: codersdk.MCPToolsetReadonly,
+	})
+	require.NoError(t, err)
+
+	readonlyTools := listTools(developerClient.SessionToken())
+	assert.Contains(t, readonlyTools, "status")
+	assert.Contains(t, readonlyTools, "list_directory")
+	assert.Contains(t, readonlyTools, "read_file")
+	assert.NotContains(t, readonlyTools, "write_file")
+	assert.NotContains(t, readonlyTools, "edit_file")
+	assert.NotContains(t, readonlyTools, "bash")
+	assert.NotContains(t, readonlyTools, "process_start")
+
+	// Switching the same user to admin restores the legacy/full Remote MCP
+	// catalog on the next connection, without issuing a new token.
+	_, err = coderClient.UpdateUserMCPToolset(ctx, developerUser.ID.String(), codersdk.UpdateUserMCPToolsetRequest{
+		Toolset: codersdk.MCPToolsetAdmin,
+	})
+	require.NoError(t, err)
+
+	promotedTools := listTools(developerClient.SessionToken())
+	assert.Contains(t, promotedTools, toolsdk.ToolNameGetAuthenticatedUser)
+	assert.Contains(t, promotedTools, toolsdk.ToolNameWorkspaceReadFile)
+	assert.Contains(t, promotedTools, toolsdk.ToolNameCreateTemplate)
+	assert.NotContains(t, promotedTools, "read_file")
+}
+
 // Helper function to parse URL safely in tests
 // TestMCPHTTP_E2E_WorkspaceSSHAuthz verifies that users who can read
 // a workspace but lack ActionSSH are denied when calling workspace
@@ -1453,7 +1555,7 @@ func TestMCPHTTP_E2E_WorkspaceSSHAuthz(t *testing.T) {
 	workspaceIdent := coderdtest.FirstUserParams.Username + "/" + r.Workspace.Name
 	toolResult, err := mcpClient.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
-			Name: toolsdk.ToolNameWorkspaceReadFile,
+			Name: "read_file",
 			Arguments: map[string]any{
 				"workspace": workspaceIdent,
 				"path":      "/tmp/secret.txt",
