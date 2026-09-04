@@ -1716,6 +1716,8 @@ func New(options *Options) *API {
 						r.Put("/appearance", api.putUserAppearanceSettings)
 						r.Get("/preferences", api.userPreferenceSettings)
 						r.Put("/preferences", api.putUserPreferenceSettings)
+						r.Get("/mcp-toolset", api.userMCPToolset)
+						r.Put("/mcp-toolset", api.putUserMCPToolset)
 
 						r.Route("/password", func(r chi.Router) {
 							r.Use(httpmw.RateLimit(options.LoginRateLimit, time.Minute))

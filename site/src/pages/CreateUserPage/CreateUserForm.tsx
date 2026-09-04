@@ -22,6 +22,7 @@ import {
 } from "#/components/Select/Select";
 import { Spinner } from "#/components/Spinner/Spinner";
 import { RoleSelector } from "#/modules/roles/RoleSelector";
+import { MCPToolsetSelect } from "#/modules/users/MCPToolsetSelect";
 import { cn } from "#/utils/cn";
 import {
 	displayNameValidator,
@@ -82,6 +83,7 @@ type CreateUserFormData = {
 	readonly password: string;
 	readonly service_account: boolean;
 	readonly roles: Set<string>;
+	readonly mcp_toolset: TypesGen.MCPToolset;
 };
 
 type CreateUserFormProps = {
@@ -134,6 +136,7 @@ export const CreateUserForm: FC<CreateUserFormProps> = ({
 			login_type: defaultLoginType,
 			service_account: defaultLoginType === "none",
 			roles: new Set(),
+			mcp_toolset: "developer",
 		},
 		validationSchema,
 		onSubmit,
@@ -352,6 +355,11 @@ export const CreateUserForm: FC<CreateUserFormProps> = ({
 						availableRoles={availableRoles}
 						selectedRoles={form.values.roles}
 						onChange={(roles) => form.setFieldValue("roles", roles)}
+					/>
+
+					<MCPToolsetSelect
+						value={form.values.mcp_toolset}
+						onChange={(toolset) => form.setFieldValue("mcp_toolset", toolset)}
 					/>
 				</div>
 

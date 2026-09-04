@@ -239,6 +239,24 @@ func TestTokenUserSetMaxLifetime(t *testing.T) {
 	require.ErrorContains(t, err, "lifetime must be less")
 }
 
+func TestTokenAdminDefaultAllowsLongLifetime(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testutil.WaitLong)
+	defer cancel()
+
+	client := coderdtest.New(t, nil)
+	_ = coderdtest.CreateFirstUser(t, client)
+
+	// Owners use the deployment's admin token lifetime. The default should
+	// support long-lived external MCP connectors without requiring weekly
+	// token rotation.
+	_, err := client.CreateToken(ctx, codersdk.Me, codersdk.CreateTokenRequest{
+		Lifetime: 365 * 24 * time.Hour,
+	})
+	require.NoError(t, err)
+}
+
 func TestTokenAdminSetMaxLifetime(t *testing.T) {
 	t.Parallel()
 

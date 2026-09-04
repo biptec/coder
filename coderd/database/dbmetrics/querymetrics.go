@@ -3273,6 +3273,14 @@ func (m queryMetricsStore) GetUserLinksByUserID(ctx context.Context, userID uuid
 	return r0, r1
 }
 
+func (m queryMetricsStore) GetUserMCPToolset(ctx context.Context, userID uuid.UUID) (string, error) {
+	start := time.Now()
+	r0, r1 := m.s.GetUserMCPToolset(ctx, userID)
+	m.queryLatencies.WithLabelValues("GetUserMCPToolset").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetUserMCPToolset").Inc()
+	return r0, r1
+}
+
 func (m queryMetricsStore) GetUserNotificationPreferences(ctx context.Context, userID uuid.UUID) ([]database.NotificationPreference, error) {
 	start := time.Now()
 	r0, r1 := m.s.GetUserNotificationPreferences(ctx, userID)
@@ -5694,6 +5702,14 @@ func (m queryMetricsStore) UpdateUserLoginType(ctx context.Context, arg database
 	r0, r1 := m.s.UpdateUserLoginType(ctx, arg)
 	m.queryLatencies.WithLabelValues("UpdateUserLoginType").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "UpdateUserLoginType").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) UpdateUserMCPToolset(ctx context.Context, arg database.UpdateUserMCPToolsetParams) (database.UserConfig, error) {
+	start := time.Now()
+	r0, r1 := m.s.UpdateUserMCPToolset(ctx, arg)
+	m.queryLatencies.WithLabelValues("UpdateUserMCPToolset").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "UpdateUserMCPToolset").Inc()
 	return r0, r1
 }
 

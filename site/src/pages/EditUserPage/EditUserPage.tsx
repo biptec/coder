@@ -3,32 +3,45 @@ import { useMutation, useQuery, useQueryClient } from "react-query";
 import { useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { getErrorDetail, getErrorMessage } from "#/api/errors";
-import { updateProfile, user } from "#/api/queries/users";
-import type { UpdateUserProfileRequest } from "#/api/typesGenerated";
+import {
+	updateProfile,
+	updateUserMCPToolset,
+	user,
+	userMCPToolset,
+} from "#/api/queries/users";
 import { Loader } from "#/components/Loader/Loader";
 import { Margins } from "#/components/Margins/Margins";
+import { useAuthenticated } from "#/hooks/useAuthenticated";
 import { pageTitle } from "#/utils/page";
 import { isUUID } from "#/utils/uuid";
-import { EditUserForm } from "./EditUserForm";
+import { EditUserForm, type EditUserFormData } from "./EditUserForm";
 
 const EditUserPage: FC = () => {
 	const { user: usernameOrId } = useParams() as { user: string };
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
+	const { user: authenticatedUser } = useAuthenticated();
 
 	const userQuery = useQuery(user(usernameOrId));
-	const updateProfileMutation = useMutation(
-		updateProfile(userQuery.data?.id ?? ""),
+	const userId = userQuery.data?.id ?? "";
+	const toolsetQuery = useQuery({
+		...userMCPToolset(userId),
+		enabled: userId !== "",
+	});
+	const updateProfileMutation = useMutation(updateProfile(userId));
+	const updateToolsetMutation = useMutation(
+		updateUserMCPToolset(queryClient, userId),
 	);
 
-	if (!userQuery.data) {
+	if (!userQuery.data || !toolsetQuery.data) {
 		return <Loader />;
 	}
 
 	const userData = userQuery.data;
 
-	const handleSubmit = async (values: UpdateUserProfileRequest) => {
-		const mutation = updateProfileMutation.mutateAsync(values, {
+	const handleSubmit = async (values: EditUserFormData) => {
+		const { mcp_toolset, ...profile } = values;
+		const profileMutation = updateProfileMutation.mutateAsync(profile, {
 			onSuccess: (updatedUser) => {
 				// Invalidate the user cache so other parts of the UI reflect the change.
 				void queryClient.invalidateQueries({
@@ -46,6 +59,12 @@ const EditUserPage: FC = () => {
 				}
 			},
 		});
+
+		const toolsetMutation =
+			mcp_toolset === toolsetQuery.data.toolset
+				? Promise.resolve(toolsetQuery.data)
+				: updateToolsetMutation.mutateAsync({ toolset: mcp_toolset });
+		const mutation = Promise.all([profileMutation, toolsetMutation]);
 
 		toast.promise(mutation, {
 			loading: `Saving user "${values.username}"…`,
@@ -65,16 +84,20 @@ const EditUserPage: FC = () => {
 			<title>{pageTitle("Edit User", `${userData.username}`)}</title>
 
 			<EditUserForm
-				error={updateProfileMutation.error}
-				isLoading={updateProfileMutation.isPending}
+				error={updateProfileMutation.error ?? updateToolsetMutation.error}
+				isLoading={
+					updateProfileMutation.isPending || updateToolsetMutation.isPending
+				}
 				initialValues={{
 					username: userData.username,
 					name: userData.name ?? "",
 					avatar_url: userData.avatar_url ?? "",
+					mcp_toolset: toolsetQuery.data.toolset,
 				}}
 				canEditAvatar={
 					userData.login_type === "password" || userData.login_type === "none"
 				}
+				canEditMCPToolset={authenticatedUser.id !== userData.id}
 				onSubmit={handleSubmit}
 				onCancel={() => {
 					navigate("..", { relative: "path" });

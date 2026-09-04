@@ -689,3 +689,25 @@ SET
 WHERE
     id = $1
 ;
+
+-- GetUserMCPToolset returns the Remote MCP toolset assigned to a user.
+-- Missing assignments fail safe to the developer toolset.
+-- name: GetUserMCPToolset :one
+SELECT COALESCE(
+	(
+		SELECT value
+		FROM user_configs
+		WHERE user_id = @user_id
+			AND key = 'mcp_toolset'
+	),
+	'developer'
+)::text AS mcp_toolset;
+
+-- name: UpdateUserMCPToolset :one
+INSERT INTO user_configs (user_id, key, value)
+VALUES (@user_id, 'mcp_toolset', @mcp_toolset)
+ON CONFLICT ON CONSTRAINT user_configs_pkey
+DO UPDATE SET value = @mcp_toolset
+WHERE user_configs.user_id = @user_id
+	AND user_configs.key = 'mcp_toolset'
+RETURNING *;

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -94,6 +95,104 @@ func (s *Server) RegisterTools(client *codersdk.Client, opts ...func(*toolsdk.De
 		s.mcpServer.AddTools(mcpFromSDK(tool, toolDeps))
 	}
 	return nil
+}
+
+type toolAlias struct {
+	SDKName string
+	MCPName string
+}
+
+var developerToolAliases = []toolAlias{
+	{SDKName: toolsdk.ToolNameGetWorkspace, MCPName: "status"},
+	{SDKName: toolsdk.ToolNameWorkspaceLS, MCPName: "list_directory"},
+	{SDKName: toolsdk.ToolNameWorkspaceReadFile, MCPName: "read_file"},
+	{SDKName: toolsdk.ToolNameWorkspaceWriteFile, MCPName: "write_file"},
+	{SDKName: toolsdk.ToolNameWorkspaceEditFile, MCPName: "edit_file"},
+	{SDKName: toolsdk.ToolNameWorkspaceEditFiles, MCPName: "edit_files"},
+	{SDKName: toolsdk.ToolNameWorkspaceBash, MCPName: "bash"},
+	{SDKName: toolsdk.ToolNameWorkspaceProcessStart, MCPName: "process_start"},
+	{SDKName: toolsdk.ToolNameWorkspaceProcessOutput, MCPName: "process_output"},
+	{SDKName: toolsdk.ToolNameWorkspaceProcessList, MCPName: "process_list"},
+	{SDKName: toolsdk.ToolNameWorkspaceProcessSignal, MCPName: "process_signal"},
+	{SDKName: toolsdk.ToolNameWorkspaceListApps, MCPName: "list_apps"},
+	{SDKName: toolsdk.ToolNameWorkspacePortForward, MCPName: "port_forward"},
+}
+
+var readonlyToolAliases = []toolAlias{
+	{SDKName: toolsdk.ToolNameGetWorkspace, MCPName: "status"},
+	{SDKName: toolsdk.ToolNameWorkspaceLS, MCPName: "list_directory"},
+	{SDKName: toolsdk.ToolNameWorkspaceReadFile, MCPName: "read_file"},
+	{SDKName: toolsdk.ToolNameWorkspaceProcessOutput, MCPName: "process_output"},
+	{SDKName: toolsdk.ToolNameWorkspaceProcessList, MCPName: "process_list"},
+	{SDKName: toolsdk.ToolNameWorkspaceListApps, MCPName: "list_apps"},
+}
+
+// RegisterDeveloperTools exposes the curated, assistant-facing Remote MCP toolset.
+// It reuses the existing tool handlers while publishing concise names that omit
+// implementation details such as the Coder and workspace prefixes.
+func (s *Server) RegisterDeveloperTools(client *codersdk.Client, opts ...func(*toolsdk.Deps)) error {
+	return s.registerAliasedTools(client, developerToolAliases, opts...)
+}
+
+// RegisterReadonlyTools exposes only read-only tools from the developer toolset.
+func (s *Server) RegisterReadonlyTools(client *codersdk.Client, opts ...func(*toolsdk.Deps)) error {
+	return s.registerAliasedTools(client, readonlyToolAliases, opts...)
+}
+
+func (s *Server) registerAliasedTools(client *codersdk.Client, aliases []toolAlias, opts ...func(*toolsdk.Deps)) error {
+	if client == nil {
+		return xerrors.New("client cannot be nil: MCP HTTP server requires authenticated client")
+	}
+
+	toolDeps, err := toolsdk.NewDeps(client, opts...)
+	if err != nil {
+		return xerrors.Errorf("failed to initialize tool dependencies: %w", err)
+	}
+
+	toolsByName := make(map[string]toolsdk.GenericTool, len(toolsdk.All))
+	for _, tool := range toolsdk.All {
+		toolsByName[tool.Name] = tool
+	}
+
+	replacements := make([]string, 0, len(aliases)*2)
+	for _, alias := range aliases {
+		replacements = append(replacements, alias.SDKName, alias.MCPName)
+	}
+	replacer := strings.NewReplacer(replacements...)
+
+	for _, alias := range aliases {
+		tool, ok := toolsByName[alias.SDKName]
+		if !ok {
+			return xerrors.Errorf("MCP tool %q is not registered in toolsdk", alias.SDKName)
+		}
+		serverTool := mcpFromSDK(tool, toolDeps)
+		serverTool.Tool.Name = alias.MCPName
+		serverTool.Tool.Description = replacer.Replace(serverTool.Tool.Description)
+		serverTool.Tool.InputSchema.Properties = rewriteSchemaStrings(serverTool.Tool.InputSchema.Properties, replacer).(map[string]any)
+		s.mcpServer.AddTools(serverTool)
+	}
+	return nil
+}
+
+func rewriteSchemaStrings(value any, replacer *strings.Replacer) any {
+	switch value := value.(type) {
+	case string:
+		return replacer.Replace(value)
+	case map[string]any:
+		cloned := make(map[string]any, len(value))
+		for key, item := range value {
+			cloned[key] = rewriteSchemaStrings(item, replacer)
+		}
+		return cloned
+	case []any:
+		cloned := make([]any, len(value))
+		for i, item := range value {
+			cloned[i] = rewriteSchemaStrings(item, replacer)
+		}
+		return cloned
+	default:
+		return value
+	}
 }
 
 // ChatGPT tools are the search and fetch tools as defined in https://platform.openai.com/docs/mcp.

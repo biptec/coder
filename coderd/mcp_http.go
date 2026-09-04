@@ -69,16 +69,42 @@ func (api *API) mcpHTTPHandler() http.Handler {
 			return api.agentProvider.AgentConn(ctx, agentID)
 		})
 
-		toolset := MCPToolset(r.URL.Query().Get("toolset"))
-		// Default to standard toolset if no toolset is specified.
-		if toolset == "" {
-			toolset = MCPToolsetStandard
+		requestedToolset := MCPToolset(r.URL.Query().Get("toolset"))
+		// The standard Remote MCP endpoint uses the server-side toolset assigned
+		// to the authenticated user. Clients cannot select a more privileged
+		// developer/admin/readonly toolset through the query string.
+		if requestedToolset == "" {
+			requestedToolset = MCPToolsetStandard
 		}
 
-		switch toolset {
+		switch requestedToolset {
 		case MCPToolsetStandard:
-			if err := mcpServer.RegisterTools(authenticatedClient, toolOpt); err != nil {
-				api.Logger.Warn(r.Context(), "failed to register MCP tools", slog.Error(err))
+			assignedToolset, err := api.Database.GetUserMCPToolset(r.Context(), httpmw.APIKey(r).UserID)
+			if err != nil {
+				api.Logger.Error(r.Context(), "failed to resolve MCP toolset", slog.Error(err))
+				httpapi.Write(r.Context(), w, http.StatusInternalServerError, codersdk.Response{
+					Message: "Failed to resolve MCP toolset.",
+				})
+				return
+			}
+
+			var registerErr error
+			switch codersdk.MCPToolset(assignedToolset) {
+			case codersdk.MCPToolsetAdmin:
+				registerErr = mcpServer.RegisterTools(authenticatedClient, toolOpt)
+			case codersdk.MCPToolsetReadonly:
+				registerErr = mcpServer.RegisterReadonlyTools(authenticatedClient, toolOpt)
+			case codersdk.MCPToolsetDeveloper:
+				registerErr = mcpServer.RegisterDeveloperTools(authenticatedClient, toolOpt)
+			default:
+				// Fail safe if an invalid value somehow reaches the database.
+				api.Logger.Warn(r.Context(), "invalid stored MCP toolset; falling back to developer",
+					slog.F("toolset", assignedToolset),
+				)
+				registerErr = mcpServer.RegisterDeveloperTools(authenticatedClient, toolOpt)
+			}
+			if registerErr != nil {
+				api.Logger.Warn(r.Context(), "failed to register MCP tools", slog.Error(registerErr))
 			}
 		case MCPToolsetChatGPT:
 			if err := mcpServer.RegisterChatGPTTools(authenticatedClient, toolOpt); err != nil {
@@ -86,7 +112,7 @@ func (api *API) mcpHTTPHandler() http.Handler {
 			}
 		default:
 			httpapi.Write(r.Context(), w, http.StatusBadRequest, codersdk.Response{
-				Message: fmt.Sprintf("Invalid toolset: %s", toolset),
+				Message: fmt.Sprintf("Invalid toolset: %s", requestedToolset),
 			})
 			return
 		}

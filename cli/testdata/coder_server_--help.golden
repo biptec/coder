@@ -551,7 +551,7 @@ NETWORKING / HTTP OPTIONS:
           The maximum lifetime duration users can specify when creating an API
           token.
 
-      --max-admin-token-lifetime duration, $CODER_MAX_ADMIN_TOKEN_LIFETIME (default: 168h0m0s)
+      --max-admin-token-lifetime duration, $CODER_MAX_ADMIN_TOKEN_LIFETIME (default: 876600h0m0s)
           The maximum lifetime duration administrators can specify when creating
           an API token.
 

@@ -2724,9 +2724,20 @@ Experimental: this endpoint is subject to change.
 ```json
 {
   "message": "string",
+  "progress": {
+    "branch": "string",
+    "complete": true,
+    "processed_files": 0,
+    "remote_origin": "string",
+    "repo_root": "string",
+    "reset": true,
+    "total_files": 0,
+    "unified_diff_chunk": "string"
+  },
   "repositories": [
     {
       "branch": "string",
+      "diff_truncated": true,
       "remote_origin": "string",
       "removed": true,
       "repo_root": "string",

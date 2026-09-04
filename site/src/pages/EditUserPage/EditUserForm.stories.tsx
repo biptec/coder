@@ -12,10 +12,12 @@ const meta: Meta<typeof EditUserForm> = {
 		onSubmit: action("submit"),
 		isLoading: false,
 		canEditAvatar: true,
+		canEditMCPToolset: true,
 		initialValues: {
 			username: "john-doe",
 			name: "John Doe",
 			avatar_url: "",
+			mcp_toolset: "developer",
 		},
 	},
 };
@@ -31,6 +33,7 @@ export const NoDisplayName: Story = {
 			username: "jane-doe",
 			name: "",
 			avatar_url: "",
+			mcp_toolset: "developer",
 		},
 	},
 };
@@ -41,6 +44,7 @@ export const WithAvatar: Story = {
 			username: "john-doe",
 			name: "John Doe",
 			avatar_url: "/emojis/1f600.png",
+			mcp_toolset: "developer",
 		},
 	},
 };

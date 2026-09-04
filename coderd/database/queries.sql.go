@@ -29811,6 +29811,27 @@ func (q *sqlQuerier) GetUserCount(ctx context.Context, includeSystem bool) (int6
 	return count, err
 }
 
+const getUserMCPToolset = `-- name: GetUserMCPToolset :one
+SELECT COALESCE(
+	(
+		SELECT value
+		FROM user_configs
+		WHERE user_id = $1
+			AND key = 'mcp_toolset'
+	),
+	'developer'
+)::text AS mcp_toolset
+`
+
+// GetUserMCPToolset returns the Remote MCP toolset assigned to a user.
+// Missing assignments fail safe to the developer toolset.
+func (q *sqlQuerier) GetUserMCPToolset(ctx context.Context, userID uuid.UUID) (string, error) {
+	row := q.db.QueryRowContext(ctx, getUserMCPToolset, userID)
+	var mcp_toolset string
+	err := row.Scan(&mcp_toolset)
+	return mcp_toolset, err
+}
+
 const getUserShellToolDisplayMode = `-- name: GetUserShellToolDisplayMode :one
 SELECT
 	value AS shell_tool_display_mode
@@ -30612,6 +30633,28 @@ func (q *sqlQuerier) UpdateUserLoginType(ctx context.Context, arg UpdateUserLogi
 		&i.IsServiceAccount,
 		&i.ChatSpendLimitMicros,
 	)
+	return i, err
+}
+
+const updateUserMCPToolset = `-- name: UpdateUserMCPToolset :one
+INSERT INTO user_configs (user_id, key, value)
+VALUES ($1, 'mcp_toolset', $2)
+ON CONFLICT ON CONSTRAINT user_configs_pkey
+DO UPDATE SET value = $2
+WHERE user_configs.user_id = $1
+	AND user_configs.key = 'mcp_toolset'
+RETURNING user_id, key, value
+`
+
+type UpdateUserMCPToolsetParams struct {
+	UserID     uuid.UUID `db:"user_id" json:"user_id"`
+	McpToolset string    `db:"mcp_toolset" json:"mcp_toolset"`
+}
+
+func (q *sqlQuerier) UpdateUserMCPToolset(ctx context.Context, arg UpdateUserMCPToolsetParams) (UserConfig, error) {
+	row := q.db.QueryRowContext(ctx, updateUserMCPToolset, arg.UserID, arg.McpToolset)
+	var i UserConfig
+	err := row.Scan(&i.UserID, &i.Key, &i.Value)
 	return i, err
 }
 

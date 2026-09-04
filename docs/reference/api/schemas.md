@@ -4994,6 +4994,7 @@ This is required on creation to enable a user-flow of validating a template work
 {
   "email": "user@example.com",
   "login_type": "",
+  "mcp_toolset": "developer",
   "name": "string",
   "organization_ids": [
     "497f6eca-6276-4993-bfeb-53cbbbba6f08"
@@ -5010,17 +5011,18 @@ This is required on creation to enable a user-flow of validating a template work
 
 ### Properties
 
-| Name               | Type                                       | Required | Restrictions | Description                                                                         |
-|--------------------|--------------------------------------------|----------|--------------|-------------------------------------------------------------------------------------|
-| `email`            | string                                     | false    |              |                                                                                     |
-| `login_type`       | [codersdk.LoginType](#codersdklogintype)   | false    |              | Login type defaults to LoginTypePassword.                                           |
-| `name`             | string                                     | false    |              |                                                                                     |
-| `organization_ids` | array of string                            | false    |              | Organization ids is a list of organization IDs that the user should be a member of. |
-| `password`         | string                                     | false    |              |                                                                                     |
-| `roles`            | array of string                            | false    |              | Roles is an optional list of site-level roles to assign at creation.                |
-| `service_account`  | boolean                                    | false    |              | Service accounts are admin-managed accounts that cannot login.                      |
-| `user_status`      | [codersdk.UserStatus](#codersdkuserstatus) | false    |              | User status defaults to UserStatusDormant.                                          |
-| `username`         | string                                     | true     |              |                                                                                     |
+| Name               | Type                                       | Required | Restrictions | Description                                                                                                        |
+|--------------------|--------------------------------------------|----------|--------------|--------------------------------------------------------------------------------------------------------------------|
+| `email`            | string                                     | false    |              |                                                                                                                    |
+| `login_type`       | [codersdk.LoginType](#codersdklogintype)   | false    |              | Login type defaults to LoginTypePassword.                                                                          |
+| `mcp_toolset`      | [codersdk.MCPToolset](#codersdkmcptoolset) | false    |              | Mcp toolset controls the Remote MCP tools exposed to this user. It defaults to the developer toolset when omitted. |
+| `name`             | string                                     | false    |              |                                                                                                                    |
+| `organization_ids` | array of string                            | false    |              | Organization ids is a list of organization IDs that the user should be a member of.                                |
+| `password`         | string                                     | false    |              |                                                                                                                    |
+| `roles`            | array of string                            | false    |              | Roles is an optional list of site-level roles to assign at creation.                                               |
+| `service_account`  | boolean                                    | false    |              | Service accounts are admin-managed accounts that cannot login.                                                     |
+| `user_status`      | [codersdk.UserStatus](#codersdkuserstatus) | false    |              | User status defaults to UserStatusDormant.                                                                         |
+| `username`         | string                                     | true     |              |                                                                                                                    |
 
 ## codersdk.CreateUserSecretRequest
 
@@ -8053,6 +8055,20 @@ Only certain features set these fields: - FeatureManagedAgentLimit|
 | Name            | Type   | Required | Restrictions | Description |
 |-----------------|--------|----------|--------------|-------------|
 | `session_token` | string | true     |              |             |
+
+## codersdk.MCPToolset
+
+```json
+"developer"
+```
+
+### Properties
+
+#### Enumerated Values
+
+| Value(s)                         |
+|----------------------------------|
+| `admin`, `developer`, `readonly` |
 
 ## codersdk.MatchedProvisioners
 
@@ -13399,6 +13415,20 @@ Restarts will only happen on weekdays in this list on weeks which line up with W
 | `theme_light` | `dark`, `dark-protan-deuter`, `dark-tritan`, `light`, `light-protan-deuter`, `light-tritan` |
 | `theme_mode`  | `single`, `sync`                                                                            |
 
+## codersdk.UpdateUserMCPToolsetRequest
+
+```json
+{
+  "toolset": "developer"
+}
+```
+
+### Properties
+
+| Name      | Type                                       | Required | Restrictions | Description |
+|-----------|--------------------------------------------|----------|--------------|-------------|
+| `toolset` | [codersdk.MCPToolset](#codersdkmcptoolset) | true     |              |             |
+
 ## codersdk.UpdateUserNotificationPreferences
 
 ```json
@@ -14082,6 +14112,20 @@ If the schedule is empty, the user will be updated to use the default schedule.|
 | Name         | Type                                     | Required | Restrictions | Description |
 |--------------|------------------------------------------|----------|--------------|-------------|
 | `login_type` | [codersdk.LoginType](#codersdklogintype) | false    |              |             |
+
+## codersdk.UserMCPToolset
+
+```json
+{
+  "toolset": "developer"
+}
+```
+
+### Properties
+
+| Name      | Type                                       | Required | Restrictions | Description |
+|-----------|--------------------------------------------|----------|--------------|-------------|
+| `toolset` | [codersdk.MCPToolset](#codersdkmcptoolset) | false    |              |             |
 
 ## codersdk.UserParameter
 
@@ -15053,14 +15097,53 @@ If the schedule is empty, the user will be updated to use the default schedule.|
 |-------------------------------------------------------------------|
 | `deleting`, `error`, `running`, `starting`, `stopped`, `stopping` |
 
+## codersdk.WorkspaceAgentGitDiffProgress
+
+```json
+{
+  "branch": "string",
+  "complete": true,
+  "processed_files": 0,
+  "remote_origin": "string",
+  "repo_root": "string",
+  "reset": true,
+  "total_files": 0,
+  "unified_diff_chunk": "string"
+}
+```
+
+### Properties
+
+| Name                 | Type    | Required | Restrictions | Description |
+|----------------------|---------|----------|--------------|-------------|
+| `branch`             | string  | false    |              |             |
+| `complete`           | boolean | false    |              |             |
+| `processed_files`    | integer | false    |              |             |
+| `remote_origin`      | string  | false    |              |             |
+| `repo_root`          | string  | false    |              |             |
+| `reset`              | boolean | false    |              |             |
+| `total_files`        | integer | false    |              |             |
+| `unified_diff_chunk` | string  | false    |              |             |
+
 ## codersdk.WorkspaceAgentGitServerMessage
 
 ```json
 {
   "message": "string",
+  "progress": {
+    "branch": "string",
+    "complete": true,
+    "processed_files": 0,
+    "remote_origin": "string",
+    "repo_root": "string",
+    "reset": true,
+    "total_files": 0,
+    "unified_diff_chunk": "string"
+  },
   "repositories": [
     {
       "branch": "string",
+      "diff_truncated": true,
       "remote_origin": "string",
       "removed": true,
       "repo_root": "string",
@@ -15077,6 +15160,7 @@ If the schedule is empty, the user will be updated to use the default schedule.|
 | Name           | Type                                                                                       | Required | Restrictions | Description |
 |----------------|--------------------------------------------------------------------------------------------|----------|--------------|-------------|
 | `message`      | string                                                                                     | false    |              |             |
+| `progress`     | [codersdk.WorkspaceAgentGitDiffProgress](#codersdkworkspaceagentgitdiffprogress)           | false    |              |             |
 | `repositories` | array of [codersdk.WorkspaceAgentRepoChanges](#codersdkworkspaceagentrepochanges)          | false    |              |             |
 | `scanned_at`   | string                                                                                     | false    |              |             |
 | `type`         | [codersdk.WorkspaceAgentGitServerMessageType](#codersdkworkspaceagentgitservermessagetype) | false    |              |             |
@@ -15091,9 +15175,9 @@ If the schedule is empty, the user will be updated to use the default schedule.|
 
 #### Enumerated Values
 
-| Value(s)           |
-|--------------------|
-| `changes`, `error` |
+| Value(s)                       |
+|--------------------------------|
+| `changes`, `error`, `progress` |
 
 ## codersdk.WorkspaceAgentHealth
 
@@ -15379,6 +15463,7 @@ If the schedule is empty, the user will be updated to use the default schedule.|
 ```json
 {
   "branch": "string",
+  "diff_truncated": true,
   "remote_origin": "string",
   "removed": true,
   "repo_root": "string",
@@ -15388,13 +15473,14 @@ If the schedule is empty, the user will be updated to use the default schedule.|
 
 ### Properties
 
-| Name            | Type    | Required | Restrictions | Description |
-|-----------------|---------|----------|--------------|-------------|
-| `branch`        | string  | false    |              |             |
-| `remote_origin` | string  | false    |              |             |
-| `removed`       | boolean | false    |              |             |
-| `repo_root`     | string  | false    |              |             |
-| `unified_diff`  | string  | false    |              |             |
+| Name             | Type    | Required | Restrictions | Description |
+|------------------|---------|----------|--------------|-------------|
+| `branch`         | string  | false    |              |             |
+| `diff_truncated` | boolean | false    |              |             |
+| `remote_origin`  | string  | false    |              |             |
+| `removed`        | boolean | false    |              |             |
+| `repo_root`      | string  | false    |              |             |
+| `unified_diff`   | string  | false    |              |             |
 
 ## codersdk.WorkspaceAgentScript
 
