@@ -29,6 +29,7 @@ const (
 	ToolNameGetWorkspace                = "coder_get_workspace"
 	ToolNameCreateWorkspace             = "coder_create_workspace"
 	ToolNameListWorkspaces              = "coder_list_workspaces"
+	ToolNameListAccessibleWorkspaces    = "coder_list_accessible_workspaces"
 	ToolNameListTemplates               = "coder_list_templates"
 	ToolNameListTemplateVersionParams   = "coder_template_version_parameters"
 	ToolNameGetTemplate                 = "coder_get_template"
@@ -623,6 +624,45 @@ var ListWorkspaces = Tool[ListWorkspacesArgs, []MinimalWorkspace]{
 			}
 		}
 		return minimalWorkspaces, nil
+	},
+}
+
+type AccessibleWorkspace struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	OwnerName string `json:"owner_name"`
+	FullName  string `json:"full_name"`
+}
+
+// ListAccessibleWorkspaces is a curated Remote MCP helper and is intentionally
+// not added to All, which preserves the legacy coder_list_workspaces contract.
+var ListAccessibleWorkspaces = Tool[NoArgs, []AccessibleWorkspace]{
+	Tool: aisdk.Tool{
+		Name: ToolNameListAccessibleWorkspaces,
+		Description: `Lists all workspaces visible to the authenticated user, including shared workspaces.
+
+Use full_name with other workspace tools when an owner-qualified name is needed.`,
+		Schema: aisdk.Schema{
+			Properties: map[string]any{},
+			Required:   []string{},
+		},
+	},
+	MCPAnnotations: mcpReadOnlyAnnotations,
+	Handler: func(ctx context.Context, deps Deps, _ NoArgs) ([]AccessibleWorkspace, error) {
+		workspaces, err := deps.coderClient.Workspaces(ctx, codersdk.WorkspaceFilter{})
+		if err != nil {
+			return nil, err
+		}
+		visible := make([]AccessibleWorkspace, len(workspaces.Workspaces))
+		for i, workspace := range workspaces.Workspaces {
+			visible[i] = AccessibleWorkspace{
+				ID:        workspace.ID.String(),
+				Name:      workspace.Name,
+				OwnerName: workspace.OwnerName,
+				FullName:  workspace.OwnerName + "/" + workspace.Name,
+			}
+		}
+		return visible, nil
 	},
 }
 

@@ -1435,8 +1435,10 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 	// The first owner is migrated/created with the full admin toolset.
 	adminTools := listTools(coderClient.SessionToken())
 	assert.Contains(t, adminTools, toolsdk.ToolNameGetAuthenticatedUser)
+	assert.Contains(t, adminTools, toolsdk.ToolNameListWorkspaces)
 	assert.Contains(t, adminTools, toolsdk.ToolNameWorkspaceReadFile)
 	assert.Contains(t, adminTools, toolsdk.ToolNameCreateTemplate)
+	assert.NotContains(t, adminTools, toolsdk.ToolNameListAccessibleWorkspaces)
 	assert.NotContains(t, adminTools, "read_file")
 
 	// Newly created users default to the curated developer toolset.
@@ -1446,10 +1448,12 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 
 	developerTools := listTools(developerClient.SessionToken())
 	assert.Contains(t, developerTools, "status")
+	assert.Contains(t, developerTools, "list_workspaces")
 	assert.Contains(t, developerTools, "read_file")
 	assert.Contains(t, developerTools, "write_file")
 	assert.Contains(t, developerTools, "bash")
 	assert.Contains(t, developerTools, "process_start")
+	assert.NotContains(t, developerTools, "port_forward")
 	assert.NotContains(t, developerTools, toolsdk.ToolNameWorkspaceReadFile)
 	assert.NotContains(t, developerTools, toolsdk.ToolNameCreateTemplate)
 
@@ -1468,12 +1472,14 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 
 	readonlyTools := listTools(developerClient.SessionToken())
 	assert.Contains(t, readonlyTools, "status")
+	assert.Contains(t, readonlyTools, "list_workspaces")
 	assert.Contains(t, readonlyTools, "list_directory")
 	assert.Contains(t, readonlyTools, "read_file")
 	assert.NotContains(t, readonlyTools, "write_file")
 	assert.NotContains(t, readonlyTools, "edit_file")
 	assert.NotContains(t, readonlyTools, "bash")
 	assert.NotContains(t, readonlyTools, "process_start")
+	assert.NotContains(t, readonlyTools, "port_forward")
 
 	// Switching the same user to admin restores the legacy/full Remote MCP
 	// catalog on the next connection, without issuing a new token.
@@ -1484,8 +1490,10 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 
 	promotedTools := listTools(developerClient.SessionToken())
 	assert.Contains(t, promotedTools, toolsdk.ToolNameGetAuthenticatedUser)
+	assert.Contains(t, promotedTools, toolsdk.ToolNameListWorkspaces)
 	assert.Contains(t, promotedTools, toolsdk.ToolNameWorkspaceReadFile)
 	assert.Contains(t, promotedTools, toolsdk.ToolNameCreateTemplate)
+	assert.NotContains(t, promotedTools, toolsdk.ToolNameListAccessibleWorkspaces)
 	assert.NotContains(t, promotedTools, "read_file")
 }
 
@@ -1573,6 +1581,184 @@ func TestMCPHTTP_E2E_WorkspaceSSHAuthz(t *testing.T) {
 	textContent, ok := toolResult.Content[0].(mcp.TextContent)
 	require.True(t, ok)
 	assert.Contains(t, textContent.Text, "unauthorized")
+}
+
+func TestMCPHTTP_E2E_SharedWorkspaceDiscovery(t *testing.T) {
+	t.Parallel()
+
+	coderClient, closer, api := coderdtest.NewWithAPI(t, nil)
+	defer closer.Close()
+
+	admin := coderdtest.CreateFirstUser(t, coderClient)
+	developerClient, developerUser := coderdtest.CreateAnotherUser(t, coderClient, admin.OrganizationID)
+	otherOwnerClient, otherOwner := coderdtest.CreateAnotherUser(t, coderClient, admin.OrganizationID)
+
+	suffix := uuid.NewString()[:8]
+	sharedName := "shared-" + suffix
+	ambiguousName := "ambig-" + suffix
+	hiddenName := "hidden-" + suffix
+
+	shared := dbfake.WorkspaceBuild(t, api.Database, database.WorkspaceTable{
+		Name:           sharedName,
+		OrganizationID: admin.OrganizationID,
+		OwnerID:        admin.UserID,
+	}).WithAgent().Do()
+	_ = dbfake.WorkspaceBuild(t, api.Database, database.WorkspaceTable{
+		Name:           hiddenName,
+		OrganizationID: admin.OrganizationID,
+		OwnerID:        admin.UserID,
+	}).Do().Workspace
+	ambiguousAdmin := dbfake.WorkspaceBuild(t, api.Database, database.WorkspaceTable{
+		Name:           ambiguousName,
+		OrganizationID: admin.OrganizationID,
+		OwnerID:        admin.UserID,
+	}).Do().Workspace
+	ambiguousOther := dbfake.WorkspaceBuild(t, api.Database, database.WorkspaceTable{
+		Name:           ambiguousName,
+		OrganizationID: admin.OrganizationID,
+		OwnerID:        otherOwner.ID,
+	}).Do().Workspace
+
+	ctx, cancel := context.WithTimeout(context.Background(), testutil.WaitLong)
+	defer cancel()
+
+	for _, workspaceID := range []uuid.UUID{shared.Workspace.ID, ambiguousAdmin.ID} {
+		require.NoError(t, coderClient.UpdateWorkspaceACL(ctx, workspaceID, codersdk.UpdateWorkspaceACL{
+			UserRoles: map[string]codersdk.WorkspaceRole{
+				developerUser.ID.String(): codersdk.WorkspaceRoleUse,
+			},
+		}))
+	}
+	require.NoError(t, otherOwnerClient.UpdateWorkspaceACL(ctx, ambiguousOther.ID, codersdk.UpdateWorkspaceACL{
+		UserRoles: map[string]codersdk.WorkspaceRole{
+			developerUser.ID.String(): codersdk.WorkspaceRoleUse,
+		},
+	}))
+
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll("/tmp", 0o755))
+	require.NoError(t, afero.WriteFile(fs, "/tmp/shared.txt", []byte("shared-content"), 0o644))
+	_ = agenttest.New(t, coderClient.URL, shared.AgentToken, func(opts *agent.Options) {
+		opts.Filesystem = fs
+	})
+	coderdtest.NewWorkspaceAgentWaiter(t, coderClient, shared.Workspace.ID).Wait()
+
+	mcpURL := api.AccessURL.String() + mcpserver.MCPEndpoint
+	mcpClient := newIsolatedMCPClient(t, mcpURL,
+		transport.WithHTTPHeaders(map[string]string{
+			"Authorization": "Bearer " + developerClient.SessionToken(),
+		}))
+	defer func() { require.NoError(t, mcpClient.Close()) }()
+
+	require.NoError(t, mcpClient.Start(ctx))
+	_, err := mcpClient.Initialize(ctx, mcp.InitializeRequest{
+		Params: mcp.InitializeParams{
+			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
+			ClientInfo: mcp.Implementation{
+				Name:    "test-client-shared-workspace-discovery",
+				Version: "1.0.0",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	listResult, err := mcpClient.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "list_workspaces",
+			Arguments: map[string]any{},
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, listResult.IsError)
+	require.Len(t, listResult.Content, 1)
+	listText, ok := listResult.Content[0].(mcp.TextContent)
+	require.True(t, ok)
+
+	var listed []toolsdk.AccessibleWorkspace
+	require.NoError(t, json.Unmarshal([]byte(listText.Text), &listed))
+	listedByFullName := make(map[string]toolsdk.AccessibleWorkspace, len(listed))
+	for _, workspace := range listed {
+		listedByFullName[workspace.FullName] = workspace
+	}
+
+	sharedFullName := coderdtest.FirstUserParams.Username + "/" + sharedName
+	ambiguousAdminFullName := coderdtest.FirstUserParams.Username + "/" + ambiguousName
+	ambiguousOtherFullName := otherOwner.Username + "/" + ambiguousName
+	hiddenFullName := coderdtest.FirstUserParams.Username + "/" + hiddenName
+	require.Contains(t, listedByFullName, sharedFullName)
+	require.Contains(t, listedByFullName, ambiguousAdminFullName)
+	require.Contains(t, listedByFullName, ambiguousOtherFullName)
+	require.NotContains(t, listedByFullName, hiddenFullName)
+	require.Equal(t, coderdtest.FirstUserParams.Username, listedByFullName[sharedFullName].OwnerName)
+
+	statusResult, err := mcpClient.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "status",
+			Arguments: map[string]any{
+				"workspace_id": sharedName,
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, statusResult.IsError)
+	statusText, ok := statusResult.Content[0].(mcp.TextContent)
+	require.True(t, ok)
+	var resolved codersdk.Workspace
+	require.NoError(t, json.Unmarshal([]byte(statusText.Text), &resolved))
+	require.Equal(t, shared.Workspace.ID, resolved.ID)
+
+	readResult, err := mcpClient.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "read_file",
+			Arguments: map[string]any{
+				"workspace": sharedName,
+				"path":      "/tmp/shared.txt",
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, readResult.IsError)
+	readText, ok := readResult.Content[0].(mcp.TextContent)
+	require.True(t, ok)
+	var readResponse toolsdk.WorkspaceReadFileResponse
+	require.NoError(t, json.Unmarshal([]byte(readText.Text), &readResponse))
+	require.Equal(t, []byte("shared-content"), readResponse.Content)
+
+	ambiguousResult, callErr := mcpClient.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "status",
+			Arguments: map[string]any{
+				"workspace_id": ambiguousName,
+			},
+		},
+	})
+	if callErr != nil {
+		require.ErrorContains(t, callErr, "ambiguous")
+	} else {
+		require.True(t, ambiguousResult.IsError)
+		require.NotEmpty(t, ambiguousResult.Content)
+		ambiguousText, ok := ambiguousResult.Content[0].(mcp.TextContent)
+		require.True(t, ok)
+		require.Contains(t, ambiguousText.Text, "ambiguous")
+		require.Contains(t, ambiguousText.Text, ambiguousAdminFullName)
+		require.Contains(t, ambiguousText.Text, ambiguousOtherFullName)
+	}
+
+	explicitResult, err := mcpClient.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "status",
+			Arguments: map[string]any{
+				"workspace_id": ambiguousOtherFullName,
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, explicitResult.IsError)
+	explicitText, ok := explicitResult.Content[0].(mcp.TextContent)
+	require.True(t, ok)
+	var explicitWorkspace codersdk.Workspace
+	require.NoError(t, json.Unmarshal([]byte(explicitText.Text), &explicitWorkspace))
+	require.Equal(t, ambiguousOther.ID, explicitWorkspace.ID)
 }
 
 func mustParseURL(t *testing.T, rawURL string) *url.URL {
