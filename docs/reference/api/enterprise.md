@@ -219,7 +219,8 @@ curl -X GET http://coder-server:8080/api/v2/appearance \
       "name": "string",
       "target": "string"
     }
-  ]
+  ],
+  "workspace_activity_now_threshold_ms": 0
 }
 ```
 

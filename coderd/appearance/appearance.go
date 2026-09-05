@@ -2,6 +2,7 @@ package appearance
 
 import (
 	"context"
+	"time"
 
 	"github.com/coder/coder/v2/codersdk"
 )
@@ -11,22 +12,25 @@ type Fetcher interface {
 }
 
 type AGPLFetcher struct {
-	docsURL string
+	docsURL                       string
+	workspaceActivityNowThreshold time.Duration
 }
 
 func (f AGPLFetcher) Fetch(context.Context) (codersdk.AppearanceConfig, error) {
 	return codersdk.AppearanceConfig{
-		AnnouncementBanners: []codersdk.BannerConfig{},
-		SupportLinks:        codersdk.DefaultSupportLinks(f.docsURL),
-		DocsURL:             f.docsURL,
+		AnnouncementBanners:             []codersdk.BannerConfig{},
+		SupportLinks:                    codersdk.DefaultSupportLinks(f.docsURL),
+		DocsURL:                         f.docsURL,
+		WorkspaceActivityNowThresholdMS: f.workspaceActivityNowThreshold.Milliseconds(),
 	}, nil
 }
 
-func NewDefaultFetcher(docsURL string) Fetcher {
+func NewDefaultFetcher(docsURL string, workspaceActivityNowThreshold time.Duration) Fetcher {
 	if docsURL == "" {
 		docsURL = codersdk.DefaultDocsURL()
 	}
 	return &AGPLFetcher{
-		docsURL: docsURL,
+		docsURL:                       docsURL,
+		workspaceActivityNowThreshold: workspaceActivityNowThreshold,
 	}
 }

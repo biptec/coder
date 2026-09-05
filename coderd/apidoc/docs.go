@@ -16278,6 +16278,10 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/codersdk.LinkConfig"
                     }
+                },
+                "workspace_activity_now_threshold_ms": {
+                    "description": "WorkspaceActivityNowThresholdMS controls how recent workspace activity must be\nfor the dashboard to display \"Now\" instead of relative time.",
+                    "type": "integer"
                 }
             }
         },
@@ -19518,6 +19522,9 @@ const docTemplate = `{
                 },
                 "wildcard_access_url": {
                     "type": "string"
+                },
+                "workspace_activity_now_threshold": {
+                    "type": "integer"
                 },
                 "workspace_hostname_suffix": {
                     "type": "string"

@@ -1077,11 +1077,15 @@ func (api *API) updateEntitlements(ctx context.Context) error {
 					api.Database,
 					api.DeploymentValues.Support.Links.Value,
 					api.DeploymentValues.DocsURL.String(),
+					api.DeploymentValues.WorkspaceActivityNowThreshold.Value(),
 					buildinfo.Version(),
 				)
 				api.AGPL.AppearanceFetcher.Store(&f)
 			} else {
-				f := appearance.NewDefaultFetcher(api.DeploymentValues.DocsURL.String())
+				f := appearance.NewDefaultFetcher(
+					api.DeploymentValues.DocsURL.String(),
+					api.DeploymentValues.WorkspaceActivityNowThreshold.Value(),
+				)
 				api.AGPL.AppearanceFetcher.Store(&f)
 			}
 		}

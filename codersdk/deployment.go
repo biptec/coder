@@ -612,6 +612,8 @@ var AIBudgetPeriods = []string{
 	string(AIBudgetPeriodMonth),
 }
 
+const DefaultWorkspaceActivityNowThreshold = 5 * time.Minute
+
 // DeploymentValues is the central configuration values the coder server.
 type DeploymentValues struct {
 	Verbose             serpent.Bool   `json:"verbose,omitempty"`
@@ -646,6 +648,7 @@ type DeploymentValues struct {
 	SSHKeygenAlgorithm                      serpent.String                       `json:"ssh_keygen_algorithm,omitempty" typescript:",notnull"`
 	MetricsCacheRefreshInterval             serpent.Duration                     `json:"metrics_cache_refresh_interval,omitempty" typescript:",notnull"`
 	AgentStatRefreshInterval                serpent.Duration                     `json:"agent_stat_refresh_interval,omitempty" typescript:",notnull"`
+	WorkspaceActivityNowThreshold           serpent.Duration                     `json:"workspace_activity_now_threshold,omitempty" typescript:",notnull"`
 	AgentFallbackTroubleshootingURL         serpent.URL                          `json:"agent_fallback_troubleshooting_url,omitempty" typescript:",notnull"`
 	BrowserOnly                             serpent.Bool                         `json:"browser_only,omitempty" typescript:",notnull"`
 	SCIMAPIKey                              serpent.String                       `json:"scim_api_key,omitempty" typescript:",notnull"`
@@ -3585,6 +3588,22 @@ communicating directly.`,
 			Annotations: serpent.Annotations{}.Mark(annotationFormatDuration, "true"),
 		},
 		{
+			Name:        "Workspace Activity Now Threshold",
+			Description: "How recently a workspace must have been used for the dashboard to display \"Now\" instead of relative time.",
+			Flag:        "workspace-activity-now-threshold",
+			Env:         "CODER_WORKSPACE_ACTIVITY_NOW_THRESHOLD",
+			YAML:        "workspaceActivityNowThreshold",
+			Hidden:      true,
+			Default:     DefaultWorkspaceActivityNowThreshold.String(),
+			Value: serpent.Validate(&c.WorkspaceActivityNowThreshold, func(value *serpent.Duration) error {
+				if value.Value() <= 0 {
+					return xerrors.New("workspace activity now threshold must be greater than zero")
+				}
+				return nil
+			}),
+			Annotations: serpent.Annotations{}.Mark(annotationFormatDuration, "true"),
+		},
+		{
 			Name:        "Agent Fallback Troubleshooting URL",
 			Description: "URL to use for agent troubleshooting when not set in the template.",
 			Flag:        "agent-fallback-troubleshooting-url",
@@ -5068,6 +5087,9 @@ type AppearanceConfig struct {
 	ApplicationName string `json:"application_name"`
 	LogoURL         string `json:"logo_url"`
 	DocsURL         string `json:"docs_url"`
+	// WorkspaceActivityNowThresholdMS controls how recent workspace activity must be
+	// for the dashboard to display "Now" instead of relative time.
+	WorkspaceActivityNowThresholdMS int64 `json:"workspace_activity_now_threshold_ms,omitempty"`
 	// Deprecated: ServiceBanner has been replaced by AnnouncementBanners.
 	ServiceBanner       BannerConfig   `json:"service_banner"`
 	AnnouncementBanners []BannerConfig `json:"announcement_banners"`

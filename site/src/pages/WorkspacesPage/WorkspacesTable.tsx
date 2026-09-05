@@ -289,7 +289,12 @@ export const WorkspacesTable: FC<WorkspacesTableProps> = ({
 							</TableCell>
 
 							<TableCell>
-								<WorkspaceStatus workspace={workspace} />
+								<WorkspaceStatus
+									workspace={workspace}
+									nowThresholdMs={
+										dashboard.appearance.workspace_activity_now_threshold_ms
+									}
+								/>
 							</TableCell>
 
 							<WorkspaceActionsCell
