@@ -44,15 +44,29 @@ const (
 	ToolNameCreateTemplate              = "coder_create_template"
 	ToolNameDeleteTemplate              = "coder_delete_template"
 	ToolNameWorkspaceBash               = "coder_workspace_bash"
+	ToolNameWorkspaceExec               = "coder_workspace_exec"
 	ToolNameWorkspaceProcessStart       = "coder_workspace_process_start"
+	ToolNameWorkspaceProcessStartV2     = "coder_workspace_process_start_v2"
 	ToolNameWorkspaceProcessOutput      = "coder_workspace_process_output"
 	ToolNameWorkspaceProcessList        = "coder_workspace_process_list"
+	ToolNameWorkspaceProcessInput       = "coder_workspace_process_input"
 	ToolNameWorkspaceProcessSignal      = "coder_workspace_process_signal"
 	ToolNameChatGPTSearch               = "search"
 	ToolNameChatGPTFetch                = "fetch"
 	ToolNameWorkspaceLS                 = "coder_workspace_ls"
+	ToolNameWorkspaceListDirectoryV2    = "coder_workspace_list_directory_v2"
 	ToolNameWorkspaceReadFile           = "coder_workspace_read_file"
+	ToolNameWorkspaceReadFileV2         = "coder_workspace_read_file_v2"
+	ToolNameWorkspaceReadFilesV2        = "coder_workspace_read_files_v2"
 	ToolNameWorkspaceWriteFile          = "coder_workspace_write_file"
+	ToolNameWorkspaceWriteFileV2        = "coder_workspace_write_file_v2"
+	ToolNameWorkspaceFileInfo           = "coder_workspace_file_info"
+	ToolNameWorkspaceCreateDirectory    = "coder_workspace_create_directory"
+	ToolNameWorkspaceMoveFile           = "coder_workspace_move_file"
+	ToolNameWorkspaceSearchStart        = "coder_workspace_search_start"
+	ToolNameWorkspaceSearchResults      = "coder_workspace_search_results"
+	ToolNameWorkspaceSearchList         = "coder_workspace_search_list"
+	ToolNameWorkspaceSearchStop         = "coder_workspace_search_stop"
 	ToolNameWorkspaceEditFile           = "coder_workspace_edit_file"
 	ToolNameWorkspaceEditFiles          = "coder_workspace_edit_files"
 	ToolNameWorkspacePortForward        = "coder_workspace_port_forward"
@@ -2010,6 +2024,15 @@ var WorkspaceEditFile = Tool[WorkspaceEditFileArgs, WorkspaceEditFilesResponse]{
 								"type":        "string",
 								"description": "The new string that replaces the old string.",
 							},
+							"replace_all": map[string]any{
+								"type":        "boolean",
+								"description": "When true, replace all non-overlapping matches. Defaults to false, which requires exactly one match.",
+							},
+							"expected_replacements": map[string]any{
+								"type":        "integer",
+								"description": "Optional precondition: the matched occurrence count must equal this value or the file is not changed.",
+								"minimum":     1,
+							},
 						},
 						"required": []string{"search", "replace"},
 					},
@@ -2089,6 +2112,11 @@ var WorkspaceEditFiles = Tool[WorkspaceEditFilesArgs, WorkspaceEditFilesResponse
 										"replace_all": map[string]any{
 											"type":        "boolean",
 											"description": "When true, replaces all occurrences of the search string. Defaults to false, which requires the search string to match exactly once.",
+										},
+										"expected_replacements": map[string]any{
+											"type":        "integer",
+											"description": "Optional precondition: the matched occurrence count must equal this value or the file is not changed.",
+											"minimum":     1,
 										},
 									},
 									"required": []string{"search", "replace"},

@@ -1447,12 +1447,15 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 	require.Equal(t, codersdk.MCPToolsetDeveloper, assigned.Toolset)
 
 	developerTools := listTools(developerClient.SessionToken())
-	assert.Contains(t, developerTools, "status")
-	assert.Contains(t, developerTools, "list_workspaces")
-	assert.Contains(t, developerTools, "read_file")
-	assert.Contains(t, developerTools, "write_file")
-	assert.Contains(t, developerTools, "bash")
-	assert.Contains(t, developerTools, "process_start")
+	assert.ElementsMatch(t, []string{
+		"status", "list_workspaces",
+		"list_directory", "read_file", "read_files", "write_file", "file_info", "create_directory", "move_file",
+		"edit_file", "edit_files",
+		"search_start", "search_results", "search_list", "search_stop",
+		"bash", "exec",
+		"process_start", "process_output", "process_list", "process_input", "process_signal",
+		"list_apps", "recent_activity",
+	}, developerTools)
 	assert.NotContains(t, developerTools, "port_forward")
 	assert.NotContains(t, developerTools, toolsdk.ToolNameWorkspaceReadFile)
 	assert.NotContains(t, developerTools, toolsdk.ToolNameCreateTemplate)
@@ -1471,14 +1474,21 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 	require.NoError(t, err)
 
 	readonlyTools := listTools(developerClient.SessionToken())
-	assert.Contains(t, readonlyTools, "status")
-	assert.Contains(t, readonlyTools, "list_workspaces")
-	assert.Contains(t, readonlyTools, "list_directory")
-	assert.Contains(t, readonlyTools, "read_file")
+	assert.ElementsMatch(t, []string{
+		"status", "list_workspaces",
+		"list_directory", "read_file", "read_files", "file_info",
+		"search_start", "search_results", "search_list", "search_stop",
+		"process_output", "process_list", "list_apps", "recent_activity",
+	}, readonlyTools)
 	assert.NotContains(t, readonlyTools, "write_file")
+	assert.NotContains(t, readonlyTools, "create_directory")
+	assert.NotContains(t, readonlyTools, "move_file")
 	assert.NotContains(t, readonlyTools, "edit_file")
 	assert.NotContains(t, readonlyTools, "bash")
+	assert.NotContains(t, readonlyTools, "exec")
 	assert.NotContains(t, readonlyTools, "process_start")
+	assert.NotContains(t, readonlyTools, "process_input")
+	assert.NotContains(t, readonlyTools, "process_signal")
 	assert.NotContains(t, readonlyTools, "port_forward")
 
 	// Switching the same user to admin restores the legacy/full Remote MCP
@@ -1581,6 +1591,79 @@ func TestMCPHTTP_E2E_WorkspaceSSHAuthz(t *testing.T) {
 	textContent, ok := toolResult.Content[0].(mcp.TextContent)
 	require.True(t, ok)
 	assert.Contains(t, textContent.Text, "unauthorized")
+}
+
+func TestMCPHTTP_E2E_RecentActivity(t *testing.T) {
+	t.Parallel()
+
+	coderClient, closer, api := coderdtest.NewWithAPI(t, nil)
+	defer closer.Close()
+
+	admin := coderdtest.CreateFirstUser(t, coderClient)
+	developerClient, _ := coderdtest.CreateAnotherUser(t, coderClient, admin.OrganizationID)
+	otherDeveloperClient, _ := coderdtest.CreateAnotherUser(t, coderClient, admin.OrganizationID)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testutil.WaitLong)
+	defer cancel()
+	mcpURL := api.AccessURL.String() + mcpserver.MCPEndpoint
+
+	newClient := func(token, name string) *mcpclient.Client {
+		client := newIsolatedMCPClient(t, mcpURL,
+			transport.WithHTTPHeaders(map[string]string{"Authorization": "Bearer " + token}))
+		require.NoError(t, client.Start(ctx))
+		_, err := client.Initialize(ctx, mcp.InitializeRequest{Params: mcp.InitializeParams{
+			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
+			ClientInfo:      mcp.Implementation{Name: name, Version: "1.0.0"},
+		}})
+		require.NoError(t, err)
+		return client
+	}
+
+	developerMCP := newClient(developerClient.SessionToken(), "recent-activity-developer")
+	defer func() { require.NoError(t, developerMCP.Close()) }()
+
+	listResult, err := developerMCP.CallTool(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{
+		Name:      "list_workspaces",
+		Arguments: map[string]any{},
+	}})
+	require.NoError(t, err)
+	require.False(t, listResult.IsError)
+
+	activityResult, err := developerMCP.CallTool(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{
+		Name:      "recent_activity",
+		Arguments: map[string]any{"limit": 10},
+	}})
+	require.NoError(t, err)
+	require.False(t, activityResult.IsError)
+	require.Len(t, activityResult.Content, 1)
+	activityText, ok := activityResult.Content[0].(mcp.TextContent)
+	require.True(t, ok)
+	var payload struct {
+		Records []mcpserver.ActivityRecord `json:"records"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(activityText.Text), &payload))
+	require.NotEmpty(t, payload.Records)
+	require.Equal(t, "list_workspaces", payload.Records[0].Tool)
+	require.Equal(t, "success", payload.Records[0].Status)
+	require.Empty(t, payload.Records[0].ProcessID)
+	require.Empty(t, payload.Records[0].SearchID)
+
+	otherMCP := newClient(otherDeveloperClient.SessionToken(), "recent-activity-other-user")
+	defer func() { require.NoError(t, otherMCP.Close()) }()
+	otherResult, err := otherMCP.CallTool(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{
+		Name:      "recent_activity",
+		Arguments: map[string]any{"limit": 10},
+	}})
+	require.NoError(t, err)
+	require.False(t, otherResult.IsError)
+	require.Len(t, otherResult.Content, 1)
+	otherText, ok := otherResult.Content[0].(mcp.TextContent)
+	require.True(t, ok)
+	var otherPayload struct {
+		Records []mcpserver.ActivityRecord `json:"records"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(otherText.Text), &otherPayload))
+	require.Empty(t, otherPayload.Records, "activity must be isolated by authenticated Coder user")
 }
 
 func TestMCPHTTP_E2E_SharedWorkspaceDiscovery(t *testing.T) {
@@ -1720,9 +1803,11 @@ func TestMCPHTTP_E2E_SharedWorkspaceDiscovery(t *testing.T) {
 	require.False(t, readResult.IsError)
 	readText, ok := readResult.Content[0].(mcp.TextContent)
 	require.True(t, ok)
-	var readResponse toolsdk.WorkspaceReadFileResponse
+	var readResponse toolsdk.WorkspaceReadFileV2Result
 	require.NoError(t, json.Unmarshal([]byte(readText.Text), &readResponse))
-	require.Equal(t, []byte("shared-content"), readResponse.Content)
+	require.Equal(t, "text", readResponse.Encoding)
+	require.Equal(t, "1\tshared-content", readResponse.Content)
+	require.True(t, readResponse.EndOfFile)
 
 	ambiguousResult, callErr := mcpClient.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{

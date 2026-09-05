@@ -3,8 +3,10 @@ package agentproc
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -31,21 +33,26 @@ var (
 
 // process represents a running or completed process.
 type process struct {
-	mu         sync.Mutex
-	id         string
-	command    string
-	workDir    string
-	background bool
-	chatID     string
-	cmd        *exec.Cmd
-	cancel     context.CancelFunc
-	buf        *HeadTailBuffer
-	logger     slog.Logger
-	running    bool
-	exitCode   *int
-	startedAt  int64
-	exitedAt   *int64
-	done       chan struct{} // closed when process exits
+	mu          sync.Mutex
+	inputMu     sync.Mutex
+	id          string
+	command     string
+	argv        []string
+	workDir     string
+	background  bool
+	interactive bool
+	chatID      string
+	cmd         *exec.Cmd
+	stdin       io.WriteCloser
+	stdinClosed bool
+	cancel      context.CancelFunc
+	buf         *HeadTailBuffer
+	logger      slog.Logger
+	running     bool
+	exitCode    *int
+	startedAt   int64
+	exitedAt    *int64
+	done        chan struct{} // closed when process exits
 }
 
 // info returns a snapshot of the process state.
@@ -54,14 +61,16 @@ func (p *process) info() workspacesdk.ProcessInfo {
 	defer p.mu.Unlock()
 
 	return workspacesdk.ProcessInfo{
-		ID:         p.id,
-		Command:    p.command,
-		WorkDir:    p.workDir,
-		Background: p.background,
-		Running:    p.running,
-		ExitCode:   p.exitCode,
-		StartedAt:  p.startedAt,
-		ExitedAt:   p.exitedAt,
+		ID:          p.id,
+		Command:     p.command,
+		Argv:        append([]string(nil), p.argv...),
+		WorkDir:     p.workDir,
+		Background:  p.background,
+		Interactive: p.interactive,
+		Running:     p.running,
+		ExitCode:    p.exitCode,
+		StartedAt:   p.startedAt,
+		ExitedAt:    p.exitedAt,
 	}
 }
 
@@ -126,11 +135,36 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 	// Use a cancellable context so Close() can terminate
 	// all processes. context.Background() is the parent so
 	// the process is not tied to any HTTP request.
+	if (req.Command == "") == (len(req.Argv) == 0) {
+		return nil, xerrors.New("exactly one of command or argv must be provided")
+	}
+	if len(req.Argv) > 0 && req.Argv[0] == "" {
+		return nil, xerrors.New("argv[0] must not be empty")
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := m.execer.CommandContext(ctx, "sh", "-c", req.Command)
+	var cmd *exec.Cmd
+	if len(req.Argv) > 0 {
+		cmd = m.execer.CommandContext(ctx, req.Argv[0], req.Argv[1:]...)
+	} else {
+		cmd = m.execer.CommandContext(ctx, "sh", "-c", req.Command)
+	}
 	cmd.Dir = m.resolveWorkingDirectory(req.WorkDir)
-	cmd.Stdin = nil
 	cmd.SysProcAttr = procSysProcAttr()
+
+	var stdin io.WriteCloser
+	if req.Interactive {
+		var err error
+		stdin, err = cmd.StdinPipe()
+		if err != nil {
+			cancel()
+			return nil, xerrors.Errorf("create stdin pipe: %w", err)
+		}
+	} else if req.Stdin != "" {
+		cmd.Stdin = strings.NewReader(req.Stdin)
+	} else {
+		cmd.Stdin = nil
+	}
 
 	// WaitDelay ensures cmd.Wait returns promptly after
 	// the process is killed, even if child processes are
@@ -175,21 +209,31 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 		cancel()
 		return nil, xerrors.Errorf("start process: %w", err)
 	}
+	if req.Interactive && req.Stdin != "" {
+		if _, err := io.WriteString(stdin, req.Stdin); err != nil {
+			cancel()
+			_ = cmd.Wait()
+			return nil, xerrors.Errorf("write initial stdin: %w", err)
+		}
+	}
 
 	now := m.clock.Now().Unix()
 	proc := &process{
-		id:         id,
-		command:    req.Command,
-		workDir:    cmd.Dir,
-		background: req.Background,
-		chatID:     chatID,
-		cmd:        cmd,
-		cancel:     cancel,
-		buf:        buf,
-		logger:     logger,
-		running:    true,
-		startedAt:  now,
-		done:       make(chan struct{}),
+		id:          id,
+		command:     req.Command,
+		argv:        append([]string(nil), req.Argv...),
+		workDir:     cmd.Dir,
+		background:  req.Background,
+		interactive: req.Interactive,
+		chatID:      chatID,
+		cmd:         cmd,
+		stdin:       stdin,
+		cancel:      cancel,
+		buf:         buf,
+		logger:      logger,
+		running:     true,
+		startedAt:   now,
+		done:        make(chan struct{}),
 	}
 
 	m.mu.Lock()
@@ -230,6 +274,7 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 		}
 		proc.exitCode = &code
 		proc.mu.Unlock()
+		_ = proc.closeInput()
 
 		// Wake any waiters blocked on new output or
 		// process exit before closing the done channel.
@@ -238,6 +283,39 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 	}()
 
 	return proc, nil
+}
+
+func (p *process) writeInput(data string, closeAfter bool) error {
+	p.inputMu.Lock()
+	defer p.inputMu.Unlock()
+	if !p.interactive || p.stdin == nil {
+		return xerrors.New("process stdin is not interactive")
+	}
+	if p.stdinClosed {
+		return xerrors.New("process stdin is already closed")
+	}
+	if data != "" {
+		if _, err := io.WriteString(p.stdin, data); err != nil {
+			return xerrors.Errorf("write process stdin: %w", err)
+		}
+	}
+	if closeAfter {
+		if err := p.stdin.Close(); err != nil {
+			return xerrors.Errorf("close process stdin: %w", err)
+		}
+		p.stdinClosed = true
+	}
+	return nil
+}
+
+func (p *process) closeInput() error {
+	p.inputMu.Lock()
+	defer p.inputMu.Unlock()
+	if p.stdin == nil || p.stdinClosed {
+		return nil
+	}
+	p.stdinClosed = true
+	return p.stdin.Close()
 }
 
 // get returns a process by ID.
@@ -276,6 +354,23 @@ func (m *manager) list(chatID string) []workspacesdk.ProcessInfo {
 		infos = append(infos, info)
 	}
 	return infos
+}
+
+// input writes to an interactive process stdin.
+func (m *manager) input(id string, data string, closeAfter bool) error {
+	m.mu.Lock()
+	proc, ok := m.procs[id]
+	m.mu.Unlock()
+	if !ok {
+		return errProcessNotFound
+	}
+	proc.mu.Lock()
+	running := proc.running
+	proc.mu.Unlock()
+	if !running {
+		return errProcessNotRunning
+	}
+	return proc.writeInput(data, closeAfter)
 }
 
 // signal sends a signal to a running process. It returns
@@ -335,6 +430,7 @@ func (m *manager) Close() error {
 	m.mu.Unlock()
 
 	for _, p := range procs {
+		_ = p.closeInput()
 		p.cancel()
 	}
 
@@ -350,19 +446,22 @@ func (m *manager) Close() error {
 // exited) or the context is canceled. Returns nil when the
 // buffer closed, ctx.Err() when the context expired.
 func (p *process) waitForOutput(ctx context.Context) error {
+	return p.waitForOutputSince(ctx, nil)
+}
+
+func (p *process) waitForOutputSince(ctx context.Context, cursor *int64) error {
 	p.buf.cond.L.Lock()
 	defer p.buf.cond.L.Unlock()
 
+	startTotal := int64(p.buf.totalBytes)
+	if cursor != nil {
+		startTotal = *cursor
+	}
 	nevermind := make(chan struct{})
 	defer close(nevermind)
 	go func() {
 		select {
 		case <-ctx.Done():
-			// Acquire the lock before broadcasting to
-			// guarantee the waiter has entered cond.Wait()
-			// (which atomically releases the lock).
-			// Without this, a Broadcast between the loop
-			// predicate check and cond.Wait() is lost.
 			p.buf.cond.L.Lock()
 			defer p.buf.cond.L.Unlock()
 			p.buf.cond.Broadcast()
@@ -371,6 +470,9 @@ func (p *process) waitForOutput(ctx context.Context) error {
 	}()
 
 	for ctx.Err() == nil && !p.buf.closed {
+		if cursor != nil && int64(p.buf.totalBytes) > startTotal {
+			return nil
+		}
 		p.buf.cond.Wait()
 	}
 	return ctx.Err()

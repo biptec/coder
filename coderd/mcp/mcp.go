@@ -40,6 +40,9 @@ type Server struct {
 
 	// streamableServer handles HTTP transport
 	streamableServer *server.StreamableHTTPServer
+
+	activityStore  *ActivityStore
+	activityUserID string
 }
 
 // NewServer creates a new MCP HTTP server
@@ -70,6 +73,14 @@ func NewServer(logger slog.Logger) (*Server, error) {
 // ServeHTTP implements http.Handler interface
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.streamableServer.ServeHTTP(w, r)
+}
+
+// SetActivityStore enables bounded, redacted activity metadata for the
+// authenticated user. The store is owned by the long-lived HTTP handler so
+// records survive individual MCP HTTP requests and session reconnects.
+func (s *Server) SetActivityStore(store *ActivityStore, userID string) {
+	s.activityStore = store
+	s.activityUserID = userID
 }
 
 // Register all available MCP tools with the server excluding:
@@ -107,15 +118,25 @@ type toolAlias struct {
 var developerToolAliases = []toolAlias{
 	{SDKName: toolsdk.ToolNameGetWorkspace, MCPName: "status"},
 	{SDKName: toolsdk.ToolNameListAccessibleWorkspaces, MCPName: "list_workspaces"},
-	{SDKName: toolsdk.ToolNameWorkspaceLS, MCPName: "list_directory"},
-	{SDKName: toolsdk.ToolNameWorkspaceReadFile, MCPName: "read_file"},
-	{SDKName: toolsdk.ToolNameWorkspaceWriteFile, MCPName: "write_file"},
+	{SDKName: toolsdk.ToolNameWorkspaceListDirectoryV2, MCPName: "list_directory"},
+	{SDKName: toolsdk.ToolNameWorkspaceReadFileV2, MCPName: "read_file"},
+	{SDKName: toolsdk.ToolNameWorkspaceReadFilesV2, MCPName: "read_files"},
+	{SDKName: toolsdk.ToolNameWorkspaceWriteFileV2, MCPName: "write_file"},
+	{SDKName: toolsdk.ToolNameWorkspaceFileInfo, MCPName: "file_info"},
+	{SDKName: toolsdk.ToolNameWorkspaceCreateDirectory, MCPName: "create_directory"},
+	{SDKName: toolsdk.ToolNameWorkspaceMoveFile, MCPName: "move_file"},
+	{SDKName: toolsdk.ToolNameWorkspaceSearchStart, MCPName: "search_start"},
+	{SDKName: toolsdk.ToolNameWorkspaceSearchResults, MCPName: "search_results"},
+	{SDKName: toolsdk.ToolNameWorkspaceSearchList, MCPName: "search_list"},
+	{SDKName: toolsdk.ToolNameWorkspaceSearchStop, MCPName: "search_stop"},
 	{SDKName: toolsdk.ToolNameWorkspaceEditFile, MCPName: "edit_file"},
 	{SDKName: toolsdk.ToolNameWorkspaceEditFiles, MCPName: "edit_files"},
 	{SDKName: toolsdk.ToolNameWorkspaceBash, MCPName: "bash"},
-	{SDKName: toolsdk.ToolNameWorkspaceProcessStart, MCPName: "process_start"},
+	{SDKName: toolsdk.ToolNameWorkspaceExec, MCPName: "exec"},
+	{SDKName: toolsdk.ToolNameWorkspaceProcessStartV2, MCPName: "process_start"},
 	{SDKName: toolsdk.ToolNameWorkspaceProcessOutput, MCPName: "process_output"},
 	{SDKName: toolsdk.ToolNameWorkspaceProcessList, MCPName: "process_list"},
+	{SDKName: toolsdk.ToolNameWorkspaceProcessInput, MCPName: "process_input"},
 	{SDKName: toolsdk.ToolNameWorkspaceProcessSignal, MCPName: "process_signal"},
 	{SDKName: toolsdk.ToolNameWorkspaceListApps, MCPName: "list_apps"},
 }
@@ -123,8 +144,14 @@ var developerToolAliases = []toolAlias{
 var readonlyToolAliases = []toolAlias{
 	{SDKName: toolsdk.ToolNameGetWorkspace, MCPName: "status"},
 	{SDKName: toolsdk.ToolNameListAccessibleWorkspaces, MCPName: "list_workspaces"},
-	{SDKName: toolsdk.ToolNameWorkspaceLS, MCPName: "list_directory"},
-	{SDKName: toolsdk.ToolNameWorkspaceReadFile, MCPName: "read_file"},
+	{SDKName: toolsdk.ToolNameWorkspaceListDirectoryV2, MCPName: "list_directory"},
+	{SDKName: toolsdk.ToolNameWorkspaceReadFileV2, MCPName: "read_file"},
+	{SDKName: toolsdk.ToolNameWorkspaceReadFilesV2, MCPName: "read_files"},
+	{SDKName: toolsdk.ToolNameWorkspaceFileInfo, MCPName: "file_info"},
+	{SDKName: toolsdk.ToolNameWorkspaceSearchStart, MCPName: "search_start"},
+	{SDKName: toolsdk.ToolNameWorkspaceSearchResults, MCPName: "search_results"},
+	{SDKName: toolsdk.ToolNameWorkspaceSearchList, MCPName: "search_list"},
+	{SDKName: toolsdk.ToolNameWorkspaceSearchStop, MCPName: "search_stop"},
 	{SDKName: toolsdk.ToolNameWorkspaceProcessOutput, MCPName: "process_output"},
 	{SDKName: toolsdk.ToolNameWorkspaceProcessList, MCPName: "process_list"},
 	{SDKName: toolsdk.ToolNameWorkspaceListApps, MCPName: "list_apps"},
@@ -152,13 +179,27 @@ func (s *Server) registerAliasedTools(client *codersdk.Client, aliases []toolAli
 		return xerrors.Errorf("failed to initialize tool dependencies: %w", err)
 	}
 
-	toolsByName := make(map[string]toolsdk.GenericTool, len(toolsdk.All)+1)
+	toolsByName := make(map[string]toolsdk.GenericTool, len(toolsdk.All)+16)
 	for _, tool := range toolsdk.All {
 		toolsByName[tool.Name] = tool
 	}
-	// Shared-workspace discovery is intentionally MCP-only so the legacy
-	// coder_list_workspaces tool keeps its existing owner=me default.
+	// Assistant-facing tools can evolve independently of the legacy/full Admin
+	// catalog. Keep them MCP-only unless they are already part of toolsdk.All.
 	toolsByName[toolsdk.ToolNameListAccessibleWorkspaces] = toolsdk.ListAccessibleWorkspaces.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceExec] = toolsdk.WorkspaceExec.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceProcessStartV2] = toolsdk.WorkspaceProcessStartV2.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceProcessInput] = toolsdk.WorkspaceProcessInput.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceListDirectoryV2] = toolsdk.WorkspaceListDirectoryV2.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceReadFileV2] = toolsdk.WorkspaceReadFileV2.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceReadFilesV2] = toolsdk.WorkspaceReadFilesV2.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceWriteFileV2] = toolsdk.WorkspaceWriteFileV2.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceFileInfo] = toolsdk.WorkspaceFileInfoTool.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceCreateDirectory] = toolsdk.WorkspaceCreateDirectory.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceMoveFile] = toolsdk.WorkspaceMoveFile.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceSearchStart] = toolsdk.WorkspaceSearchStart.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceSearchResults] = toolsdk.WorkspaceSearchResults.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceSearchList] = toolsdk.WorkspaceSearchList.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceSearchStop] = toolsdk.WorkspaceSearchStop.Generic()
 
 	replacements := make([]string, 0, len(aliases)*2)
 	for _, alias := range aliases {
@@ -177,8 +218,10 @@ func (s *Server) registerAliasedTools(client *codersdk.Client, aliases []toolAli
 		serverTool.Tool.InputSchema.Properties = rewriteSchemaStrings(serverTool.Tool.InputSchema.Properties, replacer).(map[string]any)
 		rewriteAssistantWorkspaceDescriptions(serverTool.Tool.InputSchema.Properties)
 		serverTool = withSharedWorkspaceResolution(serverTool, client)
+		serverTool = s.withActivityTracking(serverTool, alias.MCPName)
 		s.mcpServer.AddTools(serverTool)
 	}
+	s.registerRecentActivityTool()
 	return nil
 }
 

@@ -110,6 +110,7 @@ type AgentConn interface {
 	Netcheck(ctx context.Context) (healthsdk.AgentNetcheckReport, error)
 	Ping(ctx context.Context) (time.Duration, bool, *ipnstate.PingResult, error)
 	ProcessOutput(ctx context.Context, id string, opts *ProcessOutputOptions) (ProcessOutputResponse, error)
+	ProcessInput(ctx context.Context, id string, req ProcessInputRequest) error
 	PrometheusMetrics(ctx context.Context) ([]byte, error)
 	ReconnectingPTY(ctx context.Context, id uuid.UUID, height uint16, width uint16, command string, initOpts ...AgentReconnectingPTYInitOption) (net.Conn, error)
 	DeleteDevcontainer(ctx context.Context, devcontainerID string) error
@@ -117,6 +118,14 @@ type AgentConn interface {
 	SignalProcess(ctx context.Context, id string, signal string) error
 	StartProcess(ctx context.Context, req StartProcessRequest) (StartProcessResponse, error)
 	LS(ctx context.Context, path string, req LSRequest) (LSResponse, error)
+	ListDirectory(ctx context.Context, req ListDirectoryRequest) (ListDirectoryResponse, error)
+	FileInfo(ctx context.Context, path string) (WorkspaceFileInfo, error)
+	CreateDirectory(ctx context.Context, req CreateDirectoryRequest) error
+	MoveFile(ctx context.Context, req MoveFileRequest) error
+	StartSearch(ctx context.Context, req SearchStartRequest) (SearchStartResponse, error)
+	SearchResults(ctx context.Context, id string, cursor, limit int) (SearchResultsResponse, error)
+	ListSearches(ctx context.Context) (ListSearchesResponse, error)
+	StopSearch(ctx context.Context, id string) error
 	ResolvePath(ctx context.Context, path string) (string, error)
 	ReadFile(ctx context.Context, path string, offset, limit int64) (io.ReadCloser, string, error)
 	ReadFileLines(ctx context.Context, path string, offset, limit int64, limits ReadFileLinesLimits) (ReadFileLinesResponse, error)
@@ -836,13 +845,26 @@ func (c *agentConn) RecreateDevcontainer(ctx context.Context, devcontainerID str
 	return m, nil
 }
 
+// MaxProcessInputBytes is the maximum initial or incremental stdin payload
+// accepted by the workspace process API in a single request.
+const MaxProcessInputBytes = 1 << 20
+
 // StartProcessRequest is the request body for starting a
 // process on the workspace agent.
 type StartProcessRequest struct {
-	Command    string            `json:"command"`
-	WorkDir    string            `json:"workdir,omitempty"`
-	Env        map[string]string `json:"env,omitempty"`
-	Background bool              `json:"background,omitempty"`
+	// Command executes through the user shell as `sh -c <command>`.
+	// Exactly one of Command or Argv must be provided.
+	Command string `json:"command,omitempty"`
+	// Argv executes directly without shell parsing. Argv[0] is the executable.
+	// Exactly one of Command or Argv must be provided.
+	Argv        []string          `json:"argv,omitempty"`
+	WorkDir     string            `json:"workdir,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+	Background  bool              `json:"background,omitempty"`
+	Interactive bool              `json:"interactive,omitempty"`
+	// Stdin is delivered once at process start. For non-interactive processes it
+	// is followed by EOF. For interactive processes the stdin pipe remains open.
+	Stdin string `json:"stdin,omitempty"`
 }
 
 // StartProcessResponse is returned when a process is started.
@@ -859,30 +881,40 @@ type ListProcessesResponse struct {
 
 // ProcessInfo describes a tracked process on the agent.
 type ProcessInfo struct {
-	ID         string `json:"id"`
-	Command    string `json:"command"`
-	WorkDir    string `json:"workdir,omitempty"`
-	Background bool   `json:"background"`
-	Running    bool   `json:"running"`
-	ExitCode   *int   `json:"exit_code,omitempty"`
-	StartedAt  int64  `json:"started_at_unix"`
-	ExitedAt   *int64 `json:"exited_at_unix,omitempty"`
+	ID          string   `json:"id"`
+	Command     string   `json:"command,omitempty"`
+	Argv        []string `json:"argv,omitempty"`
+	WorkDir     string   `json:"workdir,omitempty"`
+	Background  bool     `json:"background"`
+	Interactive bool     `json:"interactive,omitempty"`
+	Running     bool     `json:"running"`
+	ExitCode    *int     `json:"exit_code,omitempty"`
+	StartedAt   int64    `json:"started_at_unix"`
+	ExitedAt    *int64   `json:"exited_at_unix,omitempty"`
 }
 
 // ProcessOutputResponse contains the output of a process.
 type ProcessOutputResponse struct {
-	Output    string             `json:"output"`
-	Truncated *ProcessTruncation `json:"truncated,omitempty"`
-	Running   bool               `json:"running"`
-	ExitCode  *int               `json:"exit_code,omitempty"`
+	Output     string             `json:"output"`
+	Truncated  *ProcessTruncation `json:"truncated,omitempty"`
+	Running    bool               `json:"running"`
+	ExitCode   *int               `json:"exit_code,omitempty"`
+	NextCursor int64              `json:"next_cursor,omitempty"`
+	GapBytes   int64              `json:"gap_bytes,omitempty"`
+	HasMore    bool               `json:"has_more,omitempty"`
 }
 
 // ProcessOutputOptions configures blocking behavior for
 // process output retrieval.
 type ProcessOutputOptions struct {
-	// Wait enables blocking mode. When true, the request
-	// blocks until the process exits or the context expires.
+	// Wait enables blocking mode. When true, the request blocks until new output,
+	// process exit, or the context expires.
 	Wait bool
+	// Cursor enables incremental output. It is a monotonically increasing byte
+	// position in the process stream. Nil preserves the legacy head+tail snapshot.
+	Cursor *int64
+	// Limit bounds incremental output bytes. Zero uses the agent default.
+	Limit int
 }
 
 // ProcessTruncation describes how process output was truncated.
@@ -897,6 +929,12 @@ type ProcessTruncation struct {
 // process on the workspace agent.
 type SignalProcessRequest struct {
 	Signal string `json:"signal"`
+}
+
+// ProcessInputRequest writes to an interactive tracked process stdin.
+type ProcessInputRequest struct {
+	Data  string `json:"data,omitempty"`
+	Close bool   `json:"close,omitempty"`
 }
 
 type LSRequest struct {
@@ -930,6 +968,85 @@ type LSFile struct {
 	//      "/home/coder/hello.txt"
 	AbsolutePathString string `json:"absolute_path_string"`
 	IsDir              bool   `json:"is_dir"`
+}
+
+type ListDirectoryRequest struct {
+	Path          string `json:"path"`
+	Depth         int    `json:"depth,omitempty"`
+	IncludeHidden bool   `json:"include_hidden,omitempty"`
+	Cursor        int    `json:"cursor,omitempty"`
+	Limit         int    `json:"limit,omitempty"`
+}
+
+type ListDirectoryResponse struct {
+	Entries    []WorkspaceFileInfo `json:"entries"`
+	NextCursor *int                `json:"next_cursor,omitempty"`
+}
+
+// WorkspaceFileInfo describes a filesystem path without reading file content.
+type WorkspaceFileInfo struct {
+	Path        string `json:"path"`
+	Name        string `json:"name"`
+	IsDir       bool   `json:"is_dir"`
+	IsSymlink   bool   `json:"is_symlink,omitempty"`
+	Size        int64  `json:"size"`
+	Mode        string `json:"mode"`
+	ModTimeUnix int64  `json:"mod_time_unix"`
+}
+
+type CreateDirectoryRequest struct {
+	Path    string `json:"path"`
+	Parents bool   `json:"parents,omitempty"`
+}
+
+type MoveFileRequest struct {
+	Source    string `json:"source"`
+	Dest      string `json:"dest"`
+	Overwrite bool   `json:"overwrite,omitempty"`
+}
+
+type SearchStartRequest struct {
+	Root          string `json:"root"`
+	Query         string `json:"query"`
+	Mode          string `json:"mode"`
+	Regex         bool   `json:"regex,omitempty"`
+	CaseSensitive bool   `json:"case_sensitive,omitempty"`
+	IncludeHidden bool   `json:"include_hidden,omitempty"`
+	MaxResults    int    `json:"max_results,omitempty"`
+}
+
+type SearchStartResponse struct {
+	ID string `json:"id"`
+}
+
+type SearchResult struct {
+	Path   string `json:"path"`
+	Line   int    `json:"line,omitempty"`
+	Column int    `json:"column,omitempty"`
+	Text   string `json:"text,omitempty"`
+}
+
+type SearchSessionInfo struct {
+	ID          string `json:"id"`
+	Root        string `json:"root"`
+	Query       string `json:"query"`
+	Mode        string `json:"mode"`
+	Status      string `json:"status"`
+	ResultCount int    `json:"result_count"`
+	CreatedAt   int64  `json:"created_at_unix"`
+	CompletedAt *int64 `json:"completed_at_unix,omitempty"`
+	Truncated   bool   `json:"truncated,omitempty"`
+	Error       string `json:"error,omitempty"`
+}
+
+type SearchResultsResponse struct {
+	Search     SearchSessionInfo `json:"search"`
+	Results    []SearchResult    `json:"results"`
+	NextCursor *int              `json:"next_cursor,omitempty"`
+}
+
+type ListSearchesResponse struct {
+	Searches []SearchSessionInfo `json:"searches"`
 }
 
 // LS lists a directory.
@@ -982,6 +1099,135 @@ func (c *agentConn) ResolvePath(ctx context.Context, path string) (string, error
 		return "", xerrors.Errorf("decode response body: %w", err)
 	}
 	return m.ResolvedPath, nil
+}
+
+// ListDirectory returns a bounded recursive directory page with metadata.
+func (c *agentConn) ListDirectory(ctx context.Context, req ListDirectoryRequest) (ListDirectoryResponse, error) {
+	ctx, span := tracing.StartSpan(ctx)
+	defer span.End()
+	res, err := c.apiRequest(ctx, http.MethodPost, "/api/v0/list-directory-v2", req)
+	if err != nil {
+		return ListDirectoryResponse{}, xerrors.Errorf("do request: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return ListDirectoryResponse{}, codersdk.ReadBodyAsError(res)
+	}
+	var resp ListDirectoryResponse
+	return resp, json.NewDecoder(res.Body).Decode(&resp)
+}
+
+// FileInfo returns metadata for a filesystem path.
+func (c *agentConn) FileInfo(ctx context.Context, path string) (WorkspaceFileInfo, error) {
+	ctx, span := tracing.StartSpan(ctx)
+	defer span.End()
+	res, err := c.apiRequest(ctx, http.MethodGet, agentAPIPath("/api/v0/file-info", neturl.Values{"path": []string{path}}), nil)
+	if err != nil {
+		return WorkspaceFileInfo{}, xerrors.Errorf("do request: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return WorkspaceFileInfo{}, codersdk.ReadBodyAsError(res)
+	}
+	var resp WorkspaceFileInfo
+	return resp, json.NewDecoder(res.Body).Decode(&resp)
+}
+
+// CreateDirectory creates a directory on the workspace filesystem.
+func (c *agentConn) CreateDirectory(ctx context.Context, req CreateDirectoryRequest) error {
+	ctx, span := tracing.StartSpan(ctx)
+	defer span.End()
+	res, err := c.apiRequest(ctx, http.MethodPost, "/api/v0/create-directory", req)
+	if err != nil {
+		return xerrors.Errorf("do request: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return codersdk.ReadBodyAsError(res)
+	}
+	return nil
+}
+
+// MoveFile renames or moves a filesystem path.
+func (c *agentConn) MoveFile(ctx context.Context, req MoveFileRequest) error {
+	ctx, span := tracing.StartSpan(ctx)
+	defer span.End()
+	res, err := c.apiRequest(ctx, http.MethodPost, "/api/v0/move-file", req)
+	if err != nil {
+		return xerrors.Errorf("do request: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return codersdk.ReadBodyAsError(res)
+	}
+	return nil
+}
+
+// StartSearch starts an asynchronous workspace filesystem search.
+func (c *agentConn) StartSearch(ctx context.Context, req SearchStartRequest) (SearchStartResponse, error) {
+	ctx, span := tracing.StartSpan(ctx)
+	defer span.End()
+	res, err := c.apiRequest(ctx, http.MethodPost, "/api/v0/search/start", req)
+	if err != nil {
+		return SearchStartResponse{}, xerrors.Errorf("do request: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return SearchStartResponse{}, codersdk.ReadBodyAsError(res)
+	}
+	var resp SearchStartResponse
+	return resp, json.NewDecoder(res.Body).Decode(&resp)
+}
+
+// SearchResults returns a page of results for a workspace search session.
+func (c *agentConn) SearchResults(ctx context.Context, id string, cursor, limit int) (SearchResultsResponse, error) {
+	ctx, span := tracing.StartSpan(ctx)
+	defer span.End()
+	query := neturl.Values{
+		"cursor": []string{strconv.Itoa(cursor)},
+		"limit":  []string{strconv.Itoa(limit)},
+	}
+	res, err := c.apiRequest(ctx, http.MethodGet, agentAPIPath("/api/v0/search/"+id+"/results", query), nil)
+	if err != nil {
+		return SearchResultsResponse{}, xerrors.Errorf("do request: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return SearchResultsResponse{}, codersdk.ReadBodyAsError(res)
+	}
+	var resp SearchResultsResponse
+	return resp, json.NewDecoder(res.Body).Decode(&resp)
+}
+
+// ListSearches lists workspace search sessions visible to the current chat context.
+func (c *agentConn) ListSearches(ctx context.Context) (ListSearchesResponse, error) {
+	ctx, span := tracing.StartSpan(ctx)
+	defer span.End()
+	res, err := c.apiRequest(ctx, http.MethodGet, "/api/v0/search/list", nil)
+	if err != nil {
+		return ListSearchesResponse{}, xerrors.Errorf("do request: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return ListSearchesResponse{}, codersdk.ReadBodyAsError(res)
+	}
+	var resp ListSearchesResponse
+	return resp, json.NewDecoder(res.Body).Decode(&resp)
+}
+
+// StopSearch cancels a running workspace search session.
+func (c *agentConn) StopSearch(ctx context.Context, id string) error {
+	ctx, span := tracing.StartSpan(ctx)
+	defer span.End()
+	res, err := c.apiRequest(ctx, http.MethodPost, "/api/v0/search/"+id+"/stop", nil)
+	if err != nil {
+		return xerrors.Errorf("do request: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return codersdk.ReadBodyAsError(res)
+	}
+	return nil
 }
 
 // ReadFileLines reads a file with line-based offset and limit, returning
@@ -1111,9 +1357,10 @@ func DefaultReadFileLinesLimits() ReadFileLinesLimits {
 }
 
 type FileEdit struct {
-	Search     string `json:"search"`
-	Replace    string `json:"replace"`
-	ReplaceAll bool   `json:"replace_all,omitempty"`
+	Search               string `json:"search"`
+	Replace              string `json:"replace"`
+	ReplaceAll           bool   `json:"replace_all,omitempty"`
+	ExpectedReplacements *int   `json:"expected_replacements,omitempty"`
 }
 
 type FileEdits struct {
@@ -1147,8 +1394,16 @@ type FileEditResponse struct {
 // caller set FileEditRequest.IncludeDiff; it is empty for no-op
 // edits or when diffs were not requested.
 type FileEditResult struct {
-	Path string `json:"path"`
-	Diff string `json:"diff"`
+	Path  string               `json:"path"`
+	Diff  string               `json:"diff"`
+	Edits []FileEditDiagnostic `json:"edits,omitempty"`
+}
+
+// FileEditDiagnostic describes how one requested edit matched the file.
+type FileEditDiagnostic struct {
+	MatchMode            string `json:"match_mode"`
+	ReplacementCount     int    `json:"replacement_count"`
+	ExpectedReplacements *int   `json:"expected_replacements,omitempty"`
 }
 
 // MCPToolInfo describes a single tool discovered from an MCP
@@ -1266,10 +1521,19 @@ func (c *agentConn) CallMCPTool(ctx context.Context, req CallMCPToolRequest) (Ca
 func (c *agentConn) ProcessOutput(ctx context.Context, id string, opts *ProcessOutputOptions) (ProcessOutputResponse, error) {
 	ctx, span := tracing.StartSpan(ctx)
 	defer span.End()
-	path := "/api/v0/processes/" + id + "/output"
-	if opts != nil && opts.Wait {
-		path += "?wait=true"
+	query := neturl.Values{}
+	if opts != nil {
+		if opts.Wait {
+			query.Set("wait", "true")
+		}
+		if opts.Cursor != nil {
+			query.Set("cursor", strconv.FormatInt(*opts.Cursor, 10))
+		}
+		if opts.Limit > 0 {
+			query.Set("limit", strconv.Itoa(opts.Limit))
+		}
 	}
+	path := agentAPIPath("/api/v0/processes/"+id+"/output", query)
 	res, err := c.apiRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return ProcessOutputResponse{}, xerrors.Errorf("do request: %w", err)
@@ -1280,6 +1544,25 @@ func (c *agentConn) ProcessOutput(ctx context.Context, id string, opts *ProcessO
 	}
 	var resp ProcessOutputResponse
 	return resp, json.NewDecoder(res.Body).Decode(&resp)
+}
+
+// ProcessInput writes to the stdin of an interactive tracked process.
+func (c *agentConn) ProcessInput(ctx context.Context, id string, req ProcessInputRequest) error {
+	ctx, span := tracing.StartSpan(ctx)
+	defer span.End()
+	res, err := c.apiRequest(ctx, http.MethodPost, "/api/v0/processes/"+id+"/input", req)
+	if err != nil {
+		return xerrors.Errorf("do request: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return codersdk.ReadBodyAsError(res)
+	}
+	var m codersdk.Response
+	if err := json.NewDecoder(res.Body).Decode(&m); err != nil {
+		return xerrors.Errorf("decode response body: %w", err)
+	}
+	return nil
 }
 
 // SignalProcess sends a signal to a tracked process on the agent.

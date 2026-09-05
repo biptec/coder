@@ -22,6 +22,24 @@ func commandAdvisories(command string) []ToolAdvisory {
 	if !commandInvokesSudo(command) {
 		return nil
 	}
+	return sudoAdvisory()
+}
+
+func argvAdvisories(argv []string) []ToolAdvisory {
+	if len(argv) == 0 {
+		return nil
+	}
+	program := argv[0]
+	if i := strings.LastIndexAny(program, `/\\`); i >= 0 {
+		program = program[i+1:]
+	}
+	if program != "sudo" {
+		return nil
+	}
+	return sudoAdvisory()
+}
+
+func sudoAdvisory() []ToolAdvisory {
 	return []ToolAdvisory{{
 		Code:    sudoEphemeralFilesystemAdvisoryCode,
 		Message: sudoEphemeralFilesystemAdvisoryText,

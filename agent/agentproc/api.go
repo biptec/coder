@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -58,6 +59,7 @@ func (api *API) Routes() http.Handler {
 	r.Post("/start", api.handleStartProcess)
 	r.Get("/list", api.handleListProcesses)
 	r.Get("/{id}/output", api.handleProcessOutput)
+	r.Post("/{id}/input", api.handleProcessInput)
 	r.Post("/{id}/signal", api.handleSignalProcess)
 	return r
 }
@@ -75,9 +77,21 @@ func (api *API) handleStartProcess(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Command == "" {
+	if (req.Command == "") == (len(req.Argv) == 0) {
 		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
-			Message: "Command is required.",
+			Message: "Exactly one of command or argv is required.",
+		})
+		return
+	}
+	if len(req.Argv) > 0 && req.Argv[0] == "" {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
+			Message: "argv[0] must not be empty.",
+		})
+		return
+	}
+	if len(req.Stdin) > workspacesdk.MaxProcessInputBytes {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
+			Message: fmt.Sprintf("stdin cannot exceed %d bytes.", workspacesdk.MaxProcessInputBytes),
 		})
 		return
 	}
@@ -139,12 +153,6 @@ func (api *API) handleListProcesses(rw http.ResponseWriter, r *http.Request) {
 		return infos[i].StartedAt > infos[j].StartedAt
 	})
 
-	// Cap the response to avoid bloating LLM context.
-	const maxListProcesses = 10
-	if len(infos) > maxListProcesses {
-		infos = infos[:maxListProcesses]
-	}
-
 	httpapi.Write(ctx, rw, http.StatusOK, workspacesdk.ListProcessesResponse{
 		Processes: infos,
 	})
@@ -176,9 +184,39 @@ func (api *API) handleProcessOutput(rw http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Check for blocking mode via query params.
-	waitStr := r.URL.Query().Get("wait")
+	// Check for blocking/incremental mode via query params.
+	query := r.URL.Query()
+	waitStr := query.Get("wait")
 	wantWait := waitStr == "true"
+	var cursor *int64
+	if raw := query.Get("cursor"); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 0 {
+			httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: "cursor must be a non-negative integer."})
+			return
+		}
+		cursor = &parsed
+	}
+	limit := 0
+	if raw := query.Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: "limit must be a positive integer."})
+			return
+		}
+		limit = parsed
+	}
+
+	// A cursor ahead of the currently written stream can happen after a stale
+	// client checkpoint or process recovery. Treat it as the current end rather
+	// than waiting for the process to produce bytes up to an impossible offset.
+	if cursor != nil {
+		current := int64(proc.buf.TotalWritten())
+		if *cursor > current {
+			clamped := current
+			cursor = &clamped
+		}
+	}
 
 	if wantWait {
 		// Extend the write deadline so the HTTP server's
@@ -198,7 +236,11 @@ func (api *API) handleProcessOutput(rw http.ResponseWriter, r *http.Request) {
 		waitCtx, waitCancel := context.WithTimeout(ctx, maxWaitDuration)
 		defer waitCancel()
 
-		_ = proc.waitForOutput(waitCtx)
+		if cursor != nil {
+			_ = proc.waitForOutputSince(waitCtx, cursor)
+		} else {
+			_ = proc.waitForOutput(waitCtx)
+		}
 		// Fall through to read snapshot below.
 	}
 
@@ -208,6 +250,18 @@ func (api *API) handleProcessOutput(rw http.ResponseWriter, r *http.Request) {
 	// exited, the subsequent output read is guaranteed to reflect
 	// the final buffer state.
 	info := proc.info()
+	if cursor != nil {
+		output, nextCursor, gapBytes, hasMore := proc.buf.ReadSince(*cursor, limit)
+		httpapi.Write(ctx, rw, http.StatusOK, workspacesdk.ProcessOutputResponse{
+			Output:     output,
+			Running:    info.Running,
+			ExitCode:   info.ExitCode,
+			NextCursor: nextCursor,
+			GapBytes:   gapBytes,
+			HasMore:    hasMore,
+		})
+		return
+	}
 	output, truncated := proc.output()
 
 	httpapi.Write(ctx, rw, http.StatusOK, workspacesdk.ProcessOutputResponse{
@@ -216,6 +270,46 @@ func (api *API) handleProcessOutput(rw http.ResponseWriter, r *http.Request) {
 		Running:   info.Running,
 		ExitCode:  info.ExitCode,
 	})
+}
+
+func (api *API) handleProcessInput(rw http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := chi.URLParam(r, "id")
+
+	if chatContext, ok := agentchat.FromContext(ctx); ok {
+		proc, procOK := api.manager.get(id)
+		if procOK && proc.chatID != "" && proc.chatID != chatContext.ID.String() {
+			httpapi.Write(ctx, rw, http.StatusNotFound, codersdk.Response{Message: fmt.Sprintf("Process %q not found.", id)})
+			return
+		}
+	}
+
+	var req workspacesdk.ProcessInputRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: "Request body must be valid JSON.", Detail: err.Error()})
+		return
+	}
+	if req.Data == "" && !req.Close {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: "data must be non-empty or close must be true."})
+		return
+	}
+	if len(req.Data) > workspacesdk.MaxProcessInputBytes {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
+			Message: fmt.Sprintf("data cannot exceed %d bytes.", workspacesdk.MaxProcessInputBytes),
+		})
+		return
+	}
+	if err := api.manager.input(id, req.Data, req.Close); err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, errProcessNotFound) {
+			status = http.StatusNotFound
+		} else if errors.Is(err, errProcessNotRunning) {
+			status = http.StatusConflict
+		}
+		httpapi.Write(ctx, rw, status, codersdk.Response{Message: err.Error()})
+		return
+	}
+	httpapi.Write(ctx, rw, http.StatusOK, codersdk.Response{Message: "Process input sent."})
 }
 
 // handleSignalProcess sends a signal to a running process.

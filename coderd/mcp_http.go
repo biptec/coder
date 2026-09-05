@@ -29,6 +29,7 @@ const (
 // mcpHTTPHandler creates the MCP HTTP transport handler
 // It supports a "toolset" query parameter to select the set of tools to register.
 func (api *API) mcpHTTPHandler() http.Handler {
+	activityStore := mcp.NewActivityStore(100)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Create MCP server instance for each request
 		mcpServer, err := mcp.NewServer(api.Logger.Named("mcp"))
@@ -39,9 +40,10 @@ func (api *API) mcpHTTPHandler() http.Handler {
 			})
 			return
 		}
-		// Extract the original session token from the request
+		// Extract the original session token from the request.
 		authenticatedClient := codersdk.New(api.AccessURL,
 			codersdk.WithSessionToken(httpmw.APITokenFromRequest(r)))
+		mcpServer.SetActivityStore(activityStore, httpmw.APIKey(r).UserID.String())
 
 		// Wrap the agent connection function to enforce ActionSSH
 		// on the workspace. Without this check, a user who can read
