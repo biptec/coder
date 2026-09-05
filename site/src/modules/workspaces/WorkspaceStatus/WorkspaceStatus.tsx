@@ -6,9 +6,13 @@ import { WorkspaceStatusIndicator } from "../WorkspaceStatusIndicator/WorkspaceS
 
 type WorkspaceStatusProps = {
 	workspace: Workspace;
+	nowThresholdMs?: number;
 };
 
-export const WorkspaceStatus: FC<WorkspaceStatusProps> = ({ workspace }) => {
+export const WorkspaceStatus: FC<WorkspaceStatusProps> = ({
+	workspace,
+	nowThresholdMs,
+}) => {
 	return (
 		<div className="flex flex-col">
 			<WorkspaceStatusIndicator workspace={workspace}>
@@ -20,7 +24,7 @@ export const WorkspaceStatus: FC<WorkspaceStatusProps> = ({ workspace }) => {
 				dateTime={workspace.last_used_at}
 				className="text-xs font-medium text-content-secondary ml-6 whitespace-nowrap"
 			>
-				{lastUsedMessage(workspace.last_used_at)}
+				{lastUsedMessage(workspace.last_used_at, nowThresholdMs)}
 			</time>
 		</div>
 	);

@@ -11,6 +11,7 @@ import {
 	getMatchingAgentOrFirst,
 	getWorkspaceAgents,
 	isWorkspaceOn,
+	lastUsedMessage,
 } from "./workspace";
 
 function buildWorkspace(
@@ -38,6 +39,38 @@ function buildAgent(id: string): TypesGen.WorkspaceAgent {
 }
 
 describe("util > workspace", () => {
+	describe("lastUsedMessage", () => {
+		const now = new Date("2026-09-05T18:00:00.000Z");
+
+		beforeEach(() => {
+			vi.useFakeTimers();
+			vi.setSystemTime(now);
+		});
+
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it("shows Now only inside the default five-minute threshold", () => {
+			expect(lastUsedMessage("2026-09-05T17:55:01.000Z")).toBe("Now");
+			expect(lastUsedMessage("2026-09-05T17:55:00.000Z")).toBe("5 minutes ago");
+		});
+
+		it("uses full relative-time words outside the threshold", () => {
+			expect(lastUsedMessage("2026-09-05T17:00:00.000Z")).toBe("an hour ago");
+			expect(lastUsedMessage("2026-09-05T16:00:00.000Z")).toBe("2 hours ago");
+		});
+
+		it("supports a custom runtime threshold", () => {
+			expect(lastUsedMessage("2026-09-05T17:50:01.000Z", 10 * 60 * 1000)).toBe(
+				"Now",
+			);
+			expect(lastUsedMessage("2026-09-05T17:50:00.000Z", 10 * 60 * 1000)).toBe(
+				"10 minutes ago",
+			);
+		});
+	});
+
 	describe("isWorkspaceOn", () => {
 		it.each<
 			[TypesGen.WorkspaceTransition, TypesGen.ProvisionerJobStatus, boolean]

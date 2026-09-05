@@ -12,6 +12,7 @@ import semver from "semver";
 import type * as TypesGen from "#/api/typesGenerated";
 import { PillSpinner } from "#/components/Pill/Pill";
 import { getPendingStatusLabel } from "./provisionerJob";
+import { relativeTime } from "./time";
 
 dayjs.extend(duration);
 dayjs.extend(utc);
@@ -307,19 +308,24 @@ export const getResourceIconPath = (resourceType: string): string => {
 	return BUILT_IN_ICON_PATHS[resourceType] ?? FALLBACK_ICON;
 };
 
-export const lastUsedMessage = (lastUsedAt: string | Date): string => {
+const DEFAULT_WORKSPACE_ACTIVITY_NOW_THRESHOLD_MS = 5 * 60 * 1000;
+
+export const lastUsedMessage = (
+	lastUsedAt: string | Date,
+	nowThresholdMs = DEFAULT_WORKSPACE_ACTIVITY_NOW_THRESHOLD_MS,
+): string => {
 	const t = dayjs(lastUsedAt);
 	const now = dayjs();
-	let message = t.fromNow();
+	let message = relativeTime(t);
 
-	if (t.isAfter(now.subtract(1, "hour"))) {
+	if (t.isAfter(now.subtract(nowThresholdMs, "millisecond"))) {
 		message = "Now";
 	} else if (t.isAfter(now.subtract(3, "day"))) {
-		message = t.fromNow();
+		message = relativeTime(t);
 	} else if (t.isAfter(now.subtract(1, "month"))) {
-		message = t.fromNow();
+		message = relativeTime(t);
 	} else if (t.isAfter(now.subtract(100, "year"))) {
-		message = t.fromNow();
+		message = relativeTime(t);
 	} else {
 		message = "Never";
 	}

@@ -1180,6 +1180,11 @@ export interface AppearanceConfig {
 	readonly logo_url: string;
 	readonly docs_url: string;
 	/**
+	 * WorkspaceActivityNowThresholdMS controls how recent workspace activity must be
+	 * for the dashboard to display "Now" instead of relative time.
+	 */
+	readonly workspace_activity_now_threshold_ms?: number;
+	/**
 	 * @deprecated ServiceBanner has been replaced by AnnouncementBanners.
 	 */
 	readonly service_banner: BannerConfig;
@@ -4339,6 +4344,7 @@ export interface DeploymentValues {
 	readonly ssh_keygen_algorithm?: string;
 	readonly metrics_cache_refresh_interval?: number;
 	readonly agent_stat_refresh_interval?: number;
+	readonly workspace_activity_now_threshold?: number;
 	readonly agent_fallback_troubleshooting_url?: string;
 	readonly browser_only?: boolean;
 	readonly scim_api_key?: string;

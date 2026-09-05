@@ -571,6 +571,46 @@ func must[T any](value T, err error) T {
 	return value
 }
 
+func TestDeploymentValues_WorkspaceActivityNowThreshold(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Default", func(t *testing.T) {
+		t.Parallel()
+		dv := &codersdk.DeploymentValues{}
+		opts := dv.Options()
+		require.NoError(t, opts.SetDefaults())
+		require.Equal(t, 5*time.Minute, dv.WorkspaceActivityNowThreshold.Value())
+	})
+
+	t.Run("Environment", func(t *testing.T) {
+		t.Parallel()
+		dv := &codersdk.DeploymentValues{}
+		opts := dv.Options()
+		require.NoError(t, opts.SetDefaults())
+		require.NoError(t, opts.ParseEnv([]serpent.EnvVar{{
+			Name:  "CODER_WORKSPACE_ACTIVITY_NOW_THRESHOLD",
+			Value: "12m",
+		}}))
+		require.Equal(t, 12*time.Minute, dv.WorkspaceActivityNowThreshold.Value())
+	})
+
+	t.Run("RejectNonPositive", func(t *testing.T) {
+		t.Parallel()
+		for _, value := range []string{"0s", "-1m"} {
+			t.Run(value, func(t *testing.T) {
+				dv := &codersdk.DeploymentValues{}
+				opts := dv.Options()
+				require.NoError(t, opts.SetDefaults())
+				err := opts.ParseEnv([]serpent.EnvVar{{
+					Name:  "CODER_WORKSPACE_ACTIVITY_NOW_THRESHOLD",
+					Value: value,
+				}})
+				require.ErrorContains(t, err, "workspace activity now threshold must be greater than zero")
+			})
+		}
+	})
+}
+
 func TestAIGatewayCompatibilityAliases(t *testing.T) {
 	t.Parallel()
 

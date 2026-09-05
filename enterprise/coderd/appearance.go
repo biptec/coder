@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
@@ -42,21 +43,23 @@ func (api *API) appearance(rw http.ResponseWriter, r *http.Request) {
 }
 
 type appearanceFetcher struct {
-	database     database.Store
-	supportLinks []codersdk.LinkConfig
-	docsURL      string
-	coderVersion string
+	database                      database.Store
+	supportLinks                  []codersdk.LinkConfig
+	docsURL                       string
+	workspaceActivityNowThreshold time.Duration
+	coderVersion                  string
 }
 
-func newAppearanceFetcher(store database.Store, links []codersdk.LinkConfig, docsURL, coderVersion string) agpl.Fetcher {
+func newAppearanceFetcher(store database.Store, links []codersdk.LinkConfig, docsURL string, workspaceActivityNowThreshold time.Duration, coderVersion string) agpl.Fetcher {
 	if docsURL == "" {
 		docsURL = codersdk.DefaultDocsURL()
 	}
 	return &appearanceFetcher{
-		database:     store,
-		supportLinks: links,
-		docsURL:      docsURL,
-		coderVersion: coderVersion,
+		database:                      store,
+		supportLinks:                  links,
+		docsURL:                       docsURL,
+		workspaceActivityNowThreshold: workspaceActivityNowThreshold,
+		coderVersion:                  coderVersion,
 	}
 }
 
@@ -94,11 +97,12 @@ func (f *appearanceFetcher) Fetch(ctx context.Context) (codersdk.AppearanceConfi
 	}
 
 	cfg := codersdk.AppearanceConfig{
-		ApplicationName:     applicationName,
-		LogoURL:             logoURL,
-		AnnouncementBanners: []codersdk.BannerConfig{},
-		SupportLinks:        codersdk.DefaultSupportLinks(f.docsURL),
-		DocsURL:             f.docsURL,
+		ApplicationName:                 applicationName,
+		LogoURL:                         logoURL,
+		AnnouncementBanners:             []codersdk.BannerConfig{},
+		SupportLinks:                    codersdk.DefaultSupportLinks(f.docsURL),
+		DocsURL:                         f.docsURL,
+		WorkspaceActivityNowThresholdMS: f.workspaceActivityNowThreshold.Milliseconds(),
 	}
 
 	if announcementBannersJSON != "" {
