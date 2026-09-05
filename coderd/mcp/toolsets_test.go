@@ -12,19 +12,19 @@ func TestDeveloperToolAliases(t *testing.T) {
 	t.Parallel()
 
 	expected := map[string]string{
-		toolsdk.ToolNameGetWorkspace:           "status",
-		toolsdk.ToolNameWorkspaceLS:            "list_directory",
-		toolsdk.ToolNameWorkspaceReadFile:      "read_file",
-		toolsdk.ToolNameWorkspaceWriteFile:     "write_file",
-		toolsdk.ToolNameWorkspaceEditFile:      "edit_file",
-		toolsdk.ToolNameWorkspaceEditFiles:     "edit_files",
-		toolsdk.ToolNameWorkspaceBash:          "bash",
-		toolsdk.ToolNameWorkspaceProcessStart:  "process_start",
-		toolsdk.ToolNameWorkspaceProcessOutput: "process_output",
-		toolsdk.ToolNameWorkspaceProcessList:   "process_list",
-		toolsdk.ToolNameWorkspaceProcessSignal: "process_signal",
-		toolsdk.ToolNameWorkspaceListApps:      "list_apps",
-		toolsdk.ToolNameWorkspacePortForward:   "port_forward",
+		toolsdk.ToolNameGetWorkspace:             "status",
+		toolsdk.ToolNameListAccessibleWorkspaces: "list_workspaces",
+		toolsdk.ToolNameWorkspaceLS:              "list_directory",
+		toolsdk.ToolNameWorkspaceReadFile:        "read_file",
+		toolsdk.ToolNameWorkspaceWriteFile:       "write_file",
+		toolsdk.ToolNameWorkspaceEditFile:        "edit_file",
+		toolsdk.ToolNameWorkspaceEditFiles:       "edit_files",
+		toolsdk.ToolNameWorkspaceBash:            "bash",
+		toolsdk.ToolNameWorkspaceProcessStart:    "process_start",
+		toolsdk.ToolNameWorkspaceProcessOutput:   "process_output",
+		toolsdk.ToolNameWorkspaceProcessList:     "process_list",
+		toolsdk.ToolNameWorkspaceProcessSignal:   "process_signal",
+		toolsdk.ToolNameWorkspaceListApps:        "list_apps",
 	}
 
 	require.Len(t, developerToolAliases, len(expected))
@@ -40,12 +40,13 @@ func TestReadonlyToolAliases(t *testing.T) {
 	t.Parallel()
 
 	allowed := map[string]struct{}{
-		toolsdk.ToolNameGetWorkspace:           {},
-		toolsdk.ToolNameWorkspaceLS:            {},
-		toolsdk.ToolNameWorkspaceReadFile:      {},
-		toolsdk.ToolNameWorkspaceProcessOutput: {},
-		toolsdk.ToolNameWorkspaceProcessList:   {},
-		toolsdk.ToolNameWorkspaceListApps:      {},
+		toolsdk.ToolNameGetWorkspace:             {},
+		toolsdk.ToolNameListAccessibleWorkspaces: {},
+		toolsdk.ToolNameWorkspaceLS:              {},
+		toolsdk.ToolNameWorkspaceReadFile:        {},
+		toolsdk.ToolNameWorkspaceProcessOutput:   {},
+		toolsdk.ToolNameWorkspaceProcessList:     {},
+		toolsdk.ToolNameWorkspaceListApps:        {},
 	}
 
 	developer := make(map[string]string, len(developerToolAliases))

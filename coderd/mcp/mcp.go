@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -104,6 +106,7 @@ type toolAlias struct {
 
 var developerToolAliases = []toolAlias{
 	{SDKName: toolsdk.ToolNameGetWorkspace, MCPName: "status"},
+	{SDKName: toolsdk.ToolNameListAccessibleWorkspaces, MCPName: "list_workspaces"},
 	{SDKName: toolsdk.ToolNameWorkspaceLS, MCPName: "list_directory"},
 	{SDKName: toolsdk.ToolNameWorkspaceReadFile, MCPName: "read_file"},
 	{SDKName: toolsdk.ToolNameWorkspaceWriteFile, MCPName: "write_file"},
@@ -115,11 +118,11 @@ var developerToolAliases = []toolAlias{
 	{SDKName: toolsdk.ToolNameWorkspaceProcessList, MCPName: "process_list"},
 	{SDKName: toolsdk.ToolNameWorkspaceProcessSignal, MCPName: "process_signal"},
 	{SDKName: toolsdk.ToolNameWorkspaceListApps, MCPName: "list_apps"},
-	{SDKName: toolsdk.ToolNameWorkspacePortForward, MCPName: "port_forward"},
 }
 
 var readonlyToolAliases = []toolAlias{
 	{SDKName: toolsdk.ToolNameGetWorkspace, MCPName: "status"},
+	{SDKName: toolsdk.ToolNameListAccessibleWorkspaces, MCPName: "list_workspaces"},
 	{SDKName: toolsdk.ToolNameWorkspaceLS, MCPName: "list_directory"},
 	{SDKName: toolsdk.ToolNameWorkspaceReadFile, MCPName: "read_file"},
 	{SDKName: toolsdk.ToolNameWorkspaceProcessOutput, MCPName: "process_output"},
@@ -149,10 +152,13 @@ func (s *Server) registerAliasedTools(client *codersdk.Client, aliases []toolAli
 		return xerrors.Errorf("failed to initialize tool dependencies: %w", err)
 	}
 
-	toolsByName := make(map[string]toolsdk.GenericTool, len(toolsdk.All))
+	toolsByName := make(map[string]toolsdk.GenericTool, len(toolsdk.All)+1)
 	for _, tool := range toolsdk.All {
 		toolsByName[tool.Name] = tool
 	}
+	// Shared-workspace discovery is intentionally MCP-only so the legacy
+	// coder_list_workspaces tool keeps its existing owner=me default.
+	toolsByName[toolsdk.ToolNameListAccessibleWorkspaces] = toolsdk.ListAccessibleWorkspaces.Generic()
 
 	replacements := make([]string, 0, len(aliases)*2)
 	for _, alias := range aliases {
@@ -169,9 +175,123 @@ func (s *Server) registerAliasedTools(client *codersdk.Client, aliases []toolAli
 		serverTool.Tool.Name = alias.MCPName
 		serverTool.Tool.Description = replacer.Replace(serverTool.Tool.Description)
 		serverTool.Tool.InputSchema.Properties = rewriteSchemaStrings(serverTool.Tool.InputSchema.Properties, replacer).(map[string]any)
+		rewriteAssistantWorkspaceDescriptions(serverTool.Tool.InputSchema.Properties)
+		serverTool = withSharedWorkspaceResolution(serverTool, client)
 		s.mcpServer.AddTools(serverTool)
 	}
 	return nil
+}
+
+const (
+	assistantWorkspaceDescription      = "The workspace ID or name in the format [owner/]workspace. A bare name first checks the authenticated user's own workspace; if it is not found, a unique accessible shared workspace with that name is used. Use owner/workspace when a name is ambiguous."
+	assistantWorkspaceAgentDescription = "The workspace name in the format [owner/]workspace[.agent]. A bare name first checks the authenticated user's own workspace; if it is not found, a unique accessible shared workspace with that name is used. Use owner/workspace when a name is ambiguous."
+)
+
+func rewriteAssistantWorkspaceDescriptions(properties map[string]any) {
+	for key, description := range map[string]string{
+		"workspace_id": assistantWorkspaceDescription,
+		"workspace":    assistantWorkspaceAgentDescription,
+	} {
+		property, ok := properties[key].(map[string]any)
+		if !ok {
+			continue
+		}
+		property["description"] = description
+	}
+}
+
+func withSharedWorkspaceResolution(serverTool server.ServerTool, client *codersdk.Client) server.ServerTool {
+	originalHandler := serverTool.Handler
+	serverTool.Handler = func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		result, err := originalHandler(ctx, request)
+		if err == nil || !isNotFoundError(err) {
+			return result, err
+		}
+
+		field, workspaceInput, hasAgent, ok := workspaceArgument(request)
+		if !ok {
+			return nil, err
+		}
+
+		resolved, resolveErr := resolveAccessibleSharedWorkspace(ctx, client, workspaceInput, hasAgent)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		if resolved == "" {
+			return nil, err
+		}
+
+		arguments := request.GetArguments()
+		cloned := make(map[string]any, len(arguments))
+		for key, value := range arguments {
+			cloned[key] = value
+		}
+		cloned[field] = resolved
+		request.Params.Arguments = cloned
+		return originalHandler(ctx, request)
+	}
+	return serverTool
+}
+
+func workspaceArgument(request mcp.CallToolRequest) (field, value string, hasAgent, ok bool) {
+	arguments := request.GetArguments()
+	if workspaceID, exists := arguments["workspace_id"].(string); exists && workspaceID != "" {
+		return "workspace_id", workspaceID, false, true
+	}
+	if workspace, exists := arguments["workspace"].(string); exists && workspace != "" {
+		return "workspace", workspace, true, true
+	}
+	return "", "", false, false
+}
+
+func resolveAccessibleSharedWorkspace(ctx context.Context, client *codersdk.Client, input string, hasAgent bool) (string, error) {
+	normalized := toolsdk.NormalizeWorkspaceInput(input)
+	workspaceName := normalized
+	agentSuffix := ""
+	if hasAgent {
+		if workspace, agent, found := strings.Cut(normalized, "."); found {
+			workspaceName = workspace
+			agentSuffix = "." + agent
+		}
+	}
+
+	// Explicit owner-qualified names already identify the intended workspace.
+	if strings.Contains(workspaceName, "/") {
+		return "", nil
+	}
+
+	visible, err := client.Workspaces(ctx, codersdk.WorkspaceFilter{})
+	if err != nil {
+		return "", xerrors.Errorf("list accessible workspaces: %w", err)
+	}
+
+	matches := make([]codersdk.Workspace, 0, 1)
+	matchNames := make([]string, 0, 1)
+	for _, candidate := range visible.Workspaces {
+		if !strings.EqualFold(candidate.Name, workspaceName) {
+			continue
+		}
+		matches = append(matches, candidate)
+		matchNames = append(matchNames, candidate.OwnerName+"/"+candidate.Name)
+	}
+
+	switch len(matches) {
+	case 0:
+		return "", nil
+	case 1:
+		return matches[0].OwnerName + "/" + matches[0].Name + agentSuffix, nil
+	default:
+		sort.Strings(matchNames)
+		return "", xerrors.Errorf(
+			"workspace name %q is ambiguous; use owner/workspace. Accessible matches: %s",
+			workspaceName, strings.Join(matchNames, ", "),
+		)
+	}
+}
+
+func isNotFoundError(err error) bool {
+	var sdkErr *codersdk.Error
+	return errors.As(err, &sdkErr) && sdkErr.StatusCode() == http.StatusNotFound
 }
 
 func rewriteSchemaStrings(value any, replacer *strings.Replacer) any {
