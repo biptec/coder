@@ -55,8 +55,9 @@ type pendingEdit struct {
 	// for diff computation when the request asked for diffs.
 	oldContent string
 	// content is the file content after all edits.
-	content string
-	mode    os.FileMode
+	content     string
+	mode        os.FileMode
+	diagnostics []workspacesdk.FileEditDiagnostic
 }
 
 func (api *API) HandleReadFile(rw http.ResponseWriter, r *http.Request) {
@@ -491,8 +492,9 @@ func (api *API) HandleEditFiles(rw http.ResponseWriter, r *http.Request) {
 				diff = ""
 			}
 			resp.Files = append(resp.Files, workspacesdk.FileEditResult{
-				Path: p.origPath,
-				Diff: diff,
+				Path:  p.origPath,
+				Diff:  diff,
+				Edits: p.diagnostics,
 			})
 		}
 	}
@@ -550,20 +552,35 @@ func (api *API) prepareFileEdit(path string, edits []workspacesdk.FileEdit) (int
 	content := string(data)
 	oldContent := content
 
+	diagnostics := make([]workspacesdk.FileEditDiagnostic, 0, len(edits))
 	for _, edit := range edits {
+		if edit.ExpectedReplacements != nil && *edit.ExpectedReplacements < 1 {
+			return http.StatusBadRequest, nil, xerrors.Errorf("edit %s: expected_replacements must be at least 1", path)
+		}
+		diagnostic := diagnoseFileEdit(content, edit)
+		if edit.ExpectedReplacements != nil {
+			if diagnostic.ReplacementCount != *edit.ExpectedReplacements {
+				return http.StatusBadRequest, nil, xerrors.Errorf(
+					"edit %s: search matched %d occurrences using %s matching; expected %d",
+					path, diagnostic.ReplacementCount, diagnostic.MatchMode, *edit.ExpectedReplacements,
+				)
+			}
+		}
 		var err error
 		content, err = fuzzyReplace(content, edit)
 		if err != nil {
 			return http.StatusBadRequest, nil, xerrors.Errorf("edit %s: %w", path, err)
 		}
+		diagnostics = append(diagnostics, diagnostic)
 	}
 
 	return 0, &pendingEdit{
-		origPath:   origPath,
-		path:       path,
-		oldContent: oldContent,
-		content:    content,
-		mode:       stat.Mode(),
+		origPath:    origPath,
+		path:        path,
+		oldContent:  oldContent,
+		content:     content,
+		mode:        stat.Mode(),
+		diagnostics: diagnostics,
 	}, nil
 }
 
@@ -1079,6 +1096,59 @@ func buildReplacementLines(matched, searchLines []string, replace, forcedEnding 
 		_, _ = b.WriteString(ending)
 	}
 	return b.String()
+}
+
+func diagnoseFileEdit(content string, edit workspacesdk.FileEdit) workspacesdk.FileEditDiagnostic {
+	diagnostic := workspacesdk.FileEditDiagnostic{
+		MatchMode:            "none",
+		ExpectedReplacements: edit.ExpectedReplacements,
+	}
+	if edit.Search == "" {
+		return diagnostic
+	}
+	if count := strings.Count(content, edit.Search); count > 0 {
+		diagnostic.MatchMode = "exact"
+		diagnostic.ReplacementCount = count
+		return diagnostic
+	}
+
+	contentLines := strings.SplitAfter(content, "\n")
+	searchLines := strings.SplitAfter(edit.Search, "\n")
+	if len(searchLines) > 0 && searchLines[len(searchLines)-1] == "" {
+		searchLines = searchLines[:len(searchLines)-1]
+	}
+	replaceLines := strings.SplitAfter(edit.Replace, "\n")
+	if len(replaceLines) > 0 && replaceLines[len(replaceLines)-1] == "" {
+		replaceLines = replaceLines[:len(replaceLines)-1]
+	}
+	searchInternal, searchOK := internalLineEnding(searchLines)
+	replaceInternal, replaceOK := internalLineEnding(replaceLines)
+	if searchOK && replaceOK && searchInternal != replaceInternal {
+		return diagnostic
+	}
+
+	trimRight := func(a, b string) bool {
+		aContent, aEnding := splitEnding(a)
+		bContent, bEnding := splitEnding(b)
+		return endingsMatch(aEnding, bEnding) &&
+			strings.TrimRight(aContent, " \t") == strings.TrimRight(bContent, " \t")
+	}
+	if count := countLineMatches(contentLines, searchLines, trimRight); count > 0 {
+		diagnostic.MatchMode = "trim_trailing_whitespace"
+		diagnostic.ReplacementCount = count
+		return diagnostic
+	}
+	trimAll := func(a, b string) bool {
+		aContent, aEnding := splitEnding(a)
+		bContent, bEnding := splitEnding(b)
+		return endingsMatch(aEnding, bEnding) &&
+			strings.TrimSpace(aContent) == strings.TrimSpace(bContent)
+	}
+	if count := countLineMatches(contentLines, searchLines, trimAll); count > 0 {
+		diagnostic.MatchMode = "indentation_tolerant"
+		diagnostic.ReplacementCount = count
+	}
+	return diagnostic
 }
 
 // fuzzyReplace attempts to find `search` inside `content` and replace it
