@@ -19,12 +19,15 @@ const (
 	processSnapshotTimeout      = 5 * time.Second
 )
 
-type WorkspaceProcessStartArgs struct {
-	Workspace  string            `json:"workspace"`
-	Command    string            `json:"command"`
-	WorkDir    string            `json:"workdir,omitempty"`
-	Env        map[string]string `json:"env,omitempty"`
-	Background bool              `json:"background,omitempty"`
+type WorkspaceProcessStartV2Args struct {
+	Workspace   string            `json:"workspace"`
+	Command     string            `json:"command,omitempty"`
+	Argv        []string          `json:"argv,omitempty"`
+	WorkDir     string            `json:"workdir,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+	Background  bool              `json:"background,omitempty"`
+	Interactive bool              `json:"interactive,omitempty"`
+	Stdin       string            `json:"stdin,omitempty"`
 }
 
 type WorkspaceProcessStartResult struct {
@@ -33,12 +36,14 @@ type WorkspaceProcessStartResult struct {
 	Advisories []ToolAdvisory `json:"advisories,omitempty"`
 }
 
-var WorkspaceProcessStart = Tool[WorkspaceProcessStartArgs, WorkspaceProcessStartResult]{
+var WorkspaceProcessStartV2 = Tool[WorkspaceProcessStartV2Args, WorkspaceProcessStartResult]{
 	Tool: aisdk.Tool{
-		Name: ToolNameWorkspaceProcessStart,
+		Name: ToolNameWorkspaceProcessStartV2,
 		Description: `Start a durable process in a Coder workspace and return its process_id immediately.
 
-Use this tool instead of coder_workspace_bash when a command may run for a long time, is expensive, has side effects, or must not be executed twice. This tool starts the command exactly once and does not wait for completion or return command output. After a successful start, use coder_workspace_process_output with the returned process_id to observe the same process.
+Use this tool instead of coder_workspace_bash or coder_workspace_exec when a command may run for a long time, is expensive, has side effects, or must not be executed twice. This tool starts the command exactly once and does not wait for completion or return command output. After a successful start, use coder_workspace_process_output with the returned process_id to observe the same process.
+
+Exactly one execution mode is required: argv for direct execution without shell parsing, or command for intentional sh -c shell syntax. Prefer argv. Set interactive=true only when later process_input calls are required.
 
 If this call ends with a timeout, 502, disconnect, or any other uncertain result after submission, DO NOT start the command again. First call coder_workspace_process_list for the same workspace and recover the existing process by matching its command, workdir, and start time.
 
@@ -53,7 +58,13 @@ The command is executed by the workspace Agent using sh -c. If workdir is omitte
 				},
 				"command": map[string]any{
 					"type":        "string",
-					"description": "Shell command to start exactly once using sh -c.",
+					"description": "Optional shell command executed with sh -c. Mutually exclusive with argv.",
+				},
+				"argv": map[string]any{
+					"type":        "array",
+					"description": "Optional executable and arguments for direct execution without shell parsing. Mutually exclusive with command.",
+					"minItems":    1,
+					"items":       map[string]any{"type": "string"},
 				},
 				"workdir": map[string]any{
 					"type":        "string",
@@ -68,17 +79,35 @@ The command is executed by the workspace Agent using sh -c. If workdir is omitte
 					"type":        "boolean",
 					"description": "Whether to mark the tracked process as a background command. This does not change process durability.",
 				},
+				"interactive": map[string]any{
+					"type":        "boolean",
+					"description": "Keep stdin open for later process_input calls. Defaults to false.",
+				},
+				"stdin": map[string]any{
+					"type":        "string",
+					"description": "Optional initial stdin. Non-interactive mode sends EOF after this content; interactive mode keeps stdin open. Maximum 1 MiB.",
+					"maxLength":   workspacesdk.MaxProcessInputBytes,
+				},
 			},
-			Required: []string{"workspace", "command"},
+			Required: []string{"workspace"},
 		},
 	},
 	MCPAnnotations: mcpMutationAnnotations,
-	Handler: func(ctx context.Context, deps Deps, args WorkspaceProcessStartArgs) (WorkspaceProcessStartResult, error) {
+	Handler: func(ctx context.Context, deps Deps, args WorkspaceProcessStartV2Args) (WorkspaceProcessStartResult, error) {
 		if args.Workspace == "" {
 			return WorkspaceProcessStartResult{}, xerrors.New("workspace name cannot be empty")
 		}
-		if args.Command == "" {
-			return WorkspaceProcessStartResult{}, xerrors.New("command cannot be empty")
+		if args.Command == "" && len(args.Argv) == 0 {
+			return WorkspaceProcessStartResult{}, xerrors.New("command cannot be empty; alternatively provide argv")
+		}
+		if args.Command != "" && len(args.Argv) != 0 {
+			return WorkspaceProcessStartResult{}, xerrors.New("command and argv are mutually exclusive")
+		}
+		if len(args.Argv) > 0 && args.Argv[0] == "" {
+			return WorkspaceProcessStartResult{}, xerrors.New("argv[0] must not be empty")
+		}
+		if len(args.Stdin) > workspacesdk.MaxProcessInputBytes {
+			return WorkspaceProcessStartResult{}, xerrors.Errorf("stdin cannot exceed %d bytes", workspacesdk.MaxProcessInputBytes)
 		}
 
 		conn, err := openAgentConn(ctx, deps, args.Workspace)
@@ -88,18 +117,25 @@ The command is executed by the workspace Agent using sh -c. If workdir is omitte
 		defer conn.Close()
 
 		started, err := conn.StartProcess(ctx, workspacesdk.StartProcessRequest{
-			Command:    args.Command,
-			WorkDir:    args.WorkDir,
-			Env:        args.Env,
-			Background: args.Background,
+			Command:     args.Command,
+			Argv:        args.Argv,
+			WorkDir:     args.WorkDir,
+			Env:         args.Env,
+			Background:  args.Background,
+			Interactive: args.Interactive,
+			Stdin:       args.Stdin,
 		})
 		if err != nil {
 			return WorkspaceProcessStartResult{}, xerrors.Errorf("start workspace process: %w", err)
 		}
+		advisories := commandAdvisories(args.Command)
+		if len(args.Argv) > 0 {
+			advisories = argvAdvisories(args.Argv)
+		}
 		return WorkspaceProcessStartResult{
 			ProcessID:  started.ID,
 			Started:    started.Started,
-			Advisories: commandAdvisories(args.Command),
+			Advisories: advisories,
 		}, nil
 	},
 }
@@ -111,6 +147,9 @@ type WorkspaceProcessResult struct {
 	ProcessID  string                          `json:"process_id"`
 	Running    bool                            `json:"running"`
 	Truncated  *workspacesdk.ProcessTruncation `json:"truncated,omitempty"`
+	NextCursor *int64                          `json:"next_cursor,omitempty"`
+	GapBytes   int64                           `json:"gap_bytes,omitempty"`
+	HasMore    bool                            `json:"has_more,omitempty"`
 	Advisories []ToolAdvisory                  `json:"advisories,omitempty"`
 }
 
@@ -118,6 +157,8 @@ type WorkspaceProcessOutputArgs struct {
 	Workspace     string `json:"workspace"`
 	ProcessID     string `json:"process_id"`
 	WaitTimeoutMs *int   `json:"wait_timeout_ms,omitempty"`
+	Cursor        *int64 `json:"cursor,omitempty"`
+	Limit         int    `json:"limit,omitempty"`
 }
 
 var WorkspaceProcessOutput = Tool[WorkspaceProcessOutputArgs, WorkspaceProcessResult]{
@@ -125,7 +166,7 @@ var WorkspaceProcessOutput = Tool[WorkspaceProcessOutputArgs, WorkspaceProcessRe
 		Name: ToolNameWorkspaceProcessOutput,
 		Description: `Read output from a durable process previously started in a Coder workspace.
 
-Use the process_id returned by coder_workspace_process_start or coder_workspace_process_list. This tool can wait briefly for more output or process exit, then returns the current state. The process itself is independent of this request and keeps running if this tool call disconnects.
+Use the process_id returned by coder_workspace_process_start or coder_workspace_process_list. Pass cursor=0 to use incremental output; subsequent calls should pass next_cursor. Incremental output is backed by a bounded rolling buffer: if the caller falls behind, gap_bytes reports evicted bytes. Omit cursor for the legacy head+tail snapshot.
 
 After any timeout, 502, reconnect, or uncertain result, use coder_workspace_process_list and this tool to recover the existing process before considering another command execution. If the recovered process command invokes sudo, this tool also returns the same structured persistence advisory separately from process output.`,
 		Schema: aisdk.Schema{
@@ -144,6 +185,17 @@ After any timeout, 502, reconnect, or uncertain result, use coder_workspace_proc
 					"default":     10000,
 					"minimum":     0,
 					"maximum":     60000,
+				},
+				"cursor": map[string]any{
+					"type":        "integer",
+					"description": "Optional absolute byte cursor for incremental output. Start with 0 and continue with next_cursor.",
+					"minimum":     0,
+				},
+				"limit": map[string]any{
+					"type":        "integer",
+					"description": "Maximum incremental bytes to return. Defaults to 32768 and cannot exceed 32768.",
+					"minimum":     1,
+					"maximum":     32768,
 				},
 			},
 			Required: []string{"workspace", "process_id"},
@@ -169,17 +221,32 @@ After any timeout, 502, reconnect, or uncertain result, use coder_workspace_proc
 		}
 		defer conn.Close()
 
-		resp, err := waitForWorkspaceProcess(ctx, conn, args.ProcessID, wait)
+		if args.Cursor != nil && *args.Cursor < 0 {
+			return WorkspaceProcessResult{}, xerrors.New("cursor cannot be negative")
+		}
+		if args.Limit < 0 || args.Limit > 32768 {
+			return WorkspaceProcessResult{}, xerrors.New("limit cannot exceed 32768")
+		}
+
+		resp, err := waitForWorkspaceProcessOptions(ctx, conn, args.ProcessID, wait, args.Cursor, args.Limit)
 		if err != nil {
 			return WorkspaceProcessResult{}, err
 		}
 		advisories := workspaceProcessAdvisories(ctx, conn, args.ProcessID)
-		return workspaceProcessResult(args.ProcessID, resp, advisories), nil
+		result := workspaceProcessResult(args.ProcessID, resp, advisories)
+		if args.Cursor != nil {
+			result.Output = resp.Output
+			next := resp.NextCursor
+			result.NextCursor = &next
+		}
+		return result, nil
 	},
 }
 
 type WorkspaceProcessListArgs struct {
 	Workspace string `json:"workspace"`
+	Cursor    int    `json:"cursor,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
 }
 
 type WorkspaceProcessInfo struct {
@@ -188,7 +255,8 @@ type WorkspaceProcessInfo struct {
 }
 
 type WorkspaceProcessListResult struct {
-	Processes []WorkspaceProcessInfo `json:"processes"`
+	Processes  []WorkspaceProcessInfo `json:"processes"`
+	NextCursor *int                   `json:"next_cursor,omitempty"`
 }
 
 var WorkspaceProcessList = Tool[WorkspaceProcessListArgs, WorkspaceProcessListResult]{
@@ -202,6 +270,17 @@ Use this after a timeout, 502, reconnect, or any uncertain command result before
 				"workspace": map[string]any{
 					"type":        "string",
 					"description": "The workspace name in format [owner/]workspace[.agent]. If owner is omitted, the authenticated user is used.",
+				},
+				"cursor": map[string]any{
+					"type":        "integer",
+					"description": "Zero-based result cursor. Defaults to 0.",
+					"minimum":     0,
+				},
+				"limit": map[string]any{
+					"type":        "integer",
+					"description": "Maximum processes to return. Defaults to 10, maximum 100.",
+					"minimum":     1,
+					"maximum":     100,
 				},
 			},
 			Required: []string{"workspace"},
@@ -219,18 +298,113 @@ Use this after a timeout, 502, reconnect, or any uncertain command result before
 		}
 		defer conn.Close()
 
+		if args.Cursor < 0 {
+			return WorkspaceProcessListResult{}, xerrors.New("cursor cannot be negative")
+		}
+		limit := args.Limit
+		if limit == 0 {
+			limit = 10
+		}
+		if limit < 1 || limit > 100 {
+			return WorkspaceProcessListResult{}, xerrors.New("limit must be between 1 and 100")
+		}
 		resp, err := conn.ListProcesses(ctx)
 		if err != nil {
 			return WorkspaceProcessListResult{}, xerrors.Errorf("list workspace processes: %w", err)
 		}
-		processes := make([]WorkspaceProcessInfo, 0, len(resp.Processes))
-		for _, process := range resp.Processes {
+		start := args.Cursor
+		if start > len(resp.Processes) {
+			start = len(resp.Processes)
+		}
+		end := start + limit
+		if end > len(resp.Processes) {
+			end = len(resp.Processes)
+		}
+		processes := make([]WorkspaceProcessInfo, 0, end-start)
+		for _, process := range resp.Processes[start:end] {
+			advisories := commandAdvisories(process.Command)
+			if len(process.Argv) > 0 {
+				advisories = argvAdvisories(process.Argv)
+			}
 			processes = append(processes, WorkspaceProcessInfo{
 				ProcessInfo: process,
-				Advisories:  commandAdvisories(process.Command),
+				Advisories:  advisories,
 			})
 		}
-		return WorkspaceProcessListResult{Processes: processes}, nil
+		var next *int
+		if end < len(resp.Processes) {
+			value := end
+			next = &value
+		}
+		return WorkspaceProcessListResult{Processes: processes, NextCursor: next}, nil
+	},
+}
+
+type WorkspaceProcessInputArgs struct {
+	Workspace string `json:"workspace"`
+	ProcessID string `json:"process_id"`
+	Data      string `json:"data,omitempty"`
+	Close     bool   `json:"close,omitempty"`
+}
+
+type WorkspaceProcessInputResult struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
+var WorkspaceProcessInput = Tool[WorkspaceProcessInputArgs, WorkspaceProcessInputResult]{
+	Tool: aisdk.Tool{
+		Name: ToolNameWorkspaceProcessInput,
+		Description: `Write to stdin of a durable process started with interactive=true.
+
+Use close=true to send EOF after optional data. This tool only targets processes
+tracked by the workspace agent and preserves chat/process isolation.`,
+		Schema: aisdk.Schema{
+			Properties: map[string]any{
+				"workspace": map[string]any{
+					"type":        "string",
+					"description": "The workspace name in format [owner/]workspace[.agent].",
+				},
+				"process_id": map[string]any{
+					"type":        "string",
+					"description": "Tracked process ID returned by process_start.",
+				},
+				"data": map[string]any{
+					"type":        "string",
+					"description": "Data to write verbatim to process stdin. Maximum 1 MiB per call.",
+					"maxLength":   workspacesdk.MaxProcessInputBytes,
+				},
+				"close": map[string]any{
+					"type":        "boolean",
+					"description": "Close stdin after writing data, sending EOF.",
+				},
+			},
+			Required: []string{"workspace", "process_id"},
+		},
+	},
+	MCPAnnotations: mcpMutationAnnotations,
+	Handler: func(ctx context.Context, deps Deps, args WorkspaceProcessInputArgs) (WorkspaceProcessInputResult, error) {
+		if args.Workspace == "" {
+			return WorkspaceProcessInputResult{}, xerrors.New("workspace name cannot be empty")
+		}
+		if args.ProcessID == "" {
+			return WorkspaceProcessInputResult{}, xerrors.New("process_id cannot be empty")
+		}
+		if args.Data == "" && !args.Close {
+			return WorkspaceProcessInputResult{}, xerrors.New("data must be non-empty or close must be true")
+		}
+		if len(args.Data) > workspacesdk.MaxProcessInputBytes {
+			return WorkspaceProcessInputResult{}, xerrors.Errorf("data cannot exceed %d bytes", workspacesdk.MaxProcessInputBytes)
+		}
+		conn, err := openAgentConn(ctx, deps, args.Workspace)
+		if err != nil {
+			return WorkspaceProcessInputResult{}, err
+		}
+		defer conn.Close()
+		if err := conn.ProcessInput(ctx, args.ProcessID, workspacesdk.ProcessInputRequest{Data: args.Data, Close: args.Close}); err != nil {
+			return WorkspaceProcessInputResult{}, xerrors.Errorf("send workspace process input: %w", err)
+		}
+		return WorkspaceProcessInputResult{Success: true, Message: "process input sent"}, nil
 	},
 }
 
@@ -318,8 +492,19 @@ func waitForWorkspaceProcess(
 	processID string,
 	wait time.Duration,
 ) (workspacesdk.ProcessOutputResponse, error) {
+	return waitForWorkspaceProcessOptions(ctx, conn, processID, wait, nil, 0)
+}
+
+func waitForWorkspaceProcessOptions(
+	ctx context.Context,
+	conn workspacesdk.AgentConn,
+	processID string,
+	wait time.Duration,
+	cursor *int64,
+	limit int,
+) (workspacesdk.ProcessOutputResponse, error) {
 	if wait <= 0 {
-		resp, err := conn.ProcessOutput(ctx, processID, nil)
+		resp, err := conn.ProcessOutput(ctx, processID, &workspacesdk.ProcessOutputOptions{Cursor: cursor, Limit: limit})
 		if err != nil {
 			return workspacesdk.ProcessOutputResponse{}, xerrors.Errorf("get process output: %w", err)
 		}
@@ -328,7 +513,7 @@ func waitForWorkspaceProcess(
 
 	parentCtx := ctx
 	waitCtx, cancel := context.WithTimeout(ctx, wait)
-	resp, err := conn.ProcessOutput(waitCtx, processID, &workspacesdk.ProcessOutputOptions{Wait: true})
+	resp, err := conn.ProcessOutput(waitCtx, processID, &workspacesdk.ProcessOutputOptions{Wait: true, Cursor: cursor, Limit: limit})
 	cancel()
 	if err == nil {
 		return resp, nil
@@ -346,7 +531,7 @@ func waitForWorkspaceProcess(
 	// still-live parent request.
 	snapshotCtx, snapshotCancel := context.WithTimeout(parentCtx, processSnapshotTimeout)
 	defer snapshotCancel()
-	snapshot, snapshotErr := conn.ProcessOutput(snapshotCtx, processID, nil)
+	snapshot, snapshotErr := conn.ProcessOutput(snapshotCtx, processID, &workspacesdk.ProcessOutputOptions{Cursor: cursor, Limit: limit})
 	if snapshotErr == nil {
 		return snapshot, nil
 	}
@@ -364,6 +549,9 @@ func workspaceProcessAdvisories(ctx context.Context, conn workspacesdk.AgentConn
 	}
 	for _, process := range resp.Processes {
 		if process.ID == processID {
+			if len(process.Argv) > 0 {
+				return argvAdvisories(process.Argv)
+			}
 			return commandAdvisories(process.Command)
 		}
 	}
@@ -389,6 +577,8 @@ func workspaceProcessResult(processID string, resp workspacesdk.ProcessOutputRes
 		ProcessID:  processID,
 		Running:    resp.Running,
 		Truncated:  resp.Truncated,
+		GapBytes:   resp.GapBytes,
+		HasMore:    resp.HasMore,
 		Advisories: advisories,
 	}
 }

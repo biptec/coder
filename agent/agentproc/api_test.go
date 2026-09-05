@@ -291,7 +291,7 @@ func TestStartProcess(t *testing.T) {
 		var resp codersdk.Response
 		err := json.NewDecoder(w.Body).Decode(&resp)
 		require.NoError(t, err)
-		require.Contains(t, resp.Message, "Command is required")
+		require.Contains(t, resp.Message, "Exactly one of command or argv is required")
 	})
 
 	t.Run("MalformedJSON", func(t *testing.T) {
@@ -656,13 +656,13 @@ func TestListProcesses(t *testing.T) {
 		require.Len(t, resp3.Processes, 1)
 	})
 
-	t.Run("SortAndLimit", func(t *testing.T) {
+	t.Run("SortWithoutAgentCap", func(t *testing.T) {
 		t.Parallel()
 
 		handler := newTestAPI(t)
 
-		// Start 12 short-lived processes so we exceed the
-		// limit of 10.
+		// The agent returns the full tracked process set; MCP performs
+		// user-facing pagination instead of applying a hidden agent cap.
 		for i := 0; i < 12; i++ {
 			id := startAndGetID(t, handler, workspacesdk.StartProcessRequest{
 				Command: fmt.Sprintf("echo proc-%d", i),
@@ -676,7 +676,7 @@ func TestListProcesses(t *testing.T) {
 		var resp workspacesdk.ListProcessesResponse
 		err := json.NewDecoder(w.Body).Decode(&resp)
 		require.NoError(t, err)
-		require.Len(t, resp.Processes, 10, "should be capped at 10")
+		require.Len(t, resp.Processes, 12, "agent should not apply a hidden process-list cap")
 
 		// All returned processes are exited, so they should
 		// be sorted by StartedAt descending (newest first).

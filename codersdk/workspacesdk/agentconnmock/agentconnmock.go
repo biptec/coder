@@ -17,19 +17,18 @@ import (
 	reflect "reflect"
 	time "time"
 
-	uuid "github.com/google/uuid"
-	gomock "go.uber.org/mock/gomock"
-	ssh "golang.org/x/crypto/ssh"
-	gonet "gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
-	ipnstate "tailscale.com/ipn/ipnstate"
-	speedtest "tailscale.com/net/speedtest"
-
 	slog "cdr.dev/slog/v3"
 	codersdk "github.com/coder/coder/v2/codersdk"
 	healthsdk "github.com/coder/coder/v2/codersdk/healthsdk"
 	workspacesdk "github.com/coder/coder/v2/codersdk/workspacesdk"
 	wsjson "github.com/coder/coder/v2/codersdk/wsjson"
 	tailnet "github.com/coder/coder/v2/tailnet"
+	uuid "github.com/google/uuid"
+	gomock "go.uber.org/mock/gomock"
+	ssh "golang.org/x/crypto/ssh"
+	gonet "gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
+	ipnstate "tailscale.com/ipn/ipnstate"
+	speedtest "tailscale.com/net/speedtest"
 )
 
 // MockAgentConn is a mock of AgentConn interface.
@@ -143,6 +142,20 @@ func (mr *MockAgentConnMockRecorder) ContextConfig(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ContextConfig", reflect.TypeOf((*MockAgentConn)(nil).ContextConfig), ctx)
 }
 
+// CreateDirectory mocks base method.
+func (m *MockAgentConn) CreateDirectory(ctx context.Context, req workspacesdk.CreateDirectoryRequest) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateDirectory", ctx, req)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateDirectory indicates an expected call of CreateDirectory.
+func (mr *MockAgentConnMockRecorder) CreateDirectory(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateDirectory", reflect.TypeOf((*MockAgentConn)(nil).CreateDirectory), ctx, req)
+}
+
 // DebugLogs mocks base method.
 func (m *MockAgentConn) DebugLogs(ctx context.Context, opts ...workspacesdk.DebugLogsOption) ([]byte, error) {
 	m.ctrl.T.Helper()
@@ -252,6 +265,21 @@ func (mr *MockAgentConnMockRecorder) ExecuteDesktopAction(ctx, action any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteDesktopAction", reflect.TypeOf((*MockAgentConn)(nil).ExecuteDesktopAction), ctx, action)
 }
 
+// FileInfo mocks base method.
+func (m *MockAgentConn) FileInfo(ctx context.Context, path string) (workspacesdk.WorkspaceFileInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FileInfo", ctx, path)
+	ret0, _ := ret[0].(workspacesdk.WorkspaceFileInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FileInfo indicates an expected call of FileInfo.
+func (mr *MockAgentConnMockRecorder) FileInfo(ctx, path any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FileInfo", reflect.TypeOf((*MockAgentConn)(nil).FileInfo), ctx, path)
+}
+
 // GetPeerDiagnostics mocks base method.
 func (m *MockAgentConn) GetPeerDiagnostics() tailnet.PeerDiagnostics {
 	m.ctrl.T.Helper()
@@ -296,6 +324,21 @@ func (mr *MockAgentConnMockRecorder) ListContainers(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListContainers", reflect.TypeOf((*MockAgentConn)(nil).ListContainers), ctx)
 }
 
+// ListDirectory mocks base method.
+func (m *MockAgentConn) ListDirectory(ctx context.Context, req workspacesdk.ListDirectoryRequest) (workspacesdk.ListDirectoryResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDirectory", ctx, req)
+	ret0, _ := ret[0].(workspacesdk.ListDirectoryResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListDirectory indicates an expected call of ListDirectory.
+func (mr *MockAgentConnMockRecorder) ListDirectory(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDirectory", reflect.TypeOf((*MockAgentConn)(nil).ListDirectory), ctx, req)
+}
+
 // ListProcesses mocks base method.
 func (m *MockAgentConn) ListProcesses(ctx context.Context) (workspacesdk.ListProcessesResponse, error) {
 	m.ctrl.T.Helper()
@@ -311,6 +354,21 @@ func (mr *MockAgentConnMockRecorder) ListProcesses(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProcesses", reflect.TypeOf((*MockAgentConn)(nil).ListProcesses), ctx)
 }
 
+// ListSearches mocks base method.
+func (m *MockAgentConn) ListSearches(ctx context.Context) (workspacesdk.ListSearchesResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSearches", ctx)
+	ret0, _ := ret[0].(workspacesdk.ListSearchesResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSearches indicates an expected call of ListSearches.
+func (mr *MockAgentConnMockRecorder) ListSearches(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSearches", reflect.TypeOf((*MockAgentConn)(nil).ListSearches), ctx)
+}
+
 // ListeningPorts mocks base method.
 func (m *MockAgentConn) ListeningPorts(ctx context.Context) (codersdk.WorkspaceAgentListeningPortsResponse, error) {
 	m.ctrl.T.Helper()
@@ -324,6 +382,20 @@ func (m *MockAgentConn) ListeningPorts(ctx context.Context) (codersdk.WorkspaceA
 func (mr *MockAgentConnMockRecorder) ListeningPorts(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListeningPorts", reflect.TypeOf((*MockAgentConn)(nil).ListeningPorts), ctx)
+}
+
+// MoveFile mocks base method.
+func (m *MockAgentConn) MoveFile(ctx context.Context, req workspacesdk.MoveFileRequest) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MoveFile", ctx, req)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MoveFile indicates an expected call of MoveFile.
+func (mr *MockAgentConnMockRecorder) MoveFile(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MoveFile", reflect.TypeOf((*MockAgentConn)(nil).MoveFile), ctx, req)
 }
 
 // Netcheck mocks base method.
@@ -356,6 +428,20 @@ func (m *MockAgentConn) Ping(ctx context.Context) (time.Duration, bool, *ipnstat
 func (mr *MockAgentConnMockRecorder) Ping(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Ping", reflect.TypeOf((*MockAgentConn)(nil).Ping), ctx)
+}
+
+// ProcessInput mocks base method.
+func (m *MockAgentConn) ProcessInput(ctx context.Context, id string, req workspacesdk.ProcessInputRequest) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ProcessInput", ctx, id, req)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ProcessInput indicates an expected call of ProcessInput.
+func (mr *MockAgentConnMockRecorder) ProcessInput(ctx, id, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProcessInput", reflect.TypeOf((*MockAgentConn)(nil).ProcessInput), ctx, id, req)
 }
 
 // ProcessOutput mocks base method.
@@ -529,6 +615,21 @@ func (mr *MockAgentConnMockRecorder) SSHOnPort(ctx, port any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SSHOnPort", reflect.TypeOf((*MockAgentConn)(nil).SSHOnPort), ctx, port)
 }
 
+// SearchResults mocks base method.
+func (m *MockAgentConn) SearchResults(ctx context.Context, id string, cursor, limit int) (workspacesdk.SearchResultsResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SearchResults", ctx, id, cursor, limit)
+	ret0, _ := ret[0].(workspacesdk.SearchResultsResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SearchResults indicates an expected call of SearchResults.
+func (mr *MockAgentConnMockRecorder) SearchResults(ctx, id, cursor, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SearchResults", reflect.TypeOf((*MockAgentConn)(nil).SearchResults), ctx, id, cursor, limit)
+}
+
 // SetExtraHeaders mocks base method.
 func (m *MockAgentConn) SetExtraHeaders(h http.Header) {
 	m.ctrl.T.Helper()
@@ -599,6 +700,21 @@ func (mr *MockAgentConnMockRecorder) StartProcess(ctx, req any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartProcess", reflect.TypeOf((*MockAgentConn)(nil).StartProcess), ctx, req)
 }
 
+// StartSearch mocks base method.
+func (m *MockAgentConn) StartSearch(ctx context.Context, req workspacesdk.SearchStartRequest) (workspacesdk.SearchStartResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StartSearch", ctx, req)
+	ret0, _ := ret[0].(workspacesdk.SearchStartResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// StartSearch indicates an expected call of StartSearch.
+func (mr *MockAgentConnMockRecorder) StartSearch(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartSearch", reflect.TypeOf((*MockAgentConn)(nil).StartSearch), ctx, req)
+}
+
 // StopDesktopRecording mocks base method.
 func (m *MockAgentConn) StopDesktopRecording(ctx context.Context, req workspacesdk.StopDesktopRecordingRequest) (workspacesdk.StopDesktopRecordingResponse, error) {
 	m.ctrl.T.Helper()
@@ -612,6 +728,20 @@ func (m *MockAgentConn) StopDesktopRecording(ctx context.Context, req workspaces
 func (mr *MockAgentConnMockRecorder) StopDesktopRecording(ctx, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopDesktopRecording", reflect.TypeOf((*MockAgentConn)(nil).StopDesktopRecording), ctx, req)
+}
+
+// StopSearch mocks base method.
+func (m *MockAgentConn) StopSearch(ctx context.Context, id string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StopSearch", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StopSearch indicates an expected call of StopSearch.
+func (mr *MockAgentConnMockRecorder) StopSearch(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopSearch", reflect.TypeOf((*MockAgentConn)(nil).StopSearch), ctx, id)
 }
 
 // TailnetConn mocks base method.

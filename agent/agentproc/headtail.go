@@ -17,6 +17,13 @@ const (
 	// end of the output for LLM consumption.
 	MaxTailBytes = 16 << 10 // 16KB
 
+	// MaxStreamBytes is the bounded rolling window retained for incremental
+	// cursor-based process output. It is separate from the legacy head+tail view.
+	MaxStreamBytes = 64 << 10 // 64KB
+
+	// DefaultIncrementalLimit bounds bytes returned by one cursor read.
+	DefaultIncrementalLimit = 32 << 10 // 32KB
+
 	// MaxLineLength is the maximum length of a single line
 	// before it is truncated. This prevents minified files
 	// or other long single-line output from consuming the
@@ -44,19 +51,24 @@ type HeadTailBuffer struct {
 	tail       []byte
 	tailPos    int
 	tailFull   bool
+	stream     []byte
+	streamPos  int
+	streamFull bool
 	headFull   bool
 	closed     bool
 	totalBytes int
 	maxHead    int
 	maxTail    int
+	maxStream  int
 }
 
 // NewHeadTailBuffer creates a new HeadTailBuffer with the
 // default head and tail sizes.
 func NewHeadTailBuffer() *HeadTailBuffer {
 	b := &HeadTailBuffer{
-		maxHead: MaxHeadBytes,
-		maxTail: MaxTailBytes,
+		maxHead:   MaxHeadBytes,
+		maxTail:   MaxTailBytes,
+		maxStream: MaxStreamBytes,
 	}
 	b.cond = sync.NewCond(&b.mu)
 	return b
@@ -67,8 +79,9 @@ func NewHeadTailBuffer() *HeadTailBuffer {
 // logic with smaller buffers.
 func NewHeadTailBufferSized(maxHead, maxTail int) *HeadTailBuffer {
 	b := &HeadTailBuffer{
-		maxHead: maxHead,
-		maxTail: maxTail,
+		maxHead:   maxHead,
+		maxTail:   maxTail,
+		maxStream: MaxStreamBytes,
 	}
 	b.cond = sync.NewCond(&b.mu)
 	return b
@@ -84,9 +97,11 @@ func (b *HeadTailBuffer) Write(p []byte) (int, error) {
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	defer b.cond.Broadcast()
 
 	n := len(p)
 	b.totalBytes += n
+	b.writeStream(p)
 
 	// Fill head buffer if it is not yet full.
 	if !b.headFull {
@@ -114,6 +129,82 @@ func (b *HeadTailBuffer) Write(p []byte) (int, error) {
 
 // writeTail appends data to the tail ring buffer. The caller
 // must hold b.mu.
+func (b *HeadTailBuffer) writeStream(p []byte) {
+	if b.maxStream <= 0 {
+		return
+	}
+	if b.stream == nil {
+		b.stream = make([]byte, b.maxStream)
+	}
+	for len(p) > 0 {
+		space := b.maxStream - b.streamPos
+		take := space
+		if take > len(p) {
+			take = len(p)
+		}
+		copy(b.stream[b.streamPos:b.streamPos+take], p[:take])
+		p = p[take:]
+		b.streamPos += take
+		if b.streamPos >= b.maxStream {
+			b.streamPos = 0
+			b.streamFull = true
+		}
+	}
+}
+
+func (b *HeadTailBuffer) streamBytes() []byte {
+	if b.stream == nil {
+		return nil
+	}
+	if !b.streamFull {
+		return b.stream[:b.streamPos]
+	}
+	out := make([]byte, b.maxStream)
+	n := copy(out, b.stream[b.streamPos:])
+	copy(out[n:], b.stream[:b.streamPos])
+	return out
+}
+
+// ReadSince returns bounded incremental output from cursor. Cursor is an
+// absolute byte position in the process output stream. If the caller fell
+// behind the rolling window, gapBytes reports the number of evicted bytes.
+func (b *HeadTailBuffer) ReadSince(cursor int64, limit int) (output string, nextCursor int64, gapBytes int64, hasMore bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if cursor < 0 {
+		cursor = 0
+	}
+	if limit <= 0 || limit > DefaultIncrementalLimit {
+		limit = DefaultIncrementalLimit
+	}
+	total := int64(b.totalBytes)
+	stream := b.streamBytes()
+	availableStart := total - int64(len(stream))
+	if cursor < availableStart {
+		gapBytes = availableStart - cursor
+		cursor = availableStart
+	}
+	if cursor > total {
+		cursor = total
+	}
+	start := int(cursor - availableStart)
+	remaining := len(stream) - start
+	if remaining < 0 {
+		remaining = 0
+	}
+	take := remaining
+	if take > limit {
+		take = limit
+	}
+	if take > 0 {
+		output = string(stream[start : start+take])
+	}
+	nextCursor = cursor + int64(take)
+	hasMore = nextCursor < total
+	return output, nextCursor, gapBytes, hasMore
+}
+
 func (b *HeadTailBuffer) writeTail(p []byte) {
 	if b.maxTail <= 0 {
 		return
@@ -319,6 +410,9 @@ func (b *HeadTailBuffer) Reset() {
 	b.tail = nil
 	b.tailPos = 0
 	b.tailFull = false
+	b.stream = nil
+	b.streamPos = 0
+	b.streamFull = false
 	b.headFull = false
 	b.closed = false
 	b.totalBytes = 0
