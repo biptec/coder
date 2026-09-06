@@ -255,6 +255,12 @@ func (api *API) postWorkspaceVolumeCopySync(rw http.ResponseWriter, r *http.Requ
 		})
 		return
 	}
+	if !operation.AllowSourceRunning {
+		httpapi.Write(ctx, rw, http.StatusConflict, codersdk.Response{
+			Message: "Only a completed live volume copy operation can be synchronized again.",
+		})
+		return
+	}
 
 	source, destination, ok := api.workspaceVolumeCopyOperationWorkspaces(rw, r, operation)
 	if !ok {

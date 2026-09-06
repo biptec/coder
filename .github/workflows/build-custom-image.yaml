@@ -93,6 +93,7 @@ jobs:
           go test ./support -run '^TestVersionSupportsPprof$'
           go test ./codersdk -run '^TestBuildInfo'
           go test ./workspacevolumecopy ./coderd/workspacevolumecopy ./cmd/workspace-volume-copy-helper
+          go test ./coderd -run '^TestWorkspaceVolumeCopy' -count=1
           go test ./coderd/healthcheck -run '^$'
 
       - name: Validate workspace volume copy image context
