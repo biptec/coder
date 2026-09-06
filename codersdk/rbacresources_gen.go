@@ -54,29 +54,31 @@ const (
 	ResourceWorkspaceAgentResourceMonitor RBACResource = "workspace_agent_resource_monitor"
 	ResourceWorkspaceDormant              RBACResource = "workspace_dormant"
 	ResourceWorkspaceProxy                RBACResource = "workspace_proxy"
+	ResourceWorkspaceVolumeCopy           RBACResource = "workspace_volume_copy"
 )
 
 type RBACAction string
 
 const (
-	ActionApplicationConnect RBACAction = "application_connect"
-	ActionAssign             RBACAction = "assign"
-	ActionCreate             RBACAction = "create"
-	ActionCreateAgent        RBACAction = "create_agent"
-	ActionDelete             RBACAction = "delete"
-	ActionDeleteAgent        RBACAction = "delete_agent"
-	ActionRead               RBACAction = "read"
-	ActionReadPersonal       RBACAction = "read_personal"
-	ActionSSH                RBACAction = "ssh"
-	ActionShare              RBACAction = "share"
-	ActionUnassign           RBACAction = "unassign"
-	ActionUpdate             RBACAction = "update"
-	ActionUpdateAgent        RBACAction = "update_agent"
-	ActionUpdatePersonal     RBACAction = "update_personal"
-	ActionUse                RBACAction = "use"
-	ActionViewInsights       RBACAction = "view_insights"
-	ActionWorkspaceStart     RBACAction = "start"
-	ActionWorkspaceStop      RBACAction = "stop"
+	ActionApplicationConnect  RBACAction = "application_connect"
+	ActionAssign              RBACAction = "assign"
+	ActionCreate              RBACAction = "create"
+	ActionCreateAgent         RBACAction = "create_agent"
+	ActionDelete              RBACAction = "delete"
+	ActionDeleteAgent         RBACAction = "delete_agent"
+	ActionRead                RBACAction = "read"
+	ActionReadPersonal        RBACAction = "read_personal"
+	ActionSSH                 RBACAction = "ssh"
+	ActionShare               RBACAction = "share"
+	ActionUnassign            RBACAction = "unassign"
+	ActionUpdate              RBACAction = "update"
+	ActionUpdateAgent         RBACAction = "update_agent"
+	ActionUpdatePersonal      RBACAction = "update_personal"
+	ActionUse                 RBACAction = "use"
+	ActionViewInsights        RBACAction = "view_insights"
+	ActionWorkspaceStart      RBACAction = "start"
+	ActionWorkspaceStop       RBACAction = "stop"
+	ActionWorkspaceVolumeCopy RBACAction = "volume_copy"
 )
 
 // RBACResourceActions is the mapping of resources to which actions are valid for
@@ -127,9 +129,10 @@ var RBACResourceActions = map[RBACResource][]RBACAction{
 	ResourceUserSecret:                    {ActionCreate, ActionDelete, ActionRead, ActionUpdate},
 	ResourceUserSkill:                     {ActionCreate, ActionDelete, ActionRead, ActionUpdate},
 	ResourceWebpushSubscription:           {ActionCreate, ActionDelete, ActionRead},
-	ResourceWorkspace:                     {ActionApplicationConnect, ActionCreate, ActionCreateAgent, ActionDelete, ActionDeleteAgent, ActionRead, ActionShare, ActionSSH, ActionWorkspaceStart, ActionWorkspaceStop, ActionUpdate, ActionUpdateAgent},
+	ResourceWorkspace:                     {ActionApplicationConnect, ActionCreate, ActionCreateAgent, ActionDelete, ActionDeleteAgent, ActionRead, ActionShare, ActionSSH, ActionWorkspaceStart, ActionWorkspaceStop, ActionUpdate, ActionUpdateAgent, ActionWorkspaceVolumeCopy},
 	ResourceWorkspaceAgentDevcontainers:   {ActionCreate},
 	ResourceWorkspaceAgentResourceMonitor: {ActionCreate, ActionRead, ActionUpdate},
-	ResourceWorkspaceDormant:              {ActionApplicationConnect, ActionCreate, ActionCreateAgent, ActionDelete, ActionDeleteAgent, ActionRead, ActionShare, ActionSSH, ActionWorkspaceStart, ActionWorkspaceStop, ActionUpdate, ActionUpdateAgent},
+	ResourceWorkspaceDormant:              {ActionApplicationConnect, ActionCreate, ActionCreateAgent, ActionDelete, ActionDeleteAgent, ActionRead, ActionShare, ActionSSH, ActionWorkspaceStart, ActionWorkspaceStop, ActionUpdate, ActionUpdateAgent, ActionWorkspaceVolumeCopy},
 	ResourceWorkspaceProxy:                {ActionCreate, ActionDelete, ActionRead, ActionUpdate},
+	ResourceWorkspaceVolumeCopy:           {ActionCreate, ActionDelete, ActionRead, ActionUpdate},
 }

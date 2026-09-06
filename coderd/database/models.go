@@ -6582,3 +6582,27 @@ type WorkspaceTable struct {
 	GroupACL    WorkspaceACL `db:"group_acl" json:"group_acl"`
 	UserACL     WorkspaceACL `db:"user_acl" json:"user_acl"`
 }
+
+type WorkspaceVolumeCopyLock struct {
+	WorkspaceID uuid.UUID `db:"workspace_id" json:"workspace_id"`
+	OperationID uuid.UUID `db:"operation_id" json:"operation_id"`
+	CreatedAt   time.Time `db:"created_at" json:"created_at"`
+}
+
+type WorkspaceVolumeCopyOperation struct {
+	ID                     uuid.UUID       `db:"id" json:"id"`
+	CreatedAt              time.Time       `db:"created_at" json:"created_at"`
+	UpdatedAt              time.Time       `db:"updated_at" json:"updated_at"`
+	InitiatorID            uuid.UUID       `db:"initiator_id" json:"initiator_id"`
+	SourceWorkspaceID      uuid.UUID       `db:"source_workspace_id" json:"source_workspace_id"`
+	DestinationWorkspaceID uuid.UUID       `db:"destination_workspace_id" json:"destination_workspace_id"`
+	AllowSourceRunning     bool            `db:"allow_source_running" json:"allow_source_running"`
+	Volumes                json.RawMessage `db:"volumes" json:"volumes"`
+	Status                 string          `db:"status" json:"status"`
+	Namespace              string          `db:"namespace" json:"namespace"`
+	JobName                string          `db:"job_name" json:"job_name"`
+	Error                  string          `db:"error" json:"error"`
+	StartedAt              sql.NullTime    `db:"started_at" json:"started_at"`
+	CompletedAt            sql.NullTime    `db:"completed_at" json:"completed_at"`
+	SyncOf                 uuid.NullUUID   `db:"sync_of" json:"sync_of"`
+}

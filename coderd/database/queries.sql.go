@@ -39012,3 +39012,402 @@ func (q *sqlQuerier) InsertWorkspaceAgentScripts(ctx context.Context, arg Insert
 	}
 	return items, nil
 }
+
+const acquireWorkspaceVolumeCopyLifecycleLock = `-- name: AcquireWorkspaceVolumeCopyLifecycleLock :one
+SELECT id
+FROM workspaces
+WHERE id = $1
+FOR UPDATE
+`
+
+func (q *sqlQuerier) AcquireWorkspaceVolumeCopyLifecycleLock(ctx context.Context, workspaceID uuid.UUID) (uuid.UUID, error) {
+	row := q.db.QueryRowContext(ctx, acquireWorkspaceVolumeCopyLifecycleLock, workspaceID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const deleteWorkspaceVolumeCopyLocksByOperationID = `-- name: DeleteWorkspaceVolumeCopyLocksByOperationID :exec
+DELETE FROM workspace_volume_copy_locks
+WHERE operation_id = $1
+`
+
+func (q *sqlQuerier) DeleteWorkspaceVolumeCopyLocksByOperationID(ctx context.Context, operationID uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, deleteWorkspaceVolumeCopyLocksByOperationID, operationID)
+	return err
+}
+
+const getActiveWorkspaceVolumeCopyOperations = `-- name: GetActiveWorkspaceVolumeCopyOperations :many
+SELECT id, created_at, updated_at, initiator_id, source_workspace_id, destination_workspace_id, allow_source_running, volumes, status, namespace, job_name, error, started_at, completed_at, sync_of
+FROM workspace_volume_copy_operations
+WHERE status IN ('pending', 'running')
+ORDER BY created_at ASC
+`
+
+func (q *sqlQuerier) GetActiveWorkspaceVolumeCopyOperations(ctx context.Context) ([]WorkspaceVolumeCopyOperation, error) {
+	rows, err := q.db.QueryContext(ctx, getActiveWorkspaceVolumeCopyOperations)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []WorkspaceVolumeCopyOperation
+	for rows.Next() {
+		var i WorkspaceVolumeCopyOperation
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.InitiatorID,
+			&i.SourceWorkspaceID,
+			&i.DestinationWorkspaceID,
+			&i.AllowSourceRunning,
+			&i.Volumes,
+			&i.Status,
+			&i.Namespace,
+			&i.JobName,
+			&i.Error,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.SyncOf,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getWorkspaceVolumeCopyLockByWorkspaceID = `-- name: GetWorkspaceVolumeCopyLockByWorkspaceID :one
+SELECT workspace_id, operation_id, created_at
+FROM workspace_volume_copy_locks
+WHERE workspace_id = $1
+`
+
+func (q *sqlQuerier) GetWorkspaceVolumeCopyLockByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) (WorkspaceVolumeCopyLock, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspaceVolumeCopyLockByWorkspaceID, workspaceID)
+	var i WorkspaceVolumeCopyLock
+	err := row.Scan(&i.WorkspaceID, &i.OperationID, &i.CreatedAt)
+	return i, err
+}
+
+const getWorkspaceVolumeCopyOperationByID = `-- name: GetWorkspaceVolumeCopyOperationByID :one
+SELECT id, created_at, updated_at, initiator_id, source_workspace_id, destination_workspace_id, allow_source_running, volumes, status, namespace, job_name, error, started_at, completed_at, sync_of
+FROM workspace_volume_copy_operations
+WHERE id = $1
+`
+
+func (q *sqlQuerier) GetWorkspaceVolumeCopyOperationByID(ctx context.Context, id uuid.UUID) (WorkspaceVolumeCopyOperation, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspaceVolumeCopyOperationByID, id)
+	var i WorkspaceVolumeCopyOperation
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.InitiatorID,
+		&i.SourceWorkspaceID,
+		&i.DestinationWorkspaceID,
+		&i.AllowSourceRunning,
+		&i.Volumes,
+		&i.Status,
+		&i.Namespace,
+		&i.JobName,
+		&i.Error,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.SyncOf,
+	)
+	return i, err
+}
+
+const getWorkspaceVolumeCopyOperationsByWorkspaceID = `-- name: GetWorkspaceVolumeCopyOperationsByWorkspaceID :many
+SELECT id, created_at, updated_at, initiator_id, source_workspace_id, destination_workspace_id, allow_source_running, volumes, status, namespace, job_name, error, started_at, completed_at, sync_of
+FROM workspace_volume_copy_operations
+WHERE source_workspace_id = $1
+   OR destination_workspace_id = $1
+ORDER BY created_at DESC
+LIMIT $2
+`
+
+type GetWorkspaceVolumeCopyOperationsByWorkspaceIDParams struct {
+	WorkspaceID uuid.UUID `db:"workspace_id" json:"workspace_id"`
+	LimitCount  int32     `db:"limit_count" json:"limit_count"`
+}
+
+func (q *sqlQuerier) GetWorkspaceVolumeCopyOperationsByWorkspaceID(ctx context.Context, arg GetWorkspaceVolumeCopyOperationsByWorkspaceIDParams) ([]WorkspaceVolumeCopyOperation, error) {
+	rows, err := q.db.QueryContext(ctx, getWorkspaceVolumeCopyOperationsByWorkspaceID, arg.WorkspaceID, arg.LimitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []WorkspaceVolumeCopyOperation
+	for rows.Next() {
+		var i WorkspaceVolumeCopyOperation
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.InitiatorID,
+			&i.SourceWorkspaceID,
+			&i.DestinationWorkspaceID,
+			&i.AllowSourceRunning,
+			&i.Volumes,
+			&i.Status,
+			&i.Namespace,
+			&i.JobName,
+			&i.Error,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.SyncOf,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const insertWorkspaceVolumeCopyLock = `-- name: InsertWorkspaceVolumeCopyLock :exec
+INSERT INTO workspace_volume_copy_locks (
+    workspace_id,
+    operation_id,
+    created_at
+) VALUES (
+    $1,
+    $2,
+    $3
+)
+`
+
+type InsertWorkspaceVolumeCopyLockParams struct {
+	WorkspaceID uuid.UUID `db:"workspace_id" json:"workspace_id"`
+	OperationID uuid.UUID `db:"operation_id" json:"operation_id"`
+	CreatedAt   time.Time `db:"created_at" json:"created_at"`
+}
+
+func (q *sqlQuerier) InsertWorkspaceVolumeCopyLock(ctx context.Context, arg InsertWorkspaceVolumeCopyLockParams) error {
+	_, err := q.db.ExecContext(ctx, insertWorkspaceVolumeCopyLock, arg.WorkspaceID, arg.OperationID, arg.CreatedAt)
+	return err
+}
+
+const insertWorkspaceVolumeCopyOperation = `-- name: InsertWorkspaceVolumeCopyOperation :one
+INSERT INTO workspace_volume_copy_operations (
+    id,
+    created_at,
+    updated_at,
+    initiator_id,
+    source_workspace_id,
+    destination_workspace_id,
+    allow_source_running,
+    volumes,
+    status,
+    namespace,
+    job_name,
+    error,
+    sync_of
+) VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7,
+    $8,
+    $9,
+    $10,
+    $11,
+    $12,
+    $13
+)
+RETURNING id, created_at, updated_at, initiator_id, source_workspace_id, destination_workspace_id, allow_source_running, volumes, status, namespace, job_name, error, started_at, completed_at, sync_of
+`
+
+type InsertWorkspaceVolumeCopyOperationParams struct {
+	ID                     uuid.UUID       `db:"id" json:"id"`
+	CreatedAt              time.Time       `db:"created_at" json:"created_at"`
+	UpdatedAt              time.Time       `db:"updated_at" json:"updated_at"`
+	InitiatorID            uuid.UUID       `db:"initiator_id" json:"initiator_id"`
+	SourceWorkspaceID      uuid.UUID       `db:"source_workspace_id" json:"source_workspace_id"`
+	DestinationWorkspaceID uuid.UUID       `db:"destination_workspace_id" json:"destination_workspace_id"`
+	AllowSourceRunning     bool            `db:"allow_source_running" json:"allow_source_running"`
+	Volumes                json.RawMessage `db:"volumes" json:"volumes"`
+	Status                 string          `db:"status" json:"status"`
+	Namespace              string          `db:"namespace" json:"namespace"`
+	JobName                string          `db:"job_name" json:"job_name"`
+	Error                  string          `db:"error" json:"error"`
+	SyncOf                 uuid.NullUUID   `db:"sync_of" json:"sync_of"`
+}
+
+func (q *sqlQuerier) InsertWorkspaceVolumeCopyOperation(ctx context.Context, arg InsertWorkspaceVolumeCopyOperationParams) (WorkspaceVolumeCopyOperation, error) {
+	row := q.db.QueryRowContext(ctx, insertWorkspaceVolumeCopyOperation,
+		arg.ID,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+		arg.InitiatorID,
+		arg.SourceWorkspaceID,
+		arg.DestinationWorkspaceID,
+		arg.AllowSourceRunning,
+		arg.Volumes,
+		arg.Status,
+		arg.Namespace,
+		arg.JobName,
+		arg.Error,
+		arg.SyncOf,
+	)
+	var i WorkspaceVolumeCopyOperation
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.InitiatorID,
+		&i.SourceWorkspaceID,
+		&i.DestinationWorkspaceID,
+		&i.AllowSourceRunning,
+		&i.Volumes,
+		&i.Status,
+		&i.Namespace,
+		&i.JobName,
+		&i.Error,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.SyncOf,
+	)
+	return i, err
+}
+
+const markWorkspaceVolumeCopyOperationFailed = `-- name: MarkWorkspaceVolumeCopyOperationFailed :one
+UPDATE workspace_volume_copy_operations
+SET status = 'failed',
+    updated_at = $1,
+    completed_at = $2,
+    error = $3
+WHERE id = $4
+  AND status IN ('pending', 'running')
+RETURNING id, created_at, updated_at, initiator_id, source_workspace_id, destination_workspace_id, allow_source_running, volumes, status, namespace, job_name, error, started_at, completed_at, sync_of
+`
+
+type MarkWorkspaceVolumeCopyOperationFailedParams struct {
+	UpdatedAt   time.Time    `db:"updated_at" json:"updated_at"`
+	CompletedAt sql.NullTime `db:"completed_at" json:"completed_at"`
+	Error       string       `db:"error" json:"error"`
+	ID          uuid.UUID    `db:"id" json:"id"`
+}
+
+func (q *sqlQuerier) MarkWorkspaceVolumeCopyOperationFailed(ctx context.Context, arg MarkWorkspaceVolumeCopyOperationFailedParams) (WorkspaceVolumeCopyOperation, error) {
+	row := q.db.QueryRowContext(ctx, markWorkspaceVolumeCopyOperationFailed,
+		arg.UpdatedAt,
+		arg.CompletedAt,
+		arg.Error,
+		arg.ID,
+	)
+	var i WorkspaceVolumeCopyOperation
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.InitiatorID,
+		&i.SourceWorkspaceID,
+		&i.DestinationWorkspaceID,
+		&i.AllowSourceRunning,
+		&i.Volumes,
+		&i.Status,
+		&i.Namespace,
+		&i.JobName,
+		&i.Error,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.SyncOf,
+	)
+	return i, err
+}
+
+const markWorkspaceVolumeCopyOperationRunning = `-- name: MarkWorkspaceVolumeCopyOperationRunning :one
+UPDATE workspace_volume_copy_operations
+SET status = 'running',
+    updated_at = $1,
+    started_at = COALESCE(started_at, $2)
+WHERE id = $3
+  AND status IN ('pending', 'running')
+RETURNING id, created_at, updated_at, initiator_id, source_workspace_id, destination_workspace_id, allow_source_running, volumes, status, namespace, job_name, error, started_at, completed_at, sync_of
+`
+
+type MarkWorkspaceVolumeCopyOperationRunningParams struct {
+	UpdatedAt time.Time    `db:"updated_at" json:"updated_at"`
+	StartedAt sql.NullTime `db:"started_at" json:"started_at"`
+	ID        uuid.UUID    `db:"id" json:"id"`
+}
+
+func (q *sqlQuerier) MarkWorkspaceVolumeCopyOperationRunning(ctx context.Context, arg MarkWorkspaceVolumeCopyOperationRunningParams) (WorkspaceVolumeCopyOperation, error) {
+	row := q.db.QueryRowContext(ctx, markWorkspaceVolumeCopyOperationRunning, arg.UpdatedAt, arg.StartedAt, arg.ID)
+	var i WorkspaceVolumeCopyOperation
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.InitiatorID,
+		&i.SourceWorkspaceID,
+		&i.DestinationWorkspaceID,
+		&i.AllowSourceRunning,
+		&i.Volumes,
+		&i.Status,
+		&i.Namespace,
+		&i.JobName,
+		&i.Error,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.SyncOf,
+	)
+	return i, err
+}
+
+const markWorkspaceVolumeCopyOperationSucceeded = `-- name: MarkWorkspaceVolumeCopyOperationSucceeded :one
+UPDATE workspace_volume_copy_operations
+SET status = 'succeeded',
+    updated_at = $1,
+    completed_at = $2,
+    error = ''
+WHERE id = $3
+  AND status IN ('pending', 'running')
+RETURNING id, created_at, updated_at, initiator_id, source_workspace_id, destination_workspace_id, allow_source_running, volumes, status, namespace, job_name, error, started_at, completed_at, sync_of
+`
+
+type MarkWorkspaceVolumeCopyOperationSucceededParams struct {
+	UpdatedAt   time.Time    `db:"updated_at" json:"updated_at"`
+	CompletedAt sql.NullTime `db:"completed_at" json:"completed_at"`
+	ID          uuid.UUID    `db:"id" json:"id"`
+}
+
+func (q *sqlQuerier) MarkWorkspaceVolumeCopyOperationSucceeded(ctx context.Context, arg MarkWorkspaceVolumeCopyOperationSucceededParams) (WorkspaceVolumeCopyOperation, error) {
+	row := q.db.QueryRowContext(ctx, markWorkspaceVolumeCopyOperationSucceeded, arg.UpdatedAt, arg.CompletedAt, arg.ID)
+	var i WorkspaceVolumeCopyOperation
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.InitiatorID,
+		&i.SourceWorkspaceID,
+		&i.DestinationWorkspaceID,
+		&i.AllowSourceRunning,
+		&i.Volumes,
+		&i.Status,
+		&i.Namespace,
+		&i.JobName,
+		&i.Error,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.SyncOf,
+	)
+	return i, err
+}

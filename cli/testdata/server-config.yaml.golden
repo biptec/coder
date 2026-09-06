@@ -530,6 +530,22 @@ termsOfServiceURL: ""
 # "ecdsa", or "rsa4096".
 # (default: ed25519, type: string)
 sshKeygenAlgorithm: ed25519
+# How recently a workspace must have been used for the dashboard to display "Now"
+# instead of relative time.
+# (default: 5m0s, type: duration)
+workspaceActivityNowThreshold: 5m0s
+# Enable administrative copying of explicitly annotated Kubernetes workspace
+# persistent volumes.
+# (default: false, type: bool)
+workspaceVolumeCopyEnabled: false
+# Kubernetes namespace containing workspace PVCs eligible for administrative
+# volume copying.
+# (default: coder-workspaces, type: string)
+workspaceVolumeCopyNamespace: coder-workspaces
+# Immutable workspace volume copy helper image used by temporary Kubernetes Jobs.
+# The image must contain /opt/coder-volume-copy-helper and rsync.
+# (default: <unset>, type: string)
+workspaceVolumeCopyImage: ""
 # URL to use for agent troubleshooting when not set in the template.
 # (default: https://coder.com/docs/admin/templates/troubleshooting, type: url)
 agentFallbackTroubleshootingURL: https://coder.com/docs/admin/templates/troubleshooting

@@ -16,8 +16,9 @@ const (
 	ActionApplicationConnect Action = "application_connect"
 	ActionViewInsights       Action = "view_insights"
 
-	ActionWorkspaceStart Action = "start"
-	ActionWorkspaceStop  Action = "stop"
+	ActionWorkspaceStart      Action = "start"
+	ActionWorkspaceStop       Action = "stop"
+	ActionWorkspaceVolumeCopy Action = "volume_copy"
 
 	ActionAssign   Action = "assign"
 	ActionUnassign Action = "unassign"
@@ -55,8 +56,9 @@ var workspaceActions = map[Action]ActionDefinition{
 
 	// Workspace provisioning. Start & stop are different so dormant workspaces can be
 	// stopped, but not stared.
-	ActionWorkspaceStart: "allows starting a workspace",
-	ActionWorkspaceStop:  "allows stopping a workspace",
+	ActionWorkspaceStart:      "allows starting a workspace",
+	ActionWorkspaceStop:       "allows stopping a workspace",
+	ActionWorkspaceVolumeCopy: "copy persistent volume contents to or from a workspace",
 
 	// Running a workspace
 	ActionSSH:                "ssh into a given workspace",
@@ -139,6 +141,15 @@ var RBACPermissions = map[string]PermissionDefinition{
 			ActionUpdate: "update a workspace proxy",
 			ActionRead:   "read and use a workspace proxy",
 		},
+	},
+	"workspace_volume_copy": {
+		Actions: map[Action]ActionDefinition{
+			ActionCreate: "create workspace volume-copy coordination state",
+			ActionRead:   "read workspace volume-copy coordination state",
+			ActionUpdate: "update workspace volume-copy coordination state",
+			ActionDelete: "delete workspace volume-copy coordination state",
+		},
+		Comment: "Internal coordination resource for workspace persistent-volume copy operations.",
 	},
 	"license": {
 		Actions: map[Action]ActionDefinition{

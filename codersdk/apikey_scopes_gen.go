@@ -213,6 +213,7 @@ const (
 	APIKeyScopeWorkspaceStop                       APIKeyScope = "workspace:stop"
 	APIKeyScopeWorkspaceUpdate                     APIKeyScope = "workspace:update"
 	APIKeyScopeWorkspaceUpdateAgent                APIKeyScope = "workspace:update_agent"
+	APIKeyScopeWorkspaceVolumeCopy                 APIKeyScope = "workspace:volume_copy"
 	APIKeyScopeWorkspaceAgentDevcontainersAll      APIKeyScope = "workspace_agent_devcontainers:*"
 	APIKeyScopeWorkspaceAgentDevcontainersCreate   APIKeyScope = "workspace_agent_devcontainers:create"
 	APIKeyScopeWorkspaceAgentResourceMonitorAll    APIKeyScope = "workspace_agent_resource_monitor:*"
@@ -232,11 +233,17 @@ const (
 	APIKeyScopeWorkspaceDormantStop                APIKeyScope = "workspace_dormant:stop"
 	APIKeyScopeWorkspaceDormantUpdate              APIKeyScope = "workspace_dormant:update"
 	APIKeyScopeWorkspaceDormantUpdateAgent         APIKeyScope = "workspace_dormant:update_agent"
+	APIKeyScopeWorkspaceDormantVolumeCopy          APIKeyScope = "workspace_dormant:volume_copy"
 	APIKeyScopeWorkspaceProxyAll                   APIKeyScope = "workspace_proxy:*"
 	APIKeyScopeWorkspaceProxyCreate                APIKeyScope = "workspace_proxy:create"
 	APIKeyScopeWorkspaceProxyDelete                APIKeyScope = "workspace_proxy:delete"
 	APIKeyScopeWorkspaceProxyRead                  APIKeyScope = "workspace_proxy:read"
 	APIKeyScopeWorkspaceProxyUpdate                APIKeyScope = "workspace_proxy:update"
+	APIKeyScopeWorkspaceVolumeCopyAll              APIKeyScope = "workspace_volume_copy:*"
+	APIKeyScopeWorkspaceVolumeCopyCreate           APIKeyScope = "workspace_volume_copy:create"
+	APIKeyScopeWorkspaceVolumeCopyDelete           APIKeyScope = "workspace_volume_copy:delete"
+	APIKeyScopeWorkspaceVolumeCopyRead             APIKeyScope = "workspace_volume_copy:read"
+	APIKeyScopeWorkspaceVolumeCopyUpdate           APIKeyScope = "workspace_volume_copy:update"
 )
 
 // PublicAPIKeyScopes lists all public low-level API key scopes.

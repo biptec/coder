@@ -47,10 +47,11 @@ type appearanceFetcher struct {
 	supportLinks                  []codersdk.LinkConfig
 	docsURL                       string
 	workspaceActivityNowThreshold time.Duration
+	workspaceVolumeCopyEnabled    bool
 	coderVersion                  string
 }
 
-func newAppearanceFetcher(store database.Store, links []codersdk.LinkConfig, docsURL string, workspaceActivityNowThreshold time.Duration, coderVersion string) agpl.Fetcher {
+func newAppearanceFetcher(store database.Store, links []codersdk.LinkConfig, docsURL string, workspaceActivityNowThreshold time.Duration, workspaceVolumeCopyEnabled bool, coderVersion string) agpl.Fetcher {
 	if docsURL == "" {
 		docsURL = codersdk.DefaultDocsURL()
 	}
@@ -59,6 +60,7 @@ func newAppearanceFetcher(store database.Store, links []codersdk.LinkConfig, doc
 		supportLinks:                  links,
 		docsURL:                       docsURL,
 		workspaceActivityNowThreshold: workspaceActivityNowThreshold,
+		workspaceVolumeCopyEnabled:    workspaceVolumeCopyEnabled,
 		coderVersion:                  coderVersion,
 	}
 }
@@ -103,6 +105,7 @@ func (f *appearanceFetcher) Fetch(ctx context.Context) (codersdk.AppearanceConfi
 		SupportLinks:                    codersdk.DefaultSupportLinks(f.docsURL),
 		DocsURL:                         f.docsURL,
 		WorkspaceActivityNowThresholdMS: f.workspaceActivityNowThreshold.Milliseconds(),
+		WorkspaceVolumeCopyEnabled:      f.workspaceVolumeCopyEnabled,
 	}
 
 	if announcementBannersJSON != "" {

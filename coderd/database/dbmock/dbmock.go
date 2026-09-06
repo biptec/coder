@@ -119,6 +119,21 @@ func (mr *MockStoreMockRecorder) AcquireStaleChatDiffStatuses(ctx, limitVal any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AcquireStaleChatDiffStatuses", reflect.TypeOf((*MockStore)(nil).AcquireStaleChatDiffStatuses), ctx, limitVal)
 }
 
+// AcquireWorkspaceVolumeCopyLifecycleLock mocks base method.
+func (m *MockStore) AcquireWorkspaceVolumeCopyLifecycleLock(ctx context.Context, workspaceID uuid.UUID) (uuid.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AcquireWorkspaceVolumeCopyLifecycleLock", ctx, workspaceID)
+	ret0, _ := ret[0].(uuid.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AcquireWorkspaceVolumeCopyLifecycleLock indicates an expected call of AcquireWorkspaceVolumeCopyLifecycleLock.
+func (mr *MockStoreMockRecorder) AcquireWorkspaceVolumeCopyLifecycleLock(ctx, workspaceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AcquireWorkspaceVolumeCopyLifecycleLock", reflect.TypeOf((*MockStore)(nil).AcquireWorkspaceVolumeCopyLifecycleLock), ctx, workspaceID)
+}
+
 // ActivityBumpWorkspace mocks base method.
 func (m *MockStore) ActivityBumpWorkspace(ctx context.Context, arg database.ActivityBumpWorkspaceParams) error {
 	m.ctrl.T.Helper()
@@ -1666,6 +1681,20 @@ func (mr *MockStoreMockRecorder) DeleteWorkspaceSubAgentByID(ctx, id any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkspaceSubAgentByID", reflect.TypeOf((*MockStore)(nil).DeleteWorkspaceSubAgentByID), ctx, id)
 }
 
+// DeleteWorkspaceVolumeCopyLocksByOperationID mocks base method.
+func (m *MockStore) DeleteWorkspaceVolumeCopyLocksByOperationID(ctx context.Context, operationID uuid.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteWorkspaceVolumeCopyLocksByOperationID", ctx, operationID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteWorkspaceVolumeCopyLocksByOperationID indicates an expected call of DeleteWorkspaceVolumeCopyLocksByOperationID.
+func (mr *MockStoreMockRecorder) DeleteWorkspaceVolumeCopyLocksByOperationID(ctx, operationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkspaceVolumeCopyLocksByOperationID", reflect.TypeOf((*MockStore)(nil).DeleteWorkspaceVolumeCopyLocksByOperationID), ctx, operationID)
+}
+
 // DisableForeignKeysAndTriggers mocks base method.
 func (m *MockStore) DisableForeignKeysAndTriggers(ctx context.Context) error {
 	m.ctrl.T.Helper()
@@ -2230,6 +2259,21 @@ func (m *MockStore) GetActiveWorkspaceBuildsByTemplateID(ctx context.Context, te
 func (mr *MockStoreMockRecorder) GetActiveWorkspaceBuildsByTemplateID(ctx, templateID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveWorkspaceBuildsByTemplateID", reflect.TypeOf((*MockStore)(nil).GetActiveWorkspaceBuildsByTemplateID), ctx, templateID)
+}
+
+// GetActiveWorkspaceVolumeCopyOperations mocks base method.
+func (m *MockStore) GetActiveWorkspaceVolumeCopyOperations(ctx context.Context) ([]database.WorkspaceVolumeCopyOperation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetActiveWorkspaceVolumeCopyOperations", ctx)
+	ret0, _ := ret[0].([]database.WorkspaceVolumeCopyOperation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetActiveWorkspaceVolumeCopyOperations indicates an expected call of GetActiveWorkspaceVolumeCopyOperations.
+func (mr *MockStoreMockRecorder) GetActiveWorkspaceVolumeCopyOperations(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveWorkspaceVolumeCopyOperations", reflect.TypeOf((*MockStore)(nil).GetActiveWorkspaceVolumeCopyOperations), ctx)
 }
 
 // GetAllTailnetCoordinators mocks base method.
@@ -7167,6 +7211,51 @@ func (mr *MockStoreMockRecorder) GetWorkspaceUniqueOwnerCountByTemplateIDs(ctx, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceUniqueOwnerCountByTemplateIDs", reflect.TypeOf((*MockStore)(nil).GetWorkspaceUniqueOwnerCountByTemplateIDs), ctx, templateIds)
 }
 
+// GetWorkspaceVolumeCopyLockByWorkspaceID mocks base method.
+func (m *MockStore) GetWorkspaceVolumeCopyLockByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) (database.WorkspaceVolumeCopyLock, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkspaceVolumeCopyLockByWorkspaceID", ctx, workspaceID)
+	ret0, _ := ret[0].(database.WorkspaceVolumeCopyLock)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkspaceVolumeCopyLockByWorkspaceID indicates an expected call of GetWorkspaceVolumeCopyLockByWorkspaceID.
+func (mr *MockStoreMockRecorder) GetWorkspaceVolumeCopyLockByWorkspaceID(ctx, workspaceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceVolumeCopyLockByWorkspaceID", reflect.TypeOf((*MockStore)(nil).GetWorkspaceVolumeCopyLockByWorkspaceID), ctx, workspaceID)
+}
+
+// GetWorkspaceVolumeCopyOperationByID mocks base method.
+func (m *MockStore) GetWorkspaceVolumeCopyOperationByID(ctx context.Context, id uuid.UUID) (database.WorkspaceVolumeCopyOperation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkspaceVolumeCopyOperationByID", ctx, id)
+	ret0, _ := ret[0].(database.WorkspaceVolumeCopyOperation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkspaceVolumeCopyOperationByID indicates an expected call of GetWorkspaceVolumeCopyOperationByID.
+func (mr *MockStoreMockRecorder) GetWorkspaceVolumeCopyOperationByID(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceVolumeCopyOperationByID", reflect.TypeOf((*MockStore)(nil).GetWorkspaceVolumeCopyOperationByID), ctx, id)
+}
+
+// GetWorkspaceVolumeCopyOperationsByWorkspaceID mocks base method.
+func (m *MockStore) GetWorkspaceVolumeCopyOperationsByWorkspaceID(ctx context.Context, arg database.GetWorkspaceVolumeCopyOperationsByWorkspaceIDParams) ([]database.WorkspaceVolumeCopyOperation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkspaceVolumeCopyOperationsByWorkspaceID", ctx, arg)
+	ret0, _ := ret[0].([]database.WorkspaceVolumeCopyOperation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkspaceVolumeCopyOperationsByWorkspaceID indicates an expected call of GetWorkspaceVolumeCopyOperationsByWorkspaceID.
+func (mr *MockStoreMockRecorder) GetWorkspaceVolumeCopyOperationsByWorkspaceID(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceVolumeCopyOperationsByWorkspaceID", reflect.TypeOf((*MockStore)(nil).GetWorkspaceVolumeCopyOperationsByWorkspaceID), ctx, arg)
+}
+
 // GetWorkspaces mocks base method.
 func (m *MockStore) GetWorkspaces(ctx context.Context, arg database.GetWorkspacesParams) ([]database.GetWorkspacesRow, error) {
 	m.ctrl.T.Helper()
@@ -8544,6 +8633,35 @@ func (mr *MockStoreMockRecorder) InsertWorkspaceResourceMetadata(ctx, arg any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertWorkspaceResourceMetadata", reflect.TypeOf((*MockStore)(nil).InsertWorkspaceResourceMetadata), ctx, arg)
 }
 
+// InsertWorkspaceVolumeCopyLock mocks base method.
+func (m *MockStore) InsertWorkspaceVolumeCopyLock(ctx context.Context, arg database.InsertWorkspaceVolumeCopyLockParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertWorkspaceVolumeCopyLock", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertWorkspaceVolumeCopyLock indicates an expected call of InsertWorkspaceVolumeCopyLock.
+func (mr *MockStoreMockRecorder) InsertWorkspaceVolumeCopyLock(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertWorkspaceVolumeCopyLock", reflect.TypeOf((*MockStore)(nil).InsertWorkspaceVolumeCopyLock), ctx, arg)
+}
+
+// InsertWorkspaceVolumeCopyOperation mocks base method.
+func (m *MockStore) InsertWorkspaceVolumeCopyOperation(ctx context.Context, arg database.InsertWorkspaceVolumeCopyOperationParams) (database.WorkspaceVolumeCopyOperation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertWorkspaceVolumeCopyOperation", ctx, arg)
+	ret0, _ := ret[0].(database.WorkspaceVolumeCopyOperation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// InsertWorkspaceVolumeCopyOperation indicates an expected call of InsertWorkspaceVolumeCopyOperation.
+func (mr *MockStoreMockRecorder) InsertWorkspaceVolumeCopyOperation(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertWorkspaceVolumeCopyOperation", reflect.TypeOf((*MockStore)(nil).InsertWorkspaceVolumeCopyOperation), ctx, arg)
+}
+
 // IsChatHeartbeatStale mocks base method.
 func (m *MockStore) IsChatHeartbeatStale(ctx context.Context, arg database.IsChatHeartbeatStaleParams) (bool, error) {
 	m.ctrl.T.Helper()
@@ -9036,6 +9154,51 @@ func (m *MockStore) MarkChatsContextDirtyByAgent(ctx context.Context, arg databa
 func (mr *MockStoreMockRecorder) MarkChatsContextDirtyByAgent(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkChatsContextDirtyByAgent", reflect.TypeOf((*MockStore)(nil).MarkChatsContextDirtyByAgent), ctx, arg)
+}
+
+// MarkWorkspaceVolumeCopyOperationFailed mocks base method.
+func (m *MockStore) MarkWorkspaceVolumeCopyOperationFailed(ctx context.Context, arg database.MarkWorkspaceVolumeCopyOperationFailedParams) (database.WorkspaceVolumeCopyOperation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkWorkspaceVolumeCopyOperationFailed", ctx, arg)
+	ret0, _ := ret[0].(database.WorkspaceVolumeCopyOperation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkWorkspaceVolumeCopyOperationFailed indicates an expected call of MarkWorkspaceVolumeCopyOperationFailed.
+func (mr *MockStoreMockRecorder) MarkWorkspaceVolumeCopyOperationFailed(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkWorkspaceVolumeCopyOperationFailed", reflect.TypeOf((*MockStore)(nil).MarkWorkspaceVolumeCopyOperationFailed), ctx, arg)
+}
+
+// MarkWorkspaceVolumeCopyOperationRunning mocks base method.
+func (m *MockStore) MarkWorkspaceVolumeCopyOperationRunning(ctx context.Context, arg database.MarkWorkspaceVolumeCopyOperationRunningParams) (database.WorkspaceVolumeCopyOperation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkWorkspaceVolumeCopyOperationRunning", ctx, arg)
+	ret0, _ := ret[0].(database.WorkspaceVolumeCopyOperation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkWorkspaceVolumeCopyOperationRunning indicates an expected call of MarkWorkspaceVolumeCopyOperationRunning.
+func (mr *MockStoreMockRecorder) MarkWorkspaceVolumeCopyOperationRunning(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkWorkspaceVolumeCopyOperationRunning", reflect.TypeOf((*MockStore)(nil).MarkWorkspaceVolumeCopyOperationRunning), ctx, arg)
+}
+
+// MarkWorkspaceVolumeCopyOperationSucceeded mocks base method.
+func (m *MockStore) MarkWorkspaceVolumeCopyOperationSucceeded(ctx context.Context, arg database.MarkWorkspaceVolumeCopyOperationSucceededParams) (database.WorkspaceVolumeCopyOperation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkWorkspaceVolumeCopyOperationSucceeded", ctx, arg)
+	ret0, _ := ret[0].(database.WorkspaceVolumeCopyOperation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkWorkspaceVolumeCopyOperationSucceeded indicates an expected call of MarkWorkspaceVolumeCopyOperationSucceeded.
+func (mr *MockStoreMockRecorder) MarkWorkspaceVolumeCopyOperationSucceeded(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkWorkspaceVolumeCopyOperationSucceeded", reflect.TypeOf((*MockStore)(nil).MarkWorkspaceVolumeCopyOperationSucceeded), ctx, arg)
 }
 
 // OIDCClaimFieldValues mocks base method.

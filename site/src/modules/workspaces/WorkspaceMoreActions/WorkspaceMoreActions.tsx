@@ -1,5 +1,6 @@
 import {
 	CopyIcon,
+	DatabaseBackupIcon,
 	DownloadIcon,
 	EllipsisVerticalIcon,
 	HistoryIcon,
@@ -32,6 +33,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "#/components/DropdownMenu/DropdownMenu";
+import { useDashboard } from "#/modules/dashboard/useDashboard";
 import { WorkspaceErrorDialog } from "../ErrorDialog/WorkspaceErrorDialog";
 import { ChangeWorkspaceVersionDialog } from "./ChangeWorkspaceVersionDialog";
 import { DownloadLogsDialog } from "./DownloadLogsDialog";
@@ -56,6 +58,7 @@ export const WorkspaceMoreActions: FC<WorkspaceMoreActionsProps> = ({
 	onActionSuccess,
 }) => {
 	const queryClient = useQueryClient();
+	const dashboard = useDashboard();
 
 	const [workspaceErrorDialog, setWorkspaceErrorDialog] = useState<{
 		open: boolean;
@@ -174,6 +177,18 @@ export const WorkspaceMoreActions: FC<WorkspaceMoreActionsProps> = ({
 						<CopyIcon />
 						Duplicate&hellip;
 					</DropdownMenuItem>
+
+					{dashboard.appearance.workspace_volume_copy_enabled &&
+						permissions?.volumeCopyWorkspace && (
+							<DropdownMenuItem asChild>
+								<RouterLink
+									to={`/@${workspace.owner_name}/${workspace.name}/volume-copy`}
+								>
+									<DatabaseBackupIcon />
+									Copy volumes&hellip;
+								</RouterLink>
+							</DropdownMenuItem>
+						)}
 
 					<DropdownMenuItem onClick={() => setIsDownloadDialogOpen(true)}>
 						<DownloadIcon />

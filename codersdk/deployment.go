@@ -649,6 +649,9 @@ type DeploymentValues struct {
 	MetricsCacheRefreshInterval             serpent.Duration                     `json:"metrics_cache_refresh_interval,omitempty" typescript:",notnull"`
 	AgentStatRefreshInterval                serpent.Duration                     `json:"agent_stat_refresh_interval,omitempty" typescript:",notnull"`
 	WorkspaceActivityNowThreshold           serpent.Duration                     `json:"workspace_activity_now_threshold,omitempty" typescript:",notnull"`
+	WorkspaceVolumeCopyEnabled              serpent.Bool                         `json:"workspace_volume_copy_enabled,omitempty" typescript:",notnull"`
+	WorkspaceVolumeCopyNamespace            serpent.String                       `json:"workspace_volume_copy_namespace,omitempty" typescript:",notnull"`
+	WorkspaceVolumeCopyImage                serpent.String                       `json:"workspace_volume_copy_image,omitempty" typescript:",notnull"`
 	AgentFallbackTroubleshootingURL         serpent.URL                          `json:"agent_fallback_troubleshooting_url,omitempty" typescript:",notnull"`
 	BrowserOnly                             serpent.Bool                         `json:"browser_only,omitempty" typescript:",notnull"`
 	SCIMAPIKey                              serpent.String                       `json:"scim_api_key,omitempty" typescript:",notnull"`
@@ -3604,6 +3607,35 @@ communicating directly.`,
 			Annotations: serpent.Annotations{}.Mark(annotationFormatDuration, "true"),
 		},
 		{
+			Name:        "Workspace Volume Copy Enabled",
+			Description: "Enable administrative copying of explicitly annotated Kubernetes workspace persistent volumes.",
+			Flag:        "workspace-volume-copy-enabled",
+			Env:         "CODER_WORKSPACE_VOLUME_COPY_ENABLED",
+			YAML:        "workspaceVolumeCopyEnabled",
+			Hidden:      true,
+			Default:     "false",
+			Value:       &c.WorkspaceVolumeCopyEnabled,
+		},
+		{
+			Name:        "Workspace Volume Copy Namespace",
+			Description: "Kubernetes namespace containing workspace PVCs eligible for administrative volume copying.",
+			Flag:        "workspace-volume-copy-namespace",
+			Env:         "CODER_WORKSPACE_VOLUME_COPY_NAMESPACE",
+			YAML:        "workspaceVolumeCopyNamespace",
+			Hidden:      true,
+			Default:     "coder-workspaces",
+			Value:       &c.WorkspaceVolumeCopyNamespace,
+		},
+		{
+			Name:        "Workspace Volume Copy Image",
+			Description: "Immutable workspace volume copy helper image used by temporary Kubernetes Jobs. The image must contain /opt/coder-volume-copy-helper and rsync.",
+			Flag:        "workspace-volume-copy-image",
+			Env:         "CODER_WORKSPACE_VOLUME_COPY_IMAGE",
+			YAML:        "workspaceVolumeCopyImage",
+			Hidden:      true,
+			Value:       &c.WorkspaceVolumeCopyImage,
+		},
+		{
 			Name:        "Agent Fallback Troubleshooting URL",
 			Description: "URL to use for agent troubleshooting when not set in the template.",
 			Flag:        "agent-fallback-troubleshooting-url",
@@ -5090,6 +5122,9 @@ type AppearanceConfig struct {
 	// WorkspaceActivityNowThresholdMS controls how recent workspace activity must be
 	// for the dashboard to display "Now" instead of relative time.
 	WorkspaceActivityNowThresholdMS int64 `json:"workspace_activity_now_threshold_ms,omitempty"`
+	// WorkspaceVolumeCopyEnabled controls whether the dashboard offers the
+	// administrative persistent-volume copy workflow.
+	WorkspaceVolumeCopyEnabled bool `json:"workspace_volume_copy_enabled,omitempty"`
 	// Deprecated: ServiceBanner has been replaced by AnnouncementBanners.
 	ServiceBanner       BannerConfig   `json:"service_banner"`
 	AnnouncementBanners []BannerConfig `json:"announcement_banners"`

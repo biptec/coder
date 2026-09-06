@@ -59,4 +59,6 @@ const (
 	CheckUserSkillsDescriptionSize                     CheckConstraint = "user_skills_description_size"                         // user_skills
 	CheckUserSkillsNameFormat                          CheckConstraint = "user_skills_name_format"                              // user_skills
 	CheckUserSkillsNameSize                            CheckConstraint = "user_skills_name_size"                                // user_skills
+	CheckWorkspaceVolumeCopyOperationsCheck            CheckConstraint = "workspace_volume_copy_operations_check"               // workspace_volume_copy_operations
+	CheckWorkspaceVolumeCopyOperationsStatusCheck      CheckConstraint = "workspace_volume_copy_operations_status_check"        // workspace_volume_copy_operations
 )

@@ -1373,6 +1373,47 @@ class ApiMethods {
 		return response.data;
 	};
 
+	getWorkspaceVolumeCopyVolumes = async (
+		workspaceId: string,
+	): Promise<readonly TypesGen.WorkspaceVolumeCopyVolume[]> => {
+		const response = await this.axios.get<
+			readonly TypesGen.WorkspaceVolumeCopyVolume[]
+		>(`/api/v2/workspaces/${workspaceId}/volume-copy-volumes`);
+		return response.data;
+	};
+
+	createWorkspaceVolumeCopy = async (
+		sourceWorkspaceId: string,
+		request: TypesGen.CreateWorkspaceVolumeCopyRequest,
+	): Promise<TypesGen.WorkspaceVolumeCopyOperation> => {
+		const response =
+			await this.axios.post<TypesGen.WorkspaceVolumeCopyOperation>(
+				`/api/v2/workspaces/${sourceWorkspaceId}/volume-copy-operations`,
+				request,
+			);
+		return response.data;
+	};
+
+	getWorkspaceVolumeCopyOperation = async (
+		operationId: string,
+	): Promise<TypesGen.WorkspaceVolumeCopyOperation> => {
+		const response =
+			await this.axios.get<TypesGen.WorkspaceVolumeCopyOperation>(
+				`/api/v2/workspace-volume-copies/${operationId}`,
+			);
+		return response.data;
+	};
+
+	syncWorkspaceVolumeCopy = async (
+		operationId: string,
+	): Promise<TypesGen.WorkspaceVolumeCopyOperation> => {
+		const response =
+			await this.axios.post<TypesGen.WorkspaceVolumeCopyOperation>(
+				`/api/v2/workspace-volume-copies/${operationId}/sync`,
+			);
+		return response.data;
+	};
+
 	getWorkspaceByOwnerAndName = async (
 		username: string,
 		workspaceName: string,

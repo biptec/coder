@@ -378,6 +378,9 @@ func (b *Builder) buildTx(authFunc func(action policy.Action, object rbac.Object
 			return nil, nil, nil, err
 		}
 	}
+	if err := b.checkWorkspaceVolumeCopyLock(); err != nil {
+		return nil, nil, nil, err
+	}
 	err := b.checkTemplateVersionMatchesTemplate()
 	if err != nil {
 		return nil, nil, nil, err
@@ -1411,6 +1414,22 @@ func (b *Builder) checkUsage() error {
 	}
 
 	return nil
+}
+
+func (b *Builder) checkWorkspaceVolumeCopyLock() error {
+	ctx := dbauthz.AsWorkspaceVolumeCopy(b.ctx)
+	if _, err := b.store.AcquireWorkspaceVolumeCopyLifecycleLock(ctx, b.workspace.ID); err != nil {
+		return BuildError{http.StatusInternalServerError, "failed to lock workspace lifecycle", err}
+	}
+	lock, err := b.store.GetWorkspaceVolumeCopyLockByWorkspaceID(ctx, b.workspace.ID)
+	if xerrors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return BuildError{http.StatusInternalServerError, "failed to check workspace volume-copy lock", err}
+	}
+	msg := fmt.Sprintf("Workspace lifecycle is locked by persistent-volume copy operation %s.", lock.OperationID)
+	return BuildError{http.StatusConflict, msg, xerrors.New(msg)}
 }
 
 func (b *Builder) checkRunningBuild() error {

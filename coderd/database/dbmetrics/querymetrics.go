@@ -145,6 +145,14 @@ func (m queryMetricsStore) AcquireStaleChatDiffStatuses(ctx context.Context, lim
 	return r0, r1
 }
 
+func (m queryMetricsStore) AcquireWorkspaceVolumeCopyLifecycleLock(ctx context.Context, workspaceID uuid.UUID) (uuid.UUID, error) {
+	start := time.Now()
+	r0, r1 := m.s.AcquireWorkspaceVolumeCopyLifecycleLock(ctx, workspaceID)
+	m.queryLatencies.WithLabelValues("AcquireWorkspaceVolumeCopyLifecycleLock").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "AcquireWorkspaceVolumeCopyLifecycleLock").Inc()
+	return r0, r1
+}
+
 func (m queryMetricsStore) ActivityBumpWorkspace(ctx context.Context, arg database.ActivityBumpWorkspaceParams) error {
 	start := time.Now()
 	r0 := m.s.ActivityBumpWorkspace(ctx, arg)
@@ -977,6 +985,14 @@ func (m queryMetricsStore) DeleteWorkspaceSubAgentByID(ctx context.Context, id u
 	return r0
 }
 
+func (m queryMetricsStore) DeleteWorkspaceVolumeCopyLocksByOperationID(ctx context.Context, operationID uuid.UUID) error {
+	start := time.Now()
+	r0 := m.s.DeleteWorkspaceVolumeCopyLocksByOperationID(ctx, operationID)
+	m.queryLatencies.WithLabelValues("DeleteWorkspaceVolumeCopyLocksByOperationID").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "DeleteWorkspaceVolumeCopyLocksByOperationID").Inc()
+	return r0
+}
+
 func (m queryMetricsStore) DisableForeignKeysAndTriggers(ctx context.Context) error {
 	start := time.Now()
 	r0 := m.s.DisableForeignKeysAndTriggers(ctx)
@@ -1278,6 +1294,14 @@ func (m queryMetricsStore) GetActiveWorkspaceBuildsByTemplateID(ctx context.Cont
 	r0, r1 := m.s.GetActiveWorkspaceBuildsByTemplateID(ctx, templateID)
 	m.queryLatencies.WithLabelValues("GetActiveWorkspaceBuildsByTemplateID").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetActiveWorkspaceBuildsByTemplateID").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) GetActiveWorkspaceVolumeCopyOperations(ctx context.Context) ([]database.WorkspaceVolumeCopyOperation, error) {
+	start := time.Now()
+	r0, r1 := m.s.GetActiveWorkspaceVolumeCopyOperations(ctx)
+	m.queryLatencies.WithLabelValues("GetActiveWorkspaceVolumeCopyOperations").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetActiveWorkspaceVolumeCopyOperations").Inc()
 	return r0, r1
 }
 
@@ -3833,6 +3857,30 @@ func (m queryMetricsStore) GetWorkspaceUniqueOwnerCountByTemplateIDs(ctx context
 	return r0, r1
 }
 
+func (m queryMetricsStore) GetWorkspaceVolumeCopyLockByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) (database.WorkspaceVolumeCopyLock, error) {
+	start := time.Now()
+	r0, r1 := m.s.GetWorkspaceVolumeCopyLockByWorkspaceID(ctx, workspaceID)
+	m.queryLatencies.WithLabelValues("GetWorkspaceVolumeCopyLockByWorkspaceID").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetWorkspaceVolumeCopyLockByWorkspaceID").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) GetWorkspaceVolumeCopyOperationByID(ctx context.Context, id uuid.UUID) (database.WorkspaceVolumeCopyOperation, error) {
+	start := time.Now()
+	r0, r1 := m.s.GetWorkspaceVolumeCopyOperationByID(ctx, id)
+	m.queryLatencies.WithLabelValues("GetWorkspaceVolumeCopyOperationByID").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetWorkspaceVolumeCopyOperationByID").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) GetWorkspaceVolumeCopyOperationsByWorkspaceID(ctx context.Context, arg database.GetWorkspaceVolumeCopyOperationsByWorkspaceIDParams) ([]database.WorkspaceVolumeCopyOperation, error) {
+	start := time.Now()
+	r0, r1 := m.s.GetWorkspaceVolumeCopyOperationsByWorkspaceID(ctx, arg)
+	m.queryLatencies.WithLabelValues("GetWorkspaceVolumeCopyOperationsByWorkspaceID").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetWorkspaceVolumeCopyOperationsByWorkspaceID").Inc()
+	return r0, r1
+}
+
 func (m queryMetricsStore) GetWorkspaces(ctx context.Context, arg database.GetWorkspacesParams) ([]database.GetWorkspacesRow, error) {
 	start := time.Now()
 	r0, r1 := m.s.GetWorkspaces(ctx, arg)
@@ -4569,6 +4617,22 @@ func (m queryMetricsStore) InsertWorkspaceResourceMetadata(ctx context.Context, 
 	return r0, r1
 }
 
+func (m queryMetricsStore) InsertWorkspaceVolumeCopyLock(ctx context.Context, arg database.InsertWorkspaceVolumeCopyLockParams) error {
+	start := time.Now()
+	r0 := m.s.InsertWorkspaceVolumeCopyLock(ctx, arg)
+	m.queryLatencies.WithLabelValues("InsertWorkspaceVolumeCopyLock").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "InsertWorkspaceVolumeCopyLock").Inc()
+	return r0
+}
+
+func (m queryMetricsStore) InsertWorkspaceVolumeCopyOperation(ctx context.Context, arg database.InsertWorkspaceVolumeCopyOperationParams) (database.WorkspaceVolumeCopyOperation, error) {
+	start := time.Now()
+	r0, r1 := m.s.InsertWorkspaceVolumeCopyOperation(ctx, arg)
+	m.queryLatencies.WithLabelValues("InsertWorkspaceVolumeCopyOperation").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "InsertWorkspaceVolumeCopyOperation").Inc()
+	return r0, r1
+}
+
 func (m queryMetricsStore) IsChatHeartbeatStale(ctx context.Context, arg database.IsChatHeartbeatStaleParams) (bool, error) {
 	start := time.Now()
 	r0, r1 := m.s.IsChatHeartbeatStale(ctx, arg)
@@ -4798,6 +4862,30 @@ func (m queryMetricsStore) MarkChatsContextDirtyByAgent(ctx context.Context, arg
 	r0, r1 := m.s.MarkChatsContextDirtyByAgent(ctx, arg)
 	m.queryLatencies.WithLabelValues("MarkChatsContextDirtyByAgent").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "MarkChatsContextDirtyByAgent").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) MarkWorkspaceVolumeCopyOperationFailed(ctx context.Context, arg database.MarkWorkspaceVolumeCopyOperationFailedParams) (database.WorkspaceVolumeCopyOperation, error) {
+	start := time.Now()
+	r0, r1 := m.s.MarkWorkspaceVolumeCopyOperationFailed(ctx, arg)
+	m.queryLatencies.WithLabelValues("MarkWorkspaceVolumeCopyOperationFailed").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "MarkWorkspaceVolumeCopyOperationFailed").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) MarkWorkspaceVolumeCopyOperationRunning(ctx context.Context, arg database.MarkWorkspaceVolumeCopyOperationRunningParams) (database.WorkspaceVolumeCopyOperation, error) {
+	start := time.Now()
+	r0, r1 := m.s.MarkWorkspaceVolumeCopyOperationRunning(ctx, arg)
+	m.queryLatencies.WithLabelValues("MarkWorkspaceVolumeCopyOperationRunning").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "MarkWorkspaceVolumeCopyOperationRunning").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) MarkWorkspaceVolumeCopyOperationSucceeded(ctx context.Context, arg database.MarkWorkspaceVolumeCopyOperationSucceededParams) (database.WorkspaceVolumeCopyOperation, error) {
+	start := time.Now()
+	r0, r1 := m.s.MarkWorkspaceVolumeCopyOperationSucceeded(ctx, arg)
+	m.queryLatencies.WithLabelValues("MarkWorkspaceVolumeCopyOperationSucceeded").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "MarkWorkspaceVolumeCopyOperationSucceeded").Inc()
 	return r0, r1
 }
 

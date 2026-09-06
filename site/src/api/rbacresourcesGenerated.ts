@@ -250,6 +250,7 @@ export const RBACResourceActions: Partial<
 		stop: "allows stopping a workspace",
 		update: "edit workspace settings (scheduling, permissions, parameters)",
 		update_agent: "update an existing workspace agent",
+		volume_copy: "copy persistent volume contents to or from a workspace",
 	},
 	workspace_agent_devcontainers: {
 		create: "create workspace agent devcontainers",
@@ -272,11 +273,18 @@ export const RBACResourceActions: Partial<
 		stop: "allows stopping a workspace",
 		update: "edit workspace settings (scheduling, permissions, parameters)",
 		update_agent: "update an existing workspace agent",
+		volume_copy: "copy persistent volume contents to or from a workspace",
 	},
 	workspace_proxy: {
 		create: "create a workspace proxy",
 		delete: "delete a workspace proxy",
 		read: "read and use a workspace proxy",
 		update: "update a workspace proxy",
+	},
+	workspace_volume_copy: {
+		create: "create workspace volume-copy coordination state",
+		delete: "delete workspace volume-copy coordination state",
+		read: "read workspace volume-copy coordination state",
+		update: "update workspace volume-copy coordination state",
 	},
 };

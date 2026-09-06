@@ -279,6 +279,7 @@ function workspaceQueries(
 				updateWorkspaceVersion: true,
 				deleteFailedWorkspace: true,
 				...permissionOverrides,
+				volumeCopyWorkspace: permissionOverrides?.volumeCopyWorkspace ?? false,
 			} satisfies WorkspacePermissions,
 		},
 	];

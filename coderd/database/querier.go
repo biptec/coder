@@ -41,6 +41,7 @@ type sqlcQuerier interface {
 	// https://www.postgresql.org/docs/9.5/sql-select.html#SQL-FOR-UPDATE-SHARE
 	AcquireProvisionerJob(ctx context.Context, arg AcquireProvisionerJobParams) (ProvisionerJob, error)
 	AcquireStaleChatDiffStatuses(ctx context.Context, limitVal int32) ([]AcquireStaleChatDiffStatusesRow, error)
+	AcquireWorkspaceVolumeCopyLifecycleLock(ctx context.Context, workspaceID uuid.UUID) (uuid.UUID, error)
 	// Bumps the workspace deadline by the template's configured "activity_bump"
 	// duration (default 1h). If the workspace bump will cross an autostart
 	// threshold, then the bump is autostart + TTL. This is the deadline behavior if
@@ -249,6 +250,7 @@ type sqlcQuerier interface {
 	// agents are never hard-deleted, so the rows would otherwise orphan
 	// forever.
 	DeleteWorkspaceSubAgentByID(ctx context.Context, id uuid.UUID) error
+	DeleteWorkspaceVolumeCopyLocksByOperationID(ctx context.Context, operationID uuid.UUID) error
 	// Disable foreign keys and triggers for all tables.
 	// Deprecated: disable foreign keys was created to aid in migrating off
 	// of the test-only in-memory database. Do not use this in new code.
@@ -336,6 +338,7 @@ type sqlcQuerier interface {
 	GetActivePresetPrebuildSchedules(ctx context.Context) ([]TemplateVersionPresetPrebuildSchedule, error)
 	GetActiveUserCount(ctx context.Context, includeSystem bool) (int64, error)
 	GetActiveWorkspaceBuildsByTemplateID(ctx context.Context, templateID uuid.UUID) ([]WorkspaceBuild, error)
+	GetActiveWorkspaceVolumeCopyOperations(ctx context.Context) ([]WorkspaceVolumeCopyOperation, error)
 	// For PG Coordinator HTMLDebug
 	GetAllTailnetCoordinators(ctx context.Context) ([]TailnetCoordinator, error)
 	GetAllTailnetPeers(ctx context.Context) ([]TailnetPeer, error)
@@ -968,6 +971,9 @@ type sqlcQuerier interface {
 	GetWorkspaceResourcesByJobIDs(ctx context.Context, ids []uuid.UUID) ([]WorkspaceResource, error)
 	GetWorkspaceResourcesCreatedAfter(ctx context.Context, createdAt time.Time) ([]WorkspaceResource, error)
 	GetWorkspaceUniqueOwnerCountByTemplateIDs(ctx context.Context, templateIds []uuid.UUID) ([]GetWorkspaceUniqueOwnerCountByTemplateIDsRow, error)
+	GetWorkspaceVolumeCopyLockByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) (WorkspaceVolumeCopyLock, error)
+	GetWorkspaceVolumeCopyOperationByID(ctx context.Context, id uuid.UUID) (WorkspaceVolumeCopyOperation, error)
+	GetWorkspaceVolumeCopyOperationsByWorkspaceID(ctx context.Context, arg GetWorkspaceVolumeCopyOperationsByWorkspaceIDParams) ([]WorkspaceVolumeCopyOperation, error)
 	// build_params is used to filter by build parameters if present.
 	// It has to be a CTE because the set returning function 'unnest' cannot
 	// be used in a WHERE clause.
@@ -1120,6 +1126,8 @@ type sqlcQuerier interface {
 	InsertWorkspaceProxy(ctx context.Context, arg InsertWorkspaceProxyParams) (WorkspaceProxy, error)
 	InsertWorkspaceResource(ctx context.Context, arg InsertWorkspaceResourceParams) (WorkspaceResource, error)
 	InsertWorkspaceResourceMetadata(ctx context.Context, arg InsertWorkspaceResourceMetadataParams) ([]WorkspaceResourceMetadatum, error)
+	InsertWorkspaceVolumeCopyLock(ctx context.Context, arg InsertWorkspaceVolumeCopyLockParams) error
+	InsertWorkspaceVolumeCopyOperation(ctx context.Context, arg InsertWorkspaceVolumeCopyOperationParams) (WorkspaceVolumeCopyOperation, error)
 	// Returns true when there is no heartbeat row for (chat_id, runner_id)
 	// or the existing row is older than @stale_seconds seconds by database
 	// time. chatstate calls this in a single query so the staleness check
@@ -1191,6 +1199,9 @@ type sqlcQuerier interface {
 	// re-pins it. Returns the chats that transitioned so the caller can
 	// emit watch events after the transaction commits.
 	MarkChatsContextDirtyByAgent(ctx context.Context, arg MarkChatsContextDirtyByAgentParams) ([]MarkChatsContextDirtyByAgentRow, error)
+	MarkWorkspaceVolumeCopyOperationFailed(ctx context.Context, arg MarkWorkspaceVolumeCopyOperationFailedParams) (WorkspaceVolumeCopyOperation, error)
+	MarkWorkspaceVolumeCopyOperationRunning(ctx context.Context, arg MarkWorkspaceVolumeCopyOperationRunningParams) (WorkspaceVolumeCopyOperation, error)
+	MarkWorkspaceVolumeCopyOperationSucceeded(ctx context.Context, arg MarkWorkspaceVolumeCopyOperationSucceededParams) (WorkspaceVolumeCopyOperation, error)
 	OIDCClaimFieldValues(ctx context.Context, arg OIDCClaimFieldValuesParams) ([]string, error)
 	// OIDCClaimFields returns a list of distinct keys in the the merged_claims fields.
 	// This query is used to generate the list of available sync fields for idp sync settings.

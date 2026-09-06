@@ -1078,6 +1078,7 @@ func (api *API) updateEntitlements(ctx context.Context) error {
 					api.DeploymentValues.Support.Links.Value,
 					api.DeploymentValues.DocsURL.String(),
 					api.DeploymentValues.WorkspaceActivityNowThreshold.Value(),
+					api.DeploymentValues.WorkspaceVolumeCopyEnabled.Value(),
 					buildinfo.Version(),
 				)
 				api.AGPL.AppearanceFetcher.Store(&f)
@@ -1085,6 +1086,7 @@ func (api *API) updateEntitlements(ctx context.Context) error {
 				f := appearance.NewDefaultFetcher(
 					api.DeploymentValues.DocsURL.String(),
 					api.DeploymentValues.WorkspaceActivityNowThreshold.Value(),
+					api.DeploymentValues.WorkspaceVolumeCopyEnabled.Value(),
 				)
 				api.AGPL.AppearanceFetcher.Store(&f)
 			}

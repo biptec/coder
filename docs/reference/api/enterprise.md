@@ -220,7 +220,8 @@ curl -X GET http://coder-server:8080/api/v2/appearance \
       "target": "string"
     }
   ],
-  "workspace_activity_now_threshold_ms": 0
+  "workspace_activity_now_threshold_ms": 0,
+  "workspace_volume_copy_enabled": true
 }
 ```
 

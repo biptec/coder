@@ -26,6 +26,14 @@ export const workspaceChecks = (workspace: Workspace) =>
 			},
 			action: "update",
 		},
+		volumeCopyWorkspace: {
+			object: {
+				resource_type: "workspace",
+				resource_id: workspace.id,
+				owner_id: workspace.owner_id,
+			},
+			action: "volume_copy",
+		},
 		updateWorkspaceVersion: {
 			object: {
 				resource_type: "template",

@@ -11388,6 +11388,76 @@ const docTemplate = `{
                 ]
             }
         },
+        "/api/v2/workspace-volume-copies/{operation}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Workspaces"
+                ],
+                "summary": "Get a workspace persistent-volume copy operation",
+                "operationId": "get-workspace-volume-copy",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Volume copy operation ID",
+                        "name": "operation",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/codersdk.WorkspaceVolumeCopyOperation"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "CoderSessionToken": []
+                    }
+                ]
+            }
+        },
+        "/api/v2/workspace-volume-copies/{operation}/sync": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Workspaces"
+                ],
+                "summary": "Synchronize a completed workspace persistent-volume copy operation again",
+                "operationId": "sync-workspace-volume-copy",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Volume copy operation ID",
+                        "name": "operation",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/codersdk.WorkspaceVolumeCopyOperation"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "CoderSessionToken": []
+                    }
+                ]
+            }
+        },
         "/api/v2/workspaceagents/aws-instance-identity": {
             "post": {
                 "consumes": [
@@ -14042,6 +14112,91 @@ const docTemplate = `{
                 ]
             }
         },
+        "/api/v2/workspaces/{workspace}/volume-copy-operations": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Workspaces"
+                ],
+                "summary": "Create a workspace persistent-volume copy operation",
+                "operationId": "create-workspace-volume-copy",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Source workspace ID",
+                        "name": "workspace",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Copy request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/codersdk.CreateWorkspaceVolumeCopyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/codersdk.WorkspaceVolumeCopyOperation"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "CoderSessionToken": []
+                    }
+                ]
+            }
+        },
+        "/api/v2/workspaces/{workspace}/volume-copy-volumes": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Workspaces"
+                ],
+                "summary": "List copyable persistent volumes for a workspace",
+                "operationId": "get-workspace-volume-copy-volumes",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Workspace ID",
+                        "name": "workspace",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/codersdk.WorkspaceVolumeCopyVolume"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "CoderSessionToken": []
+                    }
+                ]
+            }
+        },
         "/api/v2/workspaces/{workspace}/watch": {
             "get": {
                 "produces": [
@@ -15802,6 +15957,7 @@ const docTemplate = `{
                 "workspace:stop",
                 "workspace:update",
                 "workspace:update_agent",
+                "workspace:volume_copy",
                 "workspace_agent_devcontainers:*",
                 "workspace_agent_devcontainers:create",
                 "workspace_agent_resource_monitor:*",
@@ -15821,11 +15977,17 @@ const docTemplate = `{
                 "workspace_dormant:stop",
                 "workspace_dormant:update",
                 "workspace_dormant:update_agent",
+                "workspace_dormant:volume_copy",
                 "workspace_proxy:*",
                 "workspace_proxy:create",
                 "workspace_proxy:delete",
                 "workspace_proxy:read",
-                "workspace_proxy:update"
+                "workspace_proxy:update",
+                "workspace_volume_copy:*",
+                "workspace_volume_copy:create",
+                "workspace_volume_copy:delete",
+                "workspace_volume_copy:read",
+                "workspace_volume_copy:update"
             ],
             "x-enum-varnames": [
                 "APIKeyScopeAll",
@@ -16037,6 +16199,7 @@ const docTemplate = `{
                 "APIKeyScopeWorkspaceStop",
                 "APIKeyScopeWorkspaceUpdate",
                 "APIKeyScopeWorkspaceUpdateAgent",
+                "APIKeyScopeWorkspaceVolumeCopy",
                 "APIKeyScopeWorkspaceAgentDevcontainersAll",
                 "APIKeyScopeWorkspaceAgentDevcontainersCreate",
                 "APIKeyScopeWorkspaceAgentResourceMonitorAll",
@@ -16056,11 +16219,17 @@ const docTemplate = `{
                 "APIKeyScopeWorkspaceDormantStop",
                 "APIKeyScopeWorkspaceDormantUpdate",
                 "APIKeyScopeWorkspaceDormantUpdateAgent",
+                "APIKeyScopeWorkspaceDormantVolumeCopy",
                 "APIKeyScopeWorkspaceProxyAll",
                 "APIKeyScopeWorkspaceProxyCreate",
                 "APIKeyScopeWorkspaceProxyDelete",
                 "APIKeyScopeWorkspaceProxyRead",
-                "APIKeyScopeWorkspaceProxyUpdate"
+                "APIKeyScopeWorkspaceProxyUpdate",
+                "APIKeyScopeWorkspaceVolumeCopyAll",
+                "APIKeyScopeWorkspaceVolumeCopyCreate",
+                "APIKeyScopeWorkspaceVolumeCopyDelete",
+                "APIKeyScopeWorkspaceVolumeCopyRead",
+                "APIKeyScopeWorkspaceVolumeCopyUpdate"
             ]
         },
         "codersdk.AddLicenseRequest": {
@@ -16282,6 +16451,10 @@ const docTemplate = `{
                 "workspace_activity_now_threshold_ms": {
                     "description": "WorkspaceActivityNowThresholdMS controls how recent workspace activity must be\nfor the dashboard to display \"Now\" instead of relative time.",
                     "type": "integer"
+                },
+                "workspace_volume_copy_enabled": {
+                    "description": "WorkspaceVolumeCopyEnabled controls whether the dashboard offers the\nadministrative persistent-volume copy workflow.",
+                    "type": "boolean"
                 }
             }
         },
@@ -19011,6 +19184,24 @@ const docTemplate = `{
                 }
             }
         },
+        "codersdk.CreateWorkspaceVolumeCopyRequest": {
+            "type": "object",
+            "properties": {
+                "allow_source_running": {
+                    "type": "boolean"
+                },
+                "destination_workspace_id": {
+                    "type": "string",
+                    "format": "uuid"
+                },
+                "volumes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/codersdk.WorkspaceVolumeCopySelection"
+                    }
+                }
+            }
+        },
         "codersdk.CryptoKey": {
             "type": "object",
             "properties": {
@@ -19531,6 +19722,15 @@ const docTemplate = `{
                 },
                 "workspace_prebuilds": {
                     "$ref": "#/definitions/codersdk.PrebuildsConfig"
+                },
+                "workspace_volume_copy_enabled": {
+                    "type": "boolean"
+                },
+                "workspace_volume_copy_image": {
+                    "type": "string"
+                },
+                "workspace_volume_copy_namespace": {
+                    "type": "string"
                 },
                 "write_config": {
                     "type": "boolean"
@@ -22790,7 +22990,8 @@ const docTemplate = `{
                 "use",
                 "view_insights",
                 "start",
-                "stop"
+                "stop",
+                "volume_copy"
             ],
             "x-enum-varnames": [
                 "ActionApplicationConnect",
@@ -22810,7 +23011,8 @@ const docTemplate = `{
                 "ActionUse",
                 "ActionViewInsights",
                 "ActionWorkspaceStart",
-                "ActionWorkspaceStop"
+                "ActionWorkspaceStop",
+                "ActionWorkspaceVolumeCopy"
             ]
         },
         "codersdk.RBACResource": {
@@ -22865,7 +23067,8 @@ const docTemplate = `{
                 "workspace_agent_devcontainers",
                 "workspace_agent_resource_monitor",
                 "workspace_dormant",
-                "workspace_proxy"
+                "workspace_proxy",
+                "workspace_volume_copy"
             ],
             "x-enum-varnames": [
                 "ResourceWildcard",
@@ -22917,7 +23120,8 @@ const docTemplate = `{
                 "ResourceWorkspaceAgentDevcontainers",
                 "ResourceWorkspaceAgentResourceMonitor",
                 "ResourceWorkspaceDormant",
-                "ResourceWorkspaceProxy"
+                "ResourceWorkspaceProxy",
+                "ResourceWorkspaceVolumeCopy"
             ]
         },
         "codersdk.RateLimitConfig": {
@@ -27695,6 +27899,113 @@ const docTemplate = `{
                     ]
                 },
                 "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "codersdk.WorkspaceVolumeCopyOperation": {
+            "type": "object",
+            "properties": {
+                "allow_source_running": {
+                    "type": "boolean"
+                },
+                "completed_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "created_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "destination_workspace_id": {
+                    "type": "string",
+                    "format": "uuid"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string",
+                    "format": "uuid"
+                },
+                "initiator_id": {
+                    "type": "string",
+                    "format": "uuid"
+                },
+                "source_workspace_id": {
+                    "type": "string",
+                    "format": "uuid"
+                },
+                "started_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "status": {
+                    "$ref": "#/definitions/codersdk.WorkspaceVolumeCopyStatus"
+                },
+                "sync_of": {
+                    "type": "string",
+                    "format": "uuid"
+                },
+                "updated_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "volumes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/codersdk.WorkspaceVolumeCopySelection"
+                    }
+                }
+            }
+        },
+        "codersdk.WorkspaceVolumeCopySelection": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "overwrite": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "codersdk.WorkspaceVolumeCopyStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "running",
+                "succeeded",
+                "failed",
+                "canceled"
+            ],
+            "x-enum-varnames": [
+                "WorkspaceVolumeCopyStatusPending",
+                "WorkspaceVolumeCopyStatusRunning",
+                "WorkspaceVolumeCopyStatusSucceeded",
+                "WorkspaceVolumeCopyStatusFailed",
+                "WorkspaceVolumeCopyStatusCanceled"
+            ]
+        },
+        "codersdk.WorkspaceVolumeCopyVolume": {
+            "type": "object",
+            "properties": {
+                "capacity": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "excluded_paths": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "key": {
+                    "type": "string"
+                },
+                "mount_path": {
                     "type": "string"
                 }
             }

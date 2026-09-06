@@ -76,6 +76,7 @@ function workspaceQueries(workspace: Workspace) {
 				readWorkspace: true,
 				shareWorkspace: true,
 				updateWorkspace: true,
+				volumeCopyWorkspace: false,
 				updateWorkspaceVersion: true,
 				deleteFailedWorkspace: true,
 			} satisfies WorkspacePermissions,

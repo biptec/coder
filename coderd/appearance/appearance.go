@@ -14,6 +14,7 @@ type Fetcher interface {
 type AGPLFetcher struct {
 	docsURL                       string
 	workspaceActivityNowThreshold time.Duration
+	workspaceVolumeCopyEnabled    bool
 }
 
 func (f AGPLFetcher) Fetch(context.Context) (codersdk.AppearanceConfig, error) {
@@ -22,15 +23,17 @@ func (f AGPLFetcher) Fetch(context.Context) (codersdk.AppearanceConfig, error) {
 		SupportLinks:                    codersdk.DefaultSupportLinks(f.docsURL),
 		DocsURL:                         f.docsURL,
 		WorkspaceActivityNowThresholdMS: f.workspaceActivityNowThreshold.Milliseconds(),
+		WorkspaceVolumeCopyEnabled:      f.workspaceVolumeCopyEnabled,
 	}, nil
 }
 
-func NewDefaultFetcher(docsURL string, workspaceActivityNowThreshold time.Duration) Fetcher {
+func NewDefaultFetcher(docsURL string, workspaceActivityNowThreshold time.Duration, workspaceVolumeCopyEnabled bool) Fetcher {
 	if docsURL == "" {
 		docsURL = codersdk.DefaultDocsURL()
 	}
 	return &AGPLFetcher{
 		docsURL:                       docsURL,
 		workspaceActivityNowThreshold: workspaceActivityNowThreshold,
+		workspaceVolumeCopyEnabled:    workspaceVolumeCopyEnabled,
 	}
 }

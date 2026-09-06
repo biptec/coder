@@ -3,9 +3,9 @@ package toolsdk
 import (
 	"context"
 
-	"github.com/coder/aisdk-go"
 	"golang.org/x/xerrors"
 
+	"github.com/coder/aisdk-go"
 	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/codersdk/workspacesdk"
 )

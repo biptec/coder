@@ -714,6 +714,7 @@ export type APIKeyScope =
 	| "workspace_dormant:stop"
 	| "workspace_dormant:update"
 	| "workspace_dormant:update_agent"
+	| "workspace_dormant:volume_copy"
 	| "workspace_proxy:*"
 	| "workspace_proxy:create"
 	| "workspace_proxy:delete"
@@ -725,7 +726,13 @@ export type APIKeyScope =
 	| "workspace:start"
 	| "workspace:stop"
 	| "workspace:update"
-	| "workspace:update_agent";
+	| "workspace:update_agent"
+	| "workspace:volume_copy"
+	| "workspace_volume_copy:*"
+	| "workspace_volume_copy:create"
+	| "workspace_volume_copy:delete"
+	| "workspace_volume_copy:read"
+	| "workspace_volume_copy:update";
 
 export const APIKeyScopes: APIKeyScope[] = [
 	"ai_gateway_key:*",
@@ -949,6 +956,7 @@ export const APIKeyScopes: APIKeyScope[] = [
 	"workspace_dormant:stop",
 	"workspace_dormant:update",
 	"workspace_dormant:update_agent",
+	"workspace_dormant:volume_copy",
 	"workspace_proxy:*",
 	"workspace_proxy:create",
 	"workspace_proxy:delete",
@@ -961,6 +969,12 @@ export const APIKeyScopes: APIKeyScope[] = [
 	"workspace:stop",
 	"workspace:update",
 	"workspace:update_agent",
+	"workspace:volume_copy",
+	"workspace_volume_copy:*",
+	"workspace_volume_copy:create",
+	"workspace_volume_copy:delete",
+	"workspace_volume_copy:read",
+	"workspace_volume_copy:update",
 ];
 
 // From codersdk/apikey.go
@@ -1184,6 +1198,11 @@ export interface AppearanceConfig {
 	 * for the dashboard to display "Now" instead of relative time.
 	 */
 	readonly workspace_activity_now_threshold_ms?: number;
+	/**
+	 * WorkspaceVolumeCopyEnabled controls whether the dashboard offers the
+	 * administrative persistent-volume copy workflow.
+	 */
+	readonly workspace_volume_copy_enabled?: boolean;
 	/**
 	 * @deprecated ServiceBanner has been replaced by AnnouncementBanners.
 	 */
@@ -4032,6 +4051,13 @@ export interface CreateWorkspaceRequest {
 	readonly template_version_preset_id?: string;
 }
 
+// From codersdk/workspacevolumecopy.go
+export interface CreateWorkspaceVolumeCopyRequest {
+	readonly destination_workspace_id: string;
+	readonly allow_source_running: boolean;
+	readonly volumes: readonly WorkspaceVolumeCopySelection[];
+}
+
 // From codersdk/deployment.go
 export interface CryptoKey {
 	readonly feature: CryptoKeyFeature;
@@ -4345,6 +4371,9 @@ export interface DeploymentValues {
 	readonly metrics_cache_refresh_interval?: number;
 	readonly agent_stat_refresh_interval?: number;
 	readonly workspace_activity_now_threshold?: number;
+	readonly workspace_volume_copy_enabled?: boolean;
+	readonly workspace_volume_copy_namespace?: string;
+	readonly workspace_volume_copy_image?: string;
 	readonly agent_fallback_troubleshooting_url?: string;
 	readonly browser_only?: boolean;
 	readonly scim_api_key?: string;
@@ -7046,7 +7075,8 @@ export type RBACAction =
 	| "use"
 	| "view_insights"
 	| "start"
-	| "stop";
+	| "stop"
+	| "volume_copy";
 
 export const RBACActions: RBACAction[] = [
 	"application_connect",
@@ -7067,6 +7097,7 @@ export const RBACActions: RBACAction[] = [
 	"view_insights",
 	"start",
 	"stop",
+	"volume_copy",
 ];
 
 // From codersdk/rbacresources_gen.go
@@ -7120,7 +7151,8 @@ export type RBACResource =
 	| "workspace_agent_devcontainers"
 	| "workspace_agent_resource_monitor"
 	| "workspace_dormant"
-	| "workspace_proxy";
+	| "workspace_proxy"
+	| "workspace_volume_copy";
 
 export const RBACResources: RBACResource[] = [
 	"ai_gateway_key",
@@ -7173,6 +7205,7 @@ export const RBACResources: RBACResource[] = [
 	"workspace_agent_resource_monitor",
 	"workspace_dormant",
 	"workspace_proxy",
+	"workspace_volume_copy",
 ];
 
 // From codersdk/deployment.go
@@ -10871,6 +10904,54 @@ export const WorkspaceTransitions: WorkspaceTransition[] = [
 // From codersdk/workspaces.go
 export interface WorkspaceUser extends MinimalUser {
 	readonly role: WorkspaceRole;
+}
+
+// From codersdk/workspacevolumecopy.go
+export interface WorkspaceVolumeCopyOperation {
+	readonly id: string;
+	readonly created_at: string;
+	readonly updated_at: string;
+	readonly initiator_id: string;
+	readonly source_workspace_id: string;
+	readonly destination_workspace_id: string;
+	readonly allow_source_running: boolean;
+	readonly volumes: readonly WorkspaceVolumeCopySelection[];
+	readonly status: WorkspaceVolumeCopyStatus;
+	readonly error?: string;
+	readonly started_at?: string;
+	readonly completed_at?: string;
+	readonly sync_of?: string;
+}
+
+// From codersdk/workspacevolumecopy.go
+export interface WorkspaceVolumeCopySelection {
+	readonly key: string;
+	readonly overwrite: boolean;
+}
+
+// From codersdk/workspacevolumecopy.go
+export type WorkspaceVolumeCopyStatus =
+	| "canceled"
+	| "failed"
+	| "pending"
+	| "running"
+	| "succeeded";
+
+export const WorkspaceVolumeCopyStatuses: WorkspaceVolumeCopyStatus[] = [
+	"canceled",
+	"failed",
+	"pending",
+	"running",
+	"succeeded",
+];
+
+// From codersdk/workspacevolumecopy.go
+export interface WorkspaceVolumeCopyVolume {
+	readonly key: string;
+	readonly display_name: string;
+	readonly mount_path: string;
+	readonly capacity?: string;
+	readonly excluded_paths?: readonly string[];
 }
 
 // From codersdk/workspaces.go

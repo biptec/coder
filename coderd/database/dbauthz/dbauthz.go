@@ -731,6 +731,24 @@ var (
 		Scope: rbac.ScopeAll,
 	}.WithCachedASTValue()
 
+	subjectWorkspaceVolumeCopy = rbac.Subject{
+		Type:         rbac.SubjectTypeWorkspaceVolumeCopy,
+		FriendlyName: "Workspace Volume Copy",
+		ID:           uuid.Nil.String(),
+		Roles: rbac.Roles([]rbac.Role{
+			{
+				Identifier:  rbac.RoleIdentifier{Name: "workspace-volume-copy"},
+				DisplayName: "Workspace Volume Copy",
+				Site: rbac.Permissions(map[string][]policy.Action{
+					rbac.ResourceWorkspaceVolumeCopy.Type: rbac.ResourceWorkspaceVolumeCopy.AvailableActions(),
+				}),
+				User:    []rbac.Permission{},
+				ByOrgID: map[string]rbac.OrgPermissions{},
+			},
+		}),
+		Scope: rbac.ScopeAll,
+	}.WithCachedASTValue()
+
 	subjectChatd = rbac.Subject{
 		Type:         rbac.SubjectTypeChatd,
 		FriendlyName: "Chatd",
@@ -908,6 +926,13 @@ func AsBoundaryUsageTracker(ctx context.Context) context.Context {
 // reading provisioner state (which requires template update permission).
 func AsWorkspaceBuilder(ctx context.Context) context.Context {
 	return As(ctx, subjectWorkspaceBuilder)
+}
+
+// AsWorkspaceVolumeCopy returns a narrowly scoped internal actor for the
+// persistent-volume copy coordinator. HTTP handlers must authorize the user on
+// both source and destination workspaces before switching to this context.
+func AsWorkspaceVolumeCopy(ctx context.Context) context.Context {
+	return As(ctx, subjectWorkspaceVolumeCopy)
 }
 
 // AsChatd returns a context with an actor scoped to the chat
@@ -1677,6 +1702,13 @@ func (q *querier) AcquireStaleChatDiffStatuses(ctx context.Context, limitVal int
 		return nil, err
 	}
 	return q.db.AcquireStaleChatDiffStatuses(ctx, limitVal)
+}
+
+func (q *querier) AcquireWorkspaceVolumeCopyLifecycleLock(ctx context.Context, workspaceID uuid.UUID) (uuid.UUID, error) {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceVolumeCopy); err != nil {
+		return uuid.Nil, err
+	}
+	return q.db.AcquireWorkspaceVolumeCopyLifecycleLock(ctx, workspaceID)
 }
 
 func (q *querier) ActivityBumpWorkspace(ctx context.Context, arg database.ActivityBumpWorkspaceParams) error {
@@ -2597,6 +2629,13 @@ func (q *querier) DeleteWorkspaceSubAgentByID(ctx context.Context, id uuid.UUID)
 	return q.db.DeleteWorkspaceSubAgentByID(ctx, id)
 }
 
+func (q *querier) DeleteWorkspaceVolumeCopyLocksByOperationID(ctx context.Context, operationID uuid.UUID) error {
+	if err := q.authorizeContext(ctx, policy.ActionDelete, rbac.ResourceWorkspaceVolumeCopy); err != nil {
+		return err
+	}
+	return q.db.DeleteWorkspaceVolumeCopyLocksByOperationID(ctx, operationID)
+}
+
 func (q *querier) DisableForeignKeysAndTriggers(ctx context.Context) error {
 	if flag.Lookup("test.v") == nil {
 		return xerrors.Errorf("DisableForeignKeysAndTriggers is only allowed in tests")
@@ -2875,6 +2914,13 @@ func (q *querier) GetActiveWorkspaceBuildsByTemplateID(ctx context.Context, temp
 		return []database.WorkspaceBuild{}, err
 	}
 	return q.db.GetActiveWorkspaceBuildsByTemplateID(ctx, templateID)
+}
+
+func (q *querier) GetActiveWorkspaceVolumeCopyOperations(ctx context.Context) ([]database.WorkspaceVolumeCopyOperation, error) {
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspaceVolumeCopy); err != nil {
+		return nil, err
+	}
+	return q.db.GetActiveWorkspaceVolumeCopyOperations(ctx)
 }
 
 func (q *querier) GetAllTailnetCoordinators(ctx context.Context) ([]database.TailnetCoordinator, error) {
@@ -5671,6 +5717,27 @@ func (q *querier) GetWorkspaceUniqueOwnerCountByTemplateIDs(ctx context.Context,
 	return q.db.GetWorkspaceUniqueOwnerCountByTemplateIDs(ctx, templateIDs)
 }
 
+func (q *querier) GetWorkspaceVolumeCopyLockByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) (database.WorkspaceVolumeCopyLock, error) {
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspaceVolumeCopy); err != nil {
+		return database.WorkspaceVolumeCopyLock{}, err
+	}
+	return q.db.GetWorkspaceVolumeCopyLockByWorkspaceID(ctx, workspaceID)
+}
+
+func (q *querier) GetWorkspaceVolumeCopyOperationByID(ctx context.Context, id uuid.UUID) (database.WorkspaceVolumeCopyOperation, error) {
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspaceVolumeCopy); err != nil {
+		return database.WorkspaceVolumeCopyOperation{}, err
+	}
+	return q.db.GetWorkspaceVolumeCopyOperationByID(ctx, id)
+}
+
+func (q *querier) GetWorkspaceVolumeCopyOperationsByWorkspaceID(ctx context.Context, arg database.GetWorkspaceVolumeCopyOperationsByWorkspaceIDParams) ([]database.WorkspaceVolumeCopyOperation, error) {
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspaceVolumeCopy); err != nil {
+		return nil, err
+	}
+	return q.db.GetWorkspaceVolumeCopyOperationsByWorkspaceID(ctx, arg)
+}
+
 func (q *querier) GetWorkspaces(ctx context.Context, arg database.GetWorkspacesParams) ([]database.GetWorkspacesRow, error) {
 	prep, err := prepareSQLFilter(ctx, q.auth, policy.ActionRead, rbac.ResourceWorkspace.Type)
 	if err != nil {
@@ -6498,6 +6565,20 @@ func (q *querier) InsertWorkspaceResourceMetadata(ctx context.Context, arg datab
 	return q.db.InsertWorkspaceResourceMetadata(ctx, arg)
 }
 
+func (q *querier) InsertWorkspaceVolumeCopyLock(ctx context.Context, arg database.InsertWorkspaceVolumeCopyLockParams) error {
+	if err := q.authorizeContext(ctx, policy.ActionCreate, rbac.ResourceWorkspaceVolumeCopy); err != nil {
+		return err
+	}
+	return q.db.InsertWorkspaceVolumeCopyLock(ctx, arg)
+}
+
+func (q *querier) InsertWorkspaceVolumeCopyOperation(ctx context.Context, arg database.InsertWorkspaceVolumeCopyOperationParams) (database.WorkspaceVolumeCopyOperation, error) {
+	if err := q.authorizeContext(ctx, policy.ActionCreate, rbac.ResourceWorkspaceVolumeCopy); err != nil {
+		return database.WorkspaceVolumeCopyOperation{}, err
+	}
+	return q.db.InsertWorkspaceVolumeCopyOperation(ctx, arg)
+}
+
 func (q *querier) IsChatHeartbeatStale(ctx context.Context, arg database.IsChatHeartbeatStaleParams) (bool, error) {
 	_, err := q.GetChatByID(ctx, arg.ChatID)
 	if err != nil {
@@ -6737,6 +6818,27 @@ func (q *querier) MarkChatsContextDirtyByAgent(ctx context.Context, arg database
 		return nil, err
 	}
 	return q.db.MarkChatsContextDirtyByAgent(ctx, arg)
+}
+
+func (q *querier) MarkWorkspaceVolumeCopyOperationFailed(ctx context.Context, arg database.MarkWorkspaceVolumeCopyOperationFailedParams) (database.WorkspaceVolumeCopyOperation, error) {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceVolumeCopy); err != nil {
+		return database.WorkspaceVolumeCopyOperation{}, err
+	}
+	return q.db.MarkWorkspaceVolumeCopyOperationFailed(ctx, arg)
+}
+
+func (q *querier) MarkWorkspaceVolumeCopyOperationRunning(ctx context.Context, arg database.MarkWorkspaceVolumeCopyOperationRunningParams) (database.WorkspaceVolumeCopyOperation, error) {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceVolumeCopy); err != nil {
+		return database.WorkspaceVolumeCopyOperation{}, err
+	}
+	return q.db.MarkWorkspaceVolumeCopyOperationRunning(ctx, arg)
+}
+
+func (q *querier) MarkWorkspaceVolumeCopyOperationSucceeded(ctx context.Context, arg database.MarkWorkspaceVolumeCopyOperationSucceededParams) (database.WorkspaceVolumeCopyOperation, error) {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceVolumeCopy); err != nil {
+		return database.WorkspaceVolumeCopyOperation{}, err
+	}
+	return q.db.MarkWorkspaceVolumeCopyOperationSucceeded(ctx, arg)
 }
 
 func (q *querier) OIDCClaimFieldValues(ctx context.Context, args database.OIDCClaimFieldValuesParams) ([]string, error) {
