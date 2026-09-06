@@ -3,6 +3,7 @@ package coderd_test
 import (
 	"context"
 	"database/sql"
+	"net/http"
 	"sync"
 	"testing"
 
@@ -175,48 +176,11 @@ func TestWorkspaceVolumeCopyCrossOwnerLocksLifecycle(t *testing.T) {
 	_, err = db.GetWorkspaceVolumeCopyLockByWorkspaceID(internalCtx, destination.ID)
 	require.ErrorIs(t, err, sql.ErrNoRows)
 
-	// Sync again creates a fresh durable operation, reacquires both locks, and
-	// rediscovers current volume metadata instead of reusing resolved claims or
-	// ownership overrides from the previous operation.
-	sourceUID, sourceGID := uint32(1100), uint32(1101)
-	destinationUID, destinationGID := uint32(2100), uint32(2101)
-	kubernetes.setWorkspaceVolume(source.ID, volcopyk8s.Volume{
-		Key:           "home",
-		DisplayName:   "Home",
-		ClaimName:     "source-home-v2",
-		ExcludedPaths: []string{".cache/source-v2"},
-		OwnerUID:      &sourceUID,
-		OwnerGID:      &sourceGID,
-	})
-	kubernetes.setWorkspaceVolume(destination.ID, volcopyk8s.Volume{
-		Key:           "home",
-		DisplayName:   "Home",
-		ClaimName:     "destination-home-v2",
-		ExcludedPaths: []string{".cache/destination-v2"},
-		OwnerUID:      &destinationUID,
-		OwnerGID:      &destinationGID,
-	})
-
-	syncOperation, err := client.SyncWorkspaceVolumeCopy(ctx, operation.ID)
-	require.NoError(t, err)
-	require.NotNil(t, syncOperation.SyncOf)
-	require.Equal(t, operation.ID, *syncOperation.SyncOf)
-	require.Equal(t, operation.Volumes, syncOperation.Volumes)
-	_, err = db.GetWorkspaceVolumeCopyLockByWorkspaceID(internalCtx, source.ID)
-	require.NoError(t, err)
-
-	kubernetes.completeAllJobs()
-	_ = awaitWorkspaceVolumeCopyStatus(t, client, syncOperation.ID, codersdk.WorkspaceVolumeCopyStatusSucceeded)
-	syncVolumes := kubernetes.volumesForOperation(syncOperation.ID)
-	require.Len(t, syncVolumes, 1)
-	require.Equal(t, "source-home-v2", syncVolumes[0].SourceClaim)
-	require.Equal(t, "destination-home-v2", syncVolumes[0].DestinationClaim)
-	require.Equal(t, &sourceUID, syncVolumes[0].SourceOwnerUID)
-	require.Equal(t, &sourceGID, syncVolumes[0].SourceOwnerGID)
-	require.Equal(t, &destinationUID, syncVolumes[0].DestinationOwnerUID)
-	require.Equal(t, &destinationGID, syncVolumes[0].DestinationOwnerGID)
-	require.Contains(t, syncVolumes[0].ExcludedPaths, ".cache/source-v2")
-	require.Contains(t, syncVolumes[0].ExcludedPaths, ".cache/destination-v2")
+	// Sync again is intentionally a live-copy-only workflow. A successful strict
+	// copy must be rejected by the API even though the UI does not offer the action.
+	_, err = client.SyncWorkspaceVolumeCopy(ctx, operation.ID)
+	require.Error(t, err)
+	require.Equal(t, http.StatusConflict, coderdtest.SDKError(t, err).StatusCode())
 }
 
 func TestWorkspaceVolumeCopyLiveSourceMode(t *testing.T) {
@@ -273,6 +237,47 @@ func TestWorkspaceVolumeCopyLiveSourceMode(t *testing.T) {
 
 	kubernetes.completeAllJobs()
 	_ = awaitWorkspaceVolumeCopyStatus(t, client, operation.ID, codersdk.WorkspaceVolumeCopyStatusSucceeded)
+
+	// Sync again creates a fresh durable operation and rediscovers the current
+	// PVC claims, exclusions, and explicit ownership overrides instead of reusing
+	// the resolved plan from the first live copy.
+	sourceUID, sourceGID := uint32(1100), uint32(1101)
+	destinationUID, destinationGID := uint32(2100), uint32(2101)
+	kubernetes.setWorkspaceVolume(source.ID, volcopyk8s.Volume{
+		Key:           "home",
+		DisplayName:   "Home",
+		ClaimName:     "source-home-v2",
+		ExcludedPaths: []string{".cache/source-v2"},
+		OwnerUID:      &sourceUID,
+		OwnerGID:      &sourceGID,
+	})
+	kubernetes.setWorkspaceVolume(destination.ID, volcopyk8s.Volume{
+		Key:           "home",
+		DisplayName:   "Home",
+		ClaimName:     "destination-home-v2",
+		ExcludedPaths: []string{".cache/destination-v2"},
+		OwnerUID:      &destinationUID,
+		OwnerGID:      &destinationGID,
+	})
+
+	syncOperation, err := client.SyncWorkspaceVolumeCopy(ctx, operation.ID)
+	require.NoError(t, err)
+	require.NotNil(t, syncOperation.SyncOf)
+	require.Equal(t, operation.ID, *syncOperation.SyncOf)
+	require.Equal(t, operation.Volumes, syncOperation.Volumes)
+
+	kubernetes.completeAllJobs()
+	_ = awaitWorkspaceVolumeCopyStatus(t, client, syncOperation.ID, codersdk.WorkspaceVolumeCopyStatusSucceeded)
+	syncVolumes := kubernetes.volumesForOperation(syncOperation.ID)
+	require.Len(t, syncVolumes, 1)
+	require.Equal(t, "source-home-v2", syncVolumes[0].SourceClaim)
+	require.Equal(t, "destination-home-v2", syncVolumes[0].DestinationClaim)
+	require.Equal(t, &sourceUID, syncVolumes[0].SourceOwnerUID)
+	require.Equal(t, &sourceGID, syncVolumes[0].SourceOwnerGID)
+	require.Equal(t, &destinationUID, syncVolumes[0].DestinationOwnerUID)
+	require.Equal(t, &destinationGID, syncVolumes[0].DestinationOwnerGID)
+	require.Contains(t, syncVolumes[0].ExcludedPaths, ".cache/source-v2")
+	require.Contains(t, syncVolumes[0].ExcludedPaths, ".cache/destination-v2")
 }
 
 func TestWorkspaceVolumeCopyDestinationMustBeStopped(t *testing.T) {
