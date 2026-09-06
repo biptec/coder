@@ -95,6 +95,30 @@ jobs:
           go test ./workspacevolumecopy ./coderd/workspacevolumecopy ./cmd/workspace-volume-copy-helper
           go test ./coderd/healthcheck -run '^$'
 
+      - name: Validate workspace volume copy image context
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -o build/coder-volume-copy-helper-linux-amd64 \
+            ./cmd/workspace-volume-copy-helper
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
+            -o build/coder-volume-copy-helper-linux-arm64 \
+            ./cmd/workspace-volume-copy-helper
+
+          # Build both COPY variants from the same repository-root context used
+          # by the release job. The arm64 binary is only copied here, not run,
+          # so this gate does not require QEMU.
+          for arch in amd64 arm64; do
+            docker build \
+              --build-arg "TARGETARCH=${arch}" \
+              --build-arg CODER_VERSION=2.35.3.999 \
+              --file scripts/Dockerfile.workspace-volume-copy \
+              --tag "coder-volume-copy-context-test:${arch}" \
+              .
+          done
+
   build:
     name: Build and push image
     if: github.event_name != 'pull_request'
