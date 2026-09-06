@@ -1,4 +1,3 @@
-import { AlertCircleIcon, CheckCircle2Icon } from "lucide-react";
 import type { FC } from "react";
 import type {
 	WorkspaceVolumeCopyOperation,
@@ -102,15 +101,10 @@ export const OperationStatus: FC<{
 	if (operation.status === "succeeded") {
 		return (
 			<Alert severity="success" prominent>
-				<div className="flex items-start gap-2">
-					<CheckCircle2Icon className="size-icon-sm mt-0.5" />
-					<div>
-						<div className="font-medium">Persistent volume copy completed.</div>
-						<div className="text-sm mt-1">
-							Destination-only files were preserved. You can start the
-							destination workspace now.
-						</div>
-					</div>
+				<div className="font-medium">Persistent volume copy completed.</div>
+				<div className="text-sm mt-1">
+					Destination-only files were preserved. You can start the destination
+					workspace now.
 				</div>
 			</Alert>
 		);
@@ -118,17 +112,12 @@ export const OperationStatus: FC<{
 	if (operation.status === "failed" || operation.status === "canceled") {
 		return (
 			<Alert severity="error" prominent>
-				<div className="flex items-start gap-2">
-					<AlertCircleIcon className="size-icon-sm mt-0.5" />
-					<div>
-						<div className="font-medium">
-							Persistent volume copy {operation.status}.
-						</div>
-						{operation.error && (
-							<div className="text-sm mt-1">{operation.error}</div>
-						)}
-					</div>
+				<div className="font-medium">
+					Persistent volume copy {operation.status}.
 				</div>
+				{operation.error && (
+					<div className="text-sm mt-1">{operation.error}</div>
+				)}
 			</Alert>
 		);
 	}
