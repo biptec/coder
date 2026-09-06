@@ -37,6 +37,8 @@ styl = "styl"
 edn = "edn"
 Inferrable = "Inferrable"
 IIF = "IIF"
+# rsync archive/hardlinks/ACLs/xattrs flag combination: -aHAX
+HAX = "HAX"
 
 [files]
 extend-exclude = [

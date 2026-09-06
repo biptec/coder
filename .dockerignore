@@ -1,7 +1,7 @@
 # This file controls what docker/BuildKit may send to the daemon when
-# the build context is the repository root. Today only the dogfood
-# base images at dogfood/coder/ubuntu-{22,26}.04/Dockerfile.base use the
-# repo root as context; other docker builds in this repo
+# the build context is the repository root. The dogfood base images at
+# dogfood/coder/ubuntu-{22,26}.04/Dockerfile.base and the workspace volume-copy
+# helper image use the repo root as context; other docker builds in this repo
 # (scripts/Dockerfile, scripts/Dockerfile.base, scripts/ironbank/Dockerfile)
 # cd into a temporary directory and have their own contexts.
 #
@@ -26,3 +26,9 @@
 !dogfood/coder/ubuntu-26.04/Dockerfile.base
 !dogfood/coder/ubuntu-26.04/files
 !dogfood/coder/ubuntu-26.04/files/**
+
+# Re-allow only the generated binaries consumed by
+# scripts/Dockerfile.workspace-volume-copy. Keep the rest of build/ excluded.
+!build
+!build/coder-volume-copy-helper-linux-amd64
+!build/coder-volume-copy-helper-linux-arm64
