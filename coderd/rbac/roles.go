@@ -227,7 +227,7 @@ func DefaultOrgMemberRoles() []string {
 // organization-workspace-access role.
 func OrgWorkspaceAccessMemberPerms() []Permission {
 	return Permissions(map[string][]policy.Action{
-		ResourceWorkspace.Type: ResourceWorkspace.AvailableActions(),
+		ResourceWorkspace.Type: slice.Omit(ResourceWorkspace.AvailableActions(), policy.ActionWorkspaceVolumeCopy),
 
 		// Dormant workspaces share the workspace action set minus the
 		// build, ssh, and exec actions.
@@ -587,7 +587,7 @@ func ReloadBuiltinRoles(opts *RoleOptions) {
 						Org: append(
 							allPermsExcept(ResourceWorkspace, ResourceWorkspaceDormant, ResourcePrebuiltWorkspace, ResourceAssignRole, ResourceUserSecret, ResourceBoundaryUsage, ResourceBoundaryLog, ResourceAiSeat),
 							Permissions(map[string][]policy.Action{
-								ResourceWorkspace.Type:        slice.Omit(ResourceWorkspace.AvailableActions(), policy.ActionApplicationConnect, policy.ActionSSH),
+								ResourceWorkspace.Type:        slice.Omit(ResourceWorkspace.AvailableActions(), policy.ActionApplicationConnect, policy.ActionSSH, policy.ActionWorkspaceVolumeCopy),
 								ResourceWorkspaceDormant.Type: {policy.ActionRead, policy.ActionDelete, policy.ActionCreate, policy.ActionUpdate, policy.ActionWorkspaceStop, policy.ActionCreateAgent, policy.ActionDeleteAgent, policy.ActionUpdateAgent},
 								// PrebuiltWorkspaces are a subset of Workspaces.
 								// Explicitly setting PrebuiltWorkspace permissions for clarity.

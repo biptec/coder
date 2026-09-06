@@ -929,7 +929,7 @@ The maximum lifetime duration users can specify when creating an API token.
 | Type        | <code>duration</code>                              |
 | Environment | <code>$CODER_MAX_ADMIN_TOKEN_LIFETIME</code>       |
 | YAML        | <code>networking.http.maxAdminTokenLifetime</code> |
-| Default     | <code>168h0m0s</code>                              |
+| Default     | <code>876600h0m0s</code>                           |
 
 The maximum lifetime duration administrators can specify when creating an API token.
 

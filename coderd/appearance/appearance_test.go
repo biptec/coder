@@ -15,7 +15,7 @@ func TestDefaultFetcherWorkspaceActivityNowThreshold(t *testing.T) {
 
 	t.Run("Default", func(t *testing.T) {
 		t.Parallel()
-		fetcher := NewDefaultFetcher("", codersdk.DefaultWorkspaceActivityNowThreshold)
+		fetcher := NewDefaultFetcher("", codersdk.DefaultWorkspaceActivityNowThreshold, false)
 		cfg, err := fetcher.Fetch(context.Background())
 		require.NoError(t, err)
 		require.Equal(t, codersdk.DefaultWorkspaceActivityNowThreshold.Milliseconds(), cfg.WorkspaceActivityNowThresholdMS)
@@ -23,9 +23,10 @@ func TestDefaultFetcherWorkspaceActivityNowThreshold(t *testing.T) {
 
 	t.Run("Custom", func(t *testing.T) {
 		t.Parallel()
-		fetcher := NewDefaultFetcher("", 12*time.Minute)
+		fetcher := NewDefaultFetcher("", 12*time.Minute, true)
 		cfg, err := fetcher.Fetch(context.Background())
 		require.NoError(t, err)
 		require.Equal(t, (12 * time.Minute).Milliseconds(), cfg.WorkspaceActivityNowThresholdMS)
+		require.True(t, cfg.WorkspaceVolumeCopyEnabled)
 	})
 }

@@ -95,7 +95,7 @@ export const createUser = (queryClient: QueryClient) => {
 	};
 };
 
-export const userMCPToolsetKey = (userId: string) =>
+const userMCPToolsetKey = (userId: string) =>
 	["user", userId, "mcpToolset"] as const;
 
 export const userMCPToolset = (

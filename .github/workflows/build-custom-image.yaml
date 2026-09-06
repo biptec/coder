@@ -92,6 +92,7 @@ jobs:
           go test ./cli/cliui -run '^TestRenderAgentVersion$'
           go test ./support -run '^TestVersionSupportsPprof$'
           go test ./codersdk -run '^TestBuildInfo'
+          go test ./workspacevolumecopy ./coderd/workspacevolumecopy ./cmd/workspace-volume-copy-helper
           go test ./coderd/healthcheck -run '^$'
 
   build:
@@ -136,6 +137,7 @@ jobs:
           set -Eeuo pipefail
 
           repository="$(echo "ghcr.io/${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          helper_repository="$(echo "ghcr.io/${GITHUB_REPOSITORY_OWNER}/coder-volume-copy" | tr '[:upper:]' '[:lower:]')"
           short_sha="$(git rev-parse --short=12 HEAD)"
 
           force_version="${{ inputs.version }}"
@@ -159,10 +161,12 @@ jobs:
 
           {
             echo "repository=${repository}"
+            echo "helper_repository=${helper_repository}"
             echo "short_sha=${short_sha}"
             echo "version=${version}"
             echo "docker_version=${docker_version}"
             echo "sha_tag=${repository}:sha-${short_sha}"
+            echo "helper_sha_tag=${helper_repository}:sha-${short_sha}"
           } >> "${GITHUB_OUTPUT}"
 
           {
@@ -171,8 +175,10 @@ jobs:
           } >> "${GITHUB_ENV}"
 
           echo "Image repository: ${repository}"
+          echo "Volume copy image repository: ${helper_repository}"
           echo "Version: ${version}"
           echo "Primary tag: ${repository}:sha-${short_sha}"
+          echo "Volume copy tag: ${helper_repository}:sha-${short_sha}"
 
       - name: Build Coder binaries
         shell: bash
@@ -199,6 +205,13 @@ jobs:
           cp "build/coder_${{ steps.meta.outputs.version }}_linux_amd64" build/coder-linux-amd64
           cp "build/coder_${{ steps.meta.outputs.version }}_linux_arm64" build/coder-linux-arm64
 
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -o build/coder-volume-copy-helper-linux-amd64 \
+            ./cmd/workspace-volume-copy-helper
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
+            -o build/coder-volume-copy-helper-linux-arm64 \
+            ./cmd/workspace-volume-copy-helper
+
       - name: Build and push Docker image
         shell: bash
         run: |
@@ -220,6 +233,19 @@ jobs:
             --push \
             build/coder-linux-arm64
 
+      - name: Build and push workspace volume copy image
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --build-arg "CODER_VERSION=${{ steps.meta.outputs.version }}" \
+            --file scripts/Dockerfile.workspace-volume-copy \
+            --tag "${{ steps.meta.outputs.helper_sha_tag }}" \
+            --push \
+            .
+
       - name: Create multi-arch image
         shell: bash
         run: |
@@ -240,6 +266,10 @@ jobs:
             --tag "${{ steps.meta.outputs.repository }}:main" \
             "${{ steps.meta.outputs.sha_tag }}"
 
+          docker buildx imagetools create \
+            --tag "${{ steps.meta.outputs.helper_repository }}:main" \
+            "${{ steps.meta.outputs.helper_sha_tag }}"
+
       - name: Add release tag
         if: github.event_name == 'release'
         shell: bash
@@ -254,6 +284,10 @@ jobs:
             "${{ steps.meta.outputs.sha_tag }}-amd64" \
             "${{ steps.meta.outputs.sha_tag }}-arm64"
 
+          docker buildx imagetools create \
+            --tag "${{ steps.meta.outputs.helper_repository }}:${safe_tag}" \
+            "${{ steps.meta.outputs.helper_sha_tag }}"
+
       - name: Add manual extra tag
         if: github.event_name == 'workflow_dispatch' && inputs.tag != ''
         shell: bash
@@ -267,20 +301,26 @@ jobs:
             "${{ steps.meta.outputs.sha_tag }}-amd64" \
             "${{ steps.meta.outputs.sha_tag }}-arm64"
 
+          docker buildx imagetools create \
+            --tag "${{ steps.meta.outputs.helper_repository }}:${safe_tag}" \
+            "${{ steps.meta.outputs.helper_sha_tag }}"
+
       - name: Print deploy image
         shell: bash
         run: |
           set -Eeuo pipefail
 
           cat <<EOF
-          Pushed image:
+          Pushed images:
 
             ${{ steps.meta.outputs.sha_tag }}
+            ${{ steps.meta.outputs.helper_sha_tag }}
 
           For dev-infra use:
 
             image.repository = ${{ steps.meta.outputs.repository }}
             image.tag        = sha-${{ steps.meta.outputs.short_sha }}
+            volumeCopy.image = ${{ steps.meta.outputs.helper_sha_tag }}
 
           Release tag:
 

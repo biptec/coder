@@ -4039,6 +4039,32 @@ CREATE SEQUENCE workspace_resource_metadata_id_seq
 
 ALTER SEQUENCE workspace_resource_metadata_id_seq OWNED BY workspace_resource_metadata.id;
 
+CREATE TABLE workspace_volume_copy_locks (
+    workspace_id uuid NOT NULL,
+    operation_id uuid NOT NULL,
+    created_at timestamp with time zone NOT NULL
+);
+
+CREATE TABLE workspace_volume_copy_operations (
+    id uuid NOT NULL,
+    created_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    initiator_id uuid NOT NULL,
+    source_workspace_id uuid NOT NULL,
+    destination_workspace_id uuid NOT NULL,
+    allow_source_running boolean DEFAULT false NOT NULL,
+    volumes jsonb NOT NULL,
+    status text NOT NULL,
+    namespace text DEFAULT ''::text NOT NULL,
+    job_name text DEFAULT ''::text NOT NULL,
+    error text DEFAULT ''::text NOT NULL,
+    started_at timestamp with time zone,
+    completed_at timestamp with time zone,
+    sync_of uuid,
+    CONSTRAINT workspace_volume_copy_operations_check CHECK ((source_workspace_id <> destination_workspace_id)),
+    CONSTRAINT workspace_volume_copy_operations_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'succeeded'::text, 'failed'::text, 'canceled'::text])))
+);
+
 CREATE VIEW workspaces_expanded AS
  SELECT workspaces.id,
     workspaces.created_at,
@@ -4501,6 +4527,12 @@ ALTER TABLE ONLY workspace_resource_metadata
 ALTER TABLE ONLY workspace_resources
     ADD CONSTRAINT workspace_resources_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY workspace_volume_copy_locks
+    ADD CONSTRAINT workspace_volume_copy_locks_pkey PRIMARY KEY (workspace_id);
+
+ALTER TABLE ONLY workspace_volume_copy_operations
+    ADD CONSTRAINT workspace_volume_copy_operations_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY workspaces
     ADD CONSTRAINT workspaces_pkey PRIMARY KEY (id);
 
@@ -4809,6 +4841,12 @@ CREATE UNIQUE INDEX workspace_proxies_lower_name_idx ON workspace_proxies USING 
 CREATE INDEX workspace_resources_job_id_idx ON workspace_resources USING btree (job_id);
 
 CREATE INDEX workspace_template_id_idx ON workspaces USING btree (template_id) WHERE (deleted = false);
+
+CREATE INDEX workspace_volume_copy_locks_operation_idx ON workspace_volume_copy_locks USING btree (operation_id);
+
+CREATE INDEX workspace_volume_copy_operations_destination_idx ON workspace_volume_copy_operations USING btree (destination_workspace_id, created_at DESC);
+
+CREATE INDEX workspace_volume_copy_operations_source_idx ON workspace_volume_copy_operations USING btree (source_workspace_id, created_at DESC);
 
 CREATE UNIQUE INDEX workspaces_owner_id_lower_idx ON workspaces USING btree (owner_id, lower((name)::text)) WHERE (deleted = false);
 
@@ -5372,6 +5410,15 @@ ALTER TABLE ONLY workspace_resource_metadata
 
 ALTER TABLE ONLY workspace_resources
     ADD CONSTRAINT workspace_resources_job_id_fkey FOREIGN KEY (job_id) REFERENCES provisioner_jobs(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_volume_copy_locks
+    ADD CONSTRAINT workspace_volume_copy_locks_operation_id_fkey FOREIGN KEY (operation_id) REFERENCES workspace_volume_copy_operations(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_volume_copy_locks
+    ADD CONSTRAINT workspace_volume_copy_locks_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_volume_copy_operations
+    ADD CONSTRAINT workspace_volume_copy_operations_sync_of_fkey FOREIGN KEY (sync_of) REFERENCES workspace_volume_copy_operations(id) ON DELETE SET NULL;
 
 ALTER TABLE ONLY workspaces
     ADD CONSTRAINT workspaces_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE RESTRICT;

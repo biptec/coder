@@ -26,6 +26,7 @@ const permissions: WorkspacePermissions = {
 	readWorkspace: true,
 	shareWorkspace: true,
 	updateWorkspace: true,
+	volumeCopyWorkspace: false,
 	updateWorkspaceVersion: true,
 	deleteFailedWorkspace: true,
 };

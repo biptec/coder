@@ -40,6 +40,7 @@ const meta: Meta<typeof WorkspaceTopbar> = {
 			readWorkspace: true,
 			shareWorkspace: true,
 			updateWorkspace: true,
+			volumeCopyWorkspace: false,
 			updateWorkspaceVersion: true,
 			deleteFailedWorkspace: true,
 		},

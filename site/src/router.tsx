@@ -82,6 +82,9 @@ const WorkspaceBuildPage = lazy(
 	() => import("./pages/WorkspaceBuildPage/WorkspaceBuildPage"),
 );
 const WorkspacePage = lazy(() => import("./pages/WorkspacePage/WorkspacePage"));
+const WorkspaceVolumeCopyPage = lazy(
+	() => import("./pages/WorkspaceVolumeCopyPage/WorkspaceVolumeCopyPage"),
+);
 const WorkspaceSchedulePage = lazy(
 	() =>
 		import(
@@ -711,6 +714,7 @@ export const router = createBrowserRouter(
               top level parameter must be fully qualified. */}
 					<Route path="/:username/:workspace">
 						<Route index element={<WorkspacePage />} />
+						<Route path="volume-copy" element={<WorkspaceVolumeCopyPage />} />
 						<Route
 							path="builds/:buildNumber"
 							element={<WorkspaceBuildPage />}

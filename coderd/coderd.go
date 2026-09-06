@@ -95,6 +95,7 @@ import (
 	"github.com/coder/coder/v2/coderd/workspaceapps/appurl"
 	"github.com/coder/coder/v2/coderd/workspaceconnwatcher"
 	"github.com/coder/coder/v2/coderd/workspacestats"
+	volcopyk8s "github.com/coder/coder/v2/coderd/workspacevolumecopy"
 	"github.com/coder/coder/v2/coderd/wsbuilder"
 	"github.com/coder/coder/v2/coderd/x/chatd"
 	"github.com/coder/coder/v2/coderd/x/chatd/chatprovider"
@@ -290,6 +291,10 @@ type Options struct {
 	DatabaseRolluper *dbrollup.Rolluper
 	// WorkspaceUsageTracker tracks workspace usage by the CLI.
 	WorkspaceUsageTracker *workspacestats.UsageTracker
+	// WorkspaceVolumeCopyKubernetes overrides the in-cluster Kubernetes client
+	// used by the administrative persistent-volume copy coordinator. Tests use
+	// this to inject a fake implementation.
+	WorkspaceVolumeCopyKubernetes volcopyk8s.Kubernetes
 	// BoundaryUsageTracker tracks boundary usage for telemetry.
 	BoundaryUsageTracker *boundaryusage.Tracker
 	// NotificationsEnqueuer handles enqueueing notifications for delivery by SMTP, webhook, etc.
@@ -665,9 +670,27 @@ func New(options *Options) *API {
 			options.Database,
 			options.Pubsub,
 		),
-		dbRolluper:       options.DatabaseRolluper,
-		ProfileCollector: defaultProfileCollector{},
-		AISeatTracker:    aiseats.Noop{},
+		dbRolluper:                    options.DatabaseRolluper,
+		ProfileCollector:              defaultProfileCollector{},
+		AISeatTracker:                 aiseats.Noop{},
+		workspaceVolumeCopyKubernetes: options.WorkspaceVolumeCopyKubernetes,
+	}
+
+	if api.DeploymentValues.WorkspaceVolumeCopyEnabled.Value() {
+		if strings.TrimSpace(api.DeploymentValues.WorkspaceVolumeCopyNamespace.String()) == "" {
+			options.Logger.Fatal(ctx, "workspace volume copy namespace must not be empty")
+		}
+		image := strings.TrimSpace(api.DeploymentValues.WorkspaceVolumeCopyImage.String())
+		if !strings.Contains(image, "@sha256:") {
+			options.Logger.Fatal(ctx, "workspace volume copy image must be pinned by sha256 digest")
+		}
+		if api.workspaceVolumeCopyKubernetes == nil {
+			api.workspaceVolumeCopyKubernetes, err = volcopyk8s.NewInClusterClient()
+			if err != nil {
+				options.Logger.Fatal(ctx, "failed to initialize workspace volume copy Kubernetes client", slog.Error(err))
+			}
+		}
+		go api.reconcileWorkspaceVolumeCopies()
 	}
 
 	api.WorkspaceAppsProvider = workspaceapps.NewDBTokenProvider(
@@ -687,6 +710,7 @@ func New(options *Options) *API {
 	f := appearance.NewDefaultFetcher(
 		api.DeploymentValues.DocsURL.String(),
 		api.DeploymentValues.WorkspaceActivityNowThreshold.Value(),
+		api.DeploymentValues.WorkspaceVolumeCopyEnabled.Value(),
 	)
 	api.AppearanceFetcher.Store(&f)
 	api.PortSharer.Store(&portsharing.DefaultPortSharer)
@@ -1877,6 +1901,8 @@ func New(options *Options) *API {
 					r.Delete("/", api.deleteWorkspaceAgentPortShare)
 				})
 				r.Get("/timings", api.workspaceTimings)
+				r.Get("/volume-copy-volumes", api.workspaceVolumeCopyVolumes)
+				r.Post("/volume-copy-operations", api.postWorkspaceVolumeCopyOperation)
 				r.Route("/acl", func(r chi.Router) {
 					r.Get("/", api.workspaceACL)
 					r.Patch("/", api.patchWorkspaceACL)
@@ -1884,6 +1910,11 @@ func New(options *Options) *API {
 				})
 				r.Get("/agent-connection-watch", api.workspaceAgentConnWatcher.WorkspaceAgentConnectionWatch)
 			})
+		})
+		r.Route("/workspace-volume-copies/{operation}", func(r chi.Router) {
+			r.Use(apiKeyMiddleware)
+			r.Get("/", api.workspaceVolumeCopyOperation)
+			r.Post("/sync", api.postWorkspaceVolumeCopySync)
 		})
 		r.Route("/workspacebuilds/{workspacebuild}", func(r chi.Router) {
 			r.Use(
@@ -2315,6 +2346,8 @@ type API struct {
 	ProfileCollecting atomic.Bool
 
 	workspaceAgentConnWatcher *workspaceconnwatcher.Watcher
+
+	workspaceVolumeCopyKubernetes volcopyk8s.Kubernetes
 }
 
 // Close waits for all WebSocket connections to drain before returning.

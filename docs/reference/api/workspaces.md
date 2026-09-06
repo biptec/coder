@@ -1033,6 +1033,114 @@ of the template will be used.
 
 To perform this operation, you must be authenticated. [Learn more](authentication.md).
 
+## Get a workspace persistent-volume copy operation
+
+### Code samples
+
+```shell
+# Example request using curl
+curl -X GET http://coder-server:8080/api/v2/workspace-volume-copies/{operation} \
+  -H 'Accept: application/json' \
+  -H 'Coder-Session-Token: API_KEY'
+```
+
+`GET /api/v2/workspace-volume-copies/{operation}`
+
+### Parameters
+
+| Name        | In   | Type         | Required | Description              |
+|-------------|------|--------------|----------|--------------------------|
+| `operation` | path | string(uuid) | true     | Volume copy operation ID |
+
+### Example responses
+
+> 200 Response
+
+```json
+{
+  "allow_source_running": true,
+  "completed_at": "2019-08-24T14:15:22Z",
+  "created_at": "2019-08-24T14:15:22Z",
+  "destination_workspace_id": "6a0888b2-b076-46be-a2fa-ba26a4ef1783",
+  "error": "string",
+  "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
+  "initiator_id": "06588898-9a84-4b35-ba8f-f9cbd64946f3",
+  "source_workspace_id": "0bec99f5-fe9f-476a-a47b-d925ed169238",
+  "started_at": "2019-08-24T14:15:22Z",
+  "status": "pending",
+  "sync_of": "3a49bb49-0a60-4173-be25-94dc87a077c1",
+  "updated_at": "2019-08-24T14:15:22Z",
+  "volumes": [
+    {
+      "key": "string",
+      "overwrite": true
+    }
+  ]
+}
+```
+
+### Responses
+
+| Status | Meaning                                                 | Description | Schema                                                                                   |
+|--------|---------------------------------------------------------|-------------|------------------------------------------------------------------------------------------|
+| 200    | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | OK          | [codersdk.WorkspaceVolumeCopyOperation](schemas.md#codersdkworkspacevolumecopyoperation) |
+
+To perform this operation, you must be authenticated. [Learn more](authentication.md).
+
+## Synchronize a completed workspace persistent-volume copy operation again
+
+### Code samples
+
+```shell
+# Example request using curl
+curl -X POST http://coder-server:8080/api/v2/workspace-volume-copies/{operation}/sync \
+  -H 'Accept: application/json' \
+  -H 'Coder-Session-Token: API_KEY'
+```
+
+`POST /api/v2/workspace-volume-copies/{operation}/sync`
+
+### Parameters
+
+| Name        | In   | Type         | Required | Description              |
+|-------------|------|--------------|----------|--------------------------|
+| `operation` | path | string(uuid) | true     | Volume copy operation ID |
+
+### Example responses
+
+> 201 Response
+
+```json
+{
+  "allow_source_running": true,
+  "completed_at": "2019-08-24T14:15:22Z",
+  "created_at": "2019-08-24T14:15:22Z",
+  "destination_workspace_id": "6a0888b2-b076-46be-a2fa-ba26a4ef1783",
+  "error": "string",
+  "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
+  "initiator_id": "06588898-9a84-4b35-ba8f-f9cbd64946f3",
+  "source_workspace_id": "0bec99f5-fe9f-476a-a47b-d925ed169238",
+  "started_at": "2019-08-24T14:15:22Z",
+  "status": "pending",
+  "sync_of": "3a49bb49-0a60-4173-be25-94dc87a077c1",
+  "updated_at": "2019-08-24T14:15:22Z",
+  "volumes": [
+    {
+      "key": "string",
+      "overwrite": true
+    }
+  ]
+}
+```
+
+### Responses
+
+| Status | Meaning                                                      | Description | Schema                                                                                   |
+|--------|--------------------------------------------------------------|-------------|------------------------------------------------------------------------------------------|
+| 201    | [Created](https://tools.ietf.org/html/rfc7231#section-6.3.2) | Created     | [codersdk.WorkspaceVolumeCopyOperation](schemas.md#codersdkworkspacevolumecopyoperation) |
+
+To perform this operation, you must be authenticated. [Learn more](authentication.md).
+
 ## List workspaces
 
 ### Code samples
@@ -2536,6 +2644,135 @@ curl -X POST http://coder-server:8080/api/v2/workspaces/{workspace}/usage \
 | Status | Meaning                                                         | Description | Schema |
 |--------|-----------------------------------------------------------------|-------------|--------|
 | 204    | [No Content](https://tools.ietf.org/html/rfc7231#section-6.3.5) | No Content  |        |
+
+To perform this operation, you must be authenticated. [Learn more](authentication.md).
+
+## Create a workspace persistent-volume copy operation
+
+### Code samples
+
+```shell
+# Example request using curl
+curl -X POST http://coder-server:8080/api/v2/workspaces/{workspace}/volume-copy-operations \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' \
+  -H 'Coder-Session-Token: API_KEY'
+```
+
+`POST /api/v2/workspaces/{workspace}/volume-copy-operations`
+
+> Body parameter
+
+```json
+{
+  "allow_source_running": true,
+  "destination_workspace_id": "6a0888b2-b076-46be-a2fa-ba26a4ef1783",
+  "volumes": [
+    {
+      "key": "string",
+      "overwrite": true
+    }
+  ]
+}
+```
+
+### Parameters
+
+| Name        | In   | Type                                                                                             | Required | Description         |
+|-------------|------|--------------------------------------------------------------------------------------------------|----------|---------------------|
+| `workspace` | path | string(uuid)                                                                                     | true     | Source workspace ID |
+| `body`      | body | [codersdk.CreateWorkspaceVolumeCopyRequest](schemas.md#codersdkcreateworkspacevolumecopyrequest) | true     | Copy request        |
+
+### Example responses
+
+> 201 Response
+
+```json
+{
+  "allow_source_running": true,
+  "completed_at": "2019-08-24T14:15:22Z",
+  "created_at": "2019-08-24T14:15:22Z",
+  "destination_workspace_id": "6a0888b2-b076-46be-a2fa-ba26a4ef1783",
+  "error": "string",
+  "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
+  "initiator_id": "06588898-9a84-4b35-ba8f-f9cbd64946f3",
+  "source_workspace_id": "0bec99f5-fe9f-476a-a47b-d925ed169238",
+  "started_at": "2019-08-24T14:15:22Z",
+  "status": "pending",
+  "sync_of": "3a49bb49-0a60-4173-be25-94dc87a077c1",
+  "updated_at": "2019-08-24T14:15:22Z",
+  "volumes": [
+    {
+      "key": "string",
+      "overwrite": true
+    }
+  ]
+}
+```
+
+### Responses
+
+| Status | Meaning                                                      | Description | Schema                                                                                   |
+|--------|--------------------------------------------------------------|-------------|------------------------------------------------------------------------------------------|
+| 201    | [Created](https://tools.ietf.org/html/rfc7231#section-6.3.2) | Created     | [codersdk.WorkspaceVolumeCopyOperation](schemas.md#codersdkworkspacevolumecopyoperation) |
+
+To perform this operation, you must be authenticated. [Learn more](authentication.md).
+
+## List copyable persistent volumes for a workspace
+
+### Code samples
+
+```shell
+# Example request using curl
+curl -X GET http://coder-server:8080/api/v2/workspaces/{workspace}/volume-copy-volumes \
+  -H 'Accept: application/json' \
+  -H 'Coder-Session-Token: API_KEY'
+```
+
+`GET /api/v2/workspaces/{workspace}/volume-copy-volumes`
+
+### Parameters
+
+| Name        | In   | Type         | Required | Description  |
+|-------------|------|--------------|----------|--------------|
+| `workspace` | path | string(uuid) | true     | Workspace ID |
+
+### Example responses
+
+> 200 Response
+
+```json
+[
+  {
+    "capacity": "string",
+    "display_name": "string",
+    "excluded_paths": [
+      "string"
+    ],
+    "key": "string",
+    "mount_path": "string"
+  }
+]
+```
+
+### Responses
+
+| Status | Meaning                                                 | Description | Schema                                                                                      |
+|--------|---------------------------------------------------------|-------------|---------------------------------------------------------------------------------------------|
+| 200    | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | OK          | array of [codersdk.WorkspaceVolumeCopyVolume](schemas.md#codersdkworkspacevolumecopyvolume) |
+
+<h3 id="list-copyable-persistent-volumes-for-a-workspace-responseschema">Response Schema</h3>
+
+Status Code **200**
+
+| Name               | Type   | Required | Restrictions | Description |
+|--------------------|--------|----------|--------------|-------------|
+| `[array item]`     | array  | false    |              |             |
+| `» capacity`       | string | false    |              |             |
+| `» display_name`   | string | false    |              |             |
+| `» excluded_paths` | array  | false    |              |             |
+| `» key`            | string | false    |              |             |
+| `» mount_path`     | string | false    |              |             |
 
 To perform this operation, you must be authenticated. [Learn more](authentication.md).
 

@@ -437,6 +437,7 @@ var (
 	//  - "ActionWorkspaceStop" :: allows stopping a workspace
 	//  - "ActionUpdate" :: edit workspace settings (scheduling, permissions, parameters)
 	//  - "ActionUpdateAgent" :: update an existing workspace agent
+	//  - "ActionWorkspaceVolumeCopy" :: copy persistent volume contents to or from a workspace
 	ResourceWorkspace = Object{
 		Type: "workspace",
 	}
@@ -471,6 +472,7 @@ var (
 	//  - "ActionWorkspaceStop" :: allows stopping a workspace
 	//  - "ActionUpdate" :: edit workspace settings (scheduling, permissions, parameters)
 	//  - "ActionUpdateAgent" :: update an existing workspace agent
+	//  - "ActionWorkspaceVolumeCopy" :: copy persistent volume contents to or from a workspace
 	ResourceWorkspaceDormant = Object{
 		Type: "workspace_dormant",
 	}
@@ -483,6 +485,16 @@ var (
 	//  - "ActionUpdate" :: update a workspace proxy
 	ResourceWorkspaceProxy = Object{
 		Type: "workspace_proxy",
+	}
+
+	// ResourceWorkspaceVolumeCopy
+	// Valid Actions
+	//  - "ActionCreate" :: create workspace volume-copy coordination state
+	//  - "ActionDelete" :: delete workspace volume-copy coordination state
+	//  - "ActionRead" :: read workspace volume-copy coordination state
+	//  - "ActionUpdate" :: update workspace volume-copy coordination stateInternal coordination resource for workspace persistent-volume copy operations.
+	ResourceWorkspaceVolumeCopy = Object{
+		Type: "workspace_volume_copy",
 	}
 )
 
@@ -538,6 +550,7 @@ func AllResources() []Objecter {
 		ResourceWorkspaceAgentResourceMonitor,
 		ResourceWorkspaceDormant,
 		ResourceWorkspaceProxy,
+		ResourceWorkspaceVolumeCopy,
 	}
 }
 
@@ -561,5 +574,6 @@ func AllActions() []policy.Action {
 		policy.ActionViewInsights,
 		policy.ActionWorkspaceStart,
 		policy.ActionWorkspaceStop,
+		policy.ActionWorkspaceVolumeCopy,
 	}
 }

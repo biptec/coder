@@ -646,6 +646,9 @@ curl -X GET http://coder-server:8080/api/v2/deployment/config \
       "reconciliation_backoff_lookback": 0,
       "reconciliation_interval": 0
     },
+    "workspace_volume_copy_enabled": true,
+    "workspace_volume_copy_image": "string",
+    "workspace_volume_copy_namespace": "string",
     "write_config": true
   },
   "options": [

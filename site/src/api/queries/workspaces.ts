@@ -10,6 +10,7 @@ import { API, type DeleteWorkspaceOptions } from "#/api/api";
 import { DetailedError, isApiValidationError } from "#/api/errors";
 import type {
 	CreateWorkspaceRequest,
+	CreateWorkspaceVolumeCopyRequest,
 	ProvisionerLogLevel,
 	UsageAppName,
 	Workspace,
@@ -24,6 +25,8 @@ import type {
 	WorkspaceRole,
 	WorkspacesRequest,
 	WorkspacesResponse,
+	WorkspaceVolumeCopyOperation,
+	WorkspaceVolumeCopyVolume,
 } from "#/api/typesGenerated";
 import type { ConnectionStatus } from "#/modules/terminal/types";
 import {
@@ -51,6 +54,48 @@ export const workspaceById = (workspaceId: string) => {
 		queryFn: () => API.getWorkspace(workspaceId),
 	};
 };
+
+export const workspaceVolumeCopyVolumes = (workspaceId?: string) => ({
+	queryKey: ["workspaces", workspaceId, "volume-copy-volumes"],
+	queryFn: () => {
+		if (!workspaceId) {
+			return Promise.resolve([] as readonly WorkspaceVolumeCopyVolume[]);
+		}
+		return API.getWorkspaceVolumeCopyVolumes(workspaceId);
+	},
+	enabled: Boolean(workspaceId),
+});
+
+export const createWorkspaceVolumeCopy = () => ({
+	mutationFn: ({
+		sourceWorkspaceId,
+		request,
+	}: {
+		sourceWorkspaceId: string;
+		request: CreateWorkspaceVolumeCopyRequest;
+	}) => API.createWorkspaceVolumeCopy(sourceWorkspaceId, request),
+});
+
+export const workspaceVolumeCopyOperation = (operationId?: string) => ({
+	queryKey: ["workspace-volume-copies", operationId],
+	queryFn: () => {
+		if (!operationId) {
+			return Promise.reject(new Error("Volume copy operation ID is required"));
+		}
+		return API.getWorkspaceVolumeCopyOperation(operationId);
+	},
+	enabled: Boolean(operationId),
+	refetchInterval: (query: {
+		state: { data?: WorkspaceVolumeCopyOperation };
+	}) => {
+		const status = query.state.data?.status;
+		return status === "pending" || status === "running" ? 2_000 : false;
+	},
+});
+
+export const syncWorkspaceVolumeCopy = () => ({
+	mutationFn: (operationId: string) => API.syncWorkspaceVolumeCopy(operationId),
+});
 
 export const workspaceByOwnerAndName = (owner: string, name: string) => {
 	return {

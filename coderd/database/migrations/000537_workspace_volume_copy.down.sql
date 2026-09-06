@@ -1,0 +1,2 @@
+DROP TABLE workspace_volume_copy_locks;
+DROP TABLE workspace_volume_copy_operations;

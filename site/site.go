@@ -91,6 +91,7 @@ func New(opts *Options) (*Handler, error) {
 		f := appearance.NewDefaultFetcher(
 			opts.DocsURL,
 			codersdk.DefaultWorkspaceActivityNowThreshold,
+			false,
 		)
 		daf.Store(&f)
 		opts.AppearanceFetcher = &daf

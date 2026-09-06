@@ -160,6 +160,7 @@ const (
 	ScopeWorkspaceStop                       ScopeName = "workspace:stop"
 	ScopeWorkspaceUpdate                     ScopeName = "workspace:update"
 	ScopeWorkspaceUpdateAgent                ScopeName = "workspace:update_agent"
+	ScopeWorkspaceVolumeCopy                 ScopeName = "workspace:volume_copy"
 	ScopeWorkspaceAgentDevcontainersCreate   ScopeName = "workspace_agent_devcontainers:create"
 	ScopeWorkspaceAgentResourceMonitorCreate ScopeName = "workspace_agent_resource_monitor:create"
 	ScopeWorkspaceAgentResourceMonitorRead   ScopeName = "workspace_agent_resource_monitor:read"
@@ -176,10 +177,15 @@ const (
 	ScopeWorkspaceDormantStop                ScopeName = "workspace_dormant:stop"
 	ScopeWorkspaceDormantUpdate              ScopeName = "workspace_dormant:update"
 	ScopeWorkspaceDormantUpdateAgent         ScopeName = "workspace_dormant:update_agent"
+	ScopeWorkspaceDormantVolumeCopy          ScopeName = "workspace_dormant:volume_copy"
 	ScopeWorkspaceProxyCreate                ScopeName = "workspace_proxy:create"
 	ScopeWorkspaceProxyDelete                ScopeName = "workspace_proxy:delete"
 	ScopeWorkspaceProxyRead                  ScopeName = "workspace_proxy:read"
 	ScopeWorkspaceProxyUpdate                ScopeName = "workspace_proxy:update"
+	ScopeWorkspaceVolumeCopyCreate           ScopeName = "workspace_volume_copy:create"
+	ScopeWorkspaceVolumeCopyDelete           ScopeName = "workspace_volume_copy:delete"
+	ScopeWorkspaceVolumeCopyRead             ScopeName = "workspace_volume_copy:read"
+	ScopeWorkspaceVolumeCopyUpdate           ScopeName = "workspace_volume_copy:update"
 )
 
 // Valid reports whether the ScopeName matches one of the known scope values.
@@ -344,6 +350,7 @@ func (e ScopeName) Valid() bool {
 		ScopeWorkspaceStop,
 		ScopeWorkspaceUpdate,
 		ScopeWorkspaceUpdateAgent,
+		ScopeWorkspaceVolumeCopy,
 		ScopeWorkspaceAgentDevcontainersCreate,
 		ScopeWorkspaceAgentResourceMonitorCreate,
 		ScopeWorkspaceAgentResourceMonitorRead,
@@ -360,10 +367,15 @@ func (e ScopeName) Valid() bool {
 		ScopeWorkspaceDormantStop,
 		ScopeWorkspaceDormantUpdate,
 		ScopeWorkspaceDormantUpdateAgent,
+		ScopeWorkspaceDormantVolumeCopy,
 		ScopeWorkspaceProxyCreate,
 		ScopeWorkspaceProxyDelete,
 		ScopeWorkspaceProxyRead,
-		ScopeWorkspaceProxyUpdate:
+		ScopeWorkspaceProxyUpdate,
+		ScopeWorkspaceVolumeCopyCreate,
+		ScopeWorkspaceVolumeCopyDelete,
+		ScopeWorkspaceVolumeCopyRead,
+		ScopeWorkspaceVolumeCopyUpdate:
 		return true
 	}
 	return false
@@ -529,6 +541,7 @@ func AllScopeNameValues() []ScopeName {
 		ScopeWorkspaceStop,
 		ScopeWorkspaceUpdate,
 		ScopeWorkspaceUpdateAgent,
+		ScopeWorkspaceVolumeCopy,
 		ScopeWorkspaceAgentDevcontainersCreate,
 		ScopeWorkspaceAgentResourceMonitorCreate,
 		ScopeWorkspaceAgentResourceMonitorRead,
@@ -545,9 +558,14 @@ func AllScopeNameValues() []ScopeName {
 		ScopeWorkspaceDormantStop,
 		ScopeWorkspaceDormantUpdate,
 		ScopeWorkspaceDormantUpdateAgent,
+		ScopeWorkspaceDormantVolumeCopy,
 		ScopeWorkspaceProxyCreate,
 		ScopeWorkspaceProxyDelete,
 		ScopeWorkspaceProxyRead,
 		ScopeWorkspaceProxyUpdate,
+		ScopeWorkspaceVolumeCopyCreate,
+		ScopeWorkspaceVolumeCopyDelete,
+		ScopeWorkspaceVolumeCopyRead,
+		ScopeWorkspaceVolumeCopyUpdate,
 	}
 }
