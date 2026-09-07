@@ -10,6 +10,7 @@ import {
 } from "#/api/queries/workspaces";
 import type {
 	Workspace,
+	WorkspaceVolumeCopyOperation,
 	WorkspaceVolumeCopyVolume,
 } from "#/api/typesGenerated";
 import { DashboardContext } from "#/modules/dashboard/DashboardProvider";
@@ -45,6 +46,16 @@ const destination: Workspace = {
 	owner_name: "developer",
 };
 
+const additionalDestinations: Workspace[] = Array.from(
+	{ length: 14 },
+	(_, index) => ({
+		...MockStoppedWorkspace,
+		id: `destination-workspace-${index}`,
+		name: `workspace-${String(index + 1).padStart(2, "0")}`,
+		owner_name: index % 2 === 0 ? "developer" : "coder-admin",
+	}),
+);
+
 const homeVolume: WorkspaceVolumeCopyVolume = {
 	key: "home",
 	display_name: "Home",
@@ -58,6 +69,26 @@ const homeVolume: WorkspaceVolumeCopyVolume = {
 		".local/state/coder",
 		".developer-workspace-seeded",
 	],
+};
+
+const runningLiveOperation: WorkspaceVolumeCopyOperation = {
+	id: "volume-copy-operation",
+	created_at: "2026-09-06T19:30:00Z",
+	updated_at: "2026-09-06T19:31:00Z",
+	initiator_id: "user-id",
+	source_workspace_id: sourceRunning.id,
+	destination_workspace_id: destination.id,
+	allow_source_running: true,
+	volumes: [{ key: "home", overwrite: false }],
+	status: "running",
+	started_at: "2026-09-06T19:30:05Z",
+};
+
+const completedLiveOperation: WorkspaceVolumeCopyOperation = {
+	...runningLiveOperation,
+	updated_at: "2026-09-06T19:32:00Z",
+	status: "succeeded",
+	completed_at: "2026-09-06T19:32:00Z",
 };
 
 const volumeCopyPermissions: WorkspacePermissions = {
@@ -100,7 +131,11 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-const workspaceQueries = (source: Workspace) => [
+const workspaceQueries = (
+	source: Workspace,
+	operation?: WorkspaceVolumeCopyOperation,
+	listedWorkspaces: Workspace[] = [source, destination],
+) => [
 	{
 		key: workspaceByOwnerAndNameKey(source.owner_name, source.name),
 		data: source,
@@ -115,7 +150,7 @@ const workspaceQueries = (source: Workspace) => [
 	},
 	{
 		key: workspacesKey({ limit: 25, offset: 0, q: "" }),
-		data: { workspaces: [source, destination], count: 2 },
+		data: { workspaces: listedWorkspaces, count: listedWorkspaces.length },
 	},
 	{
 		key: workspaceByIdKey(destination.id),
@@ -129,15 +164,24 @@ const workspaceQueries = (source: Workspace) => [
 		key: workspaceVolumeCopyVolumes(destination.id).queryKey,
 		data: [homeVolume],
 	},
+	...(operation
+		? [
+				{
+					key: ["workspace-volume-copies", operation.id],
+					data: operation,
+				},
+			]
+		: []),
 ];
 
-const routerParameters = (source: Workspace) =>
+const routerParameters = (source: Workspace, operationId?: string) =>
 	reactRouterParameters({
 		location: {
 			pathParams: {
 				username: `@${source.owner_name}`,
 				workspace: source.name,
 			},
+			...(operationId ? { searchParams: { operation: operationId } } : {}),
 		},
 		routing: {
 			path: "/:username/:workspace/volume-copy",
@@ -174,6 +218,26 @@ export const StoppedSource: Story = {
 	},
 };
 
+export const DestinationDropdownOpen: Story = {
+	parameters: {
+		reactRouter: routerParameters(sourceStopped),
+		queries: workspaceQueries(sourceStopped, undefined, [
+			sourceStopped,
+			destination,
+			...additionalDestinations,
+		]),
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await userEvent.click(
+			canvas.getByRole("button", { name: "Select destination workspace" }),
+		);
+		expect(
+			screen.getByPlaceholderText("Search owner or workspace..."),
+		).toBeVisible();
+	},
+};
+
 export const RunningSource: Story = {
 	parameters: {
 		reactRouter: routerParameters(sourceRunning),
@@ -201,5 +265,39 @@ export const RunningSource: Story = {
 				canvas.getByRole("button", { name: "Copy volumes" }),
 			).toBeEnabled();
 		});
+	},
+};
+
+export const ReloadedRunningLiveCopy: Story = {
+	parameters: {
+		reactRouter: routerParameters(sourceRunning, runningLiveOperation.id),
+		queries: workspaceQueries(sourceRunning, runningLiveOperation),
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const liveCopyCheckbox = await canvas.findByRole("checkbox", {
+			name: "Allow copying while source workspace is running",
+		});
+		expect(liveCopyCheckbox).toBeChecked();
+		expect(liveCopyCheckbox).toBeDisabled();
+		expect(canvas.getByText("Source workspace is running.")).toBeVisible();
+	},
+};
+
+export const CompletedLiveCopy: Story = {
+	parameters: {
+		reactRouter: routerParameters(sourceStopped, completedLiveOperation.id),
+		queries: workspaceQueries(sourceStopped, completedLiveOperation),
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const successAlert = await canvas.findByRole("alert");
+		expect(successAlert).toHaveTextContent("Persistent volume copy completed.");
+		expect(successAlert.querySelectorAll("svg")).toHaveLength(1);
+		expect(
+			canvas.getByRole("checkbox", {
+				name: "Allow copying while source workspace is running",
+			}),
+		).toBeChecked();
 	},
 };

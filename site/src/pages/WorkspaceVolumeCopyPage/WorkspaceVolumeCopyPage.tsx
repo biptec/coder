@@ -125,12 +125,19 @@ const WorkspaceVolumeCopyPage: FC = () => {
 	const operationId = searchParams.get("operation") ?? undefined;
 	const operationQuery = useQuery(workspaceVolumeCopyOperation(operationId));
 	const operation = operationQuery.data;
+	const operationAllowSourceRunning = operation?.allow_source_running;
 
 	useEffect(() => {
 		if (operation && !destinationId) {
 			setDestinationId(operation.destination_workspace_id);
 		}
 	}, [destinationId, operation]);
+
+	useEffect(() => {
+		if (operationAllowSourceRunning !== undefined) {
+			setAllowSourceRunning(operationAllowSourceRunning);
+		}
+	}, [operationAllowSourceRunning]);
 
 	if (
 		sourceQuery.isLoading ||
@@ -299,14 +306,14 @@ const WorkspaceVolumeCopyPage: FC = () => {
 							</ComboboxTrigger>
 							<ComboboxContent
 								shouldFilter={false}
-								className="w-[420px] max-w-[calc(100vw-32px)]"
+								className="w-[420px] max-w-[calc(100vw-32px)] overflow-hidden"
 							>
 								<ComboboxInput
 									placeholder="Search owner or workspace..."
 									value={destinationSearch}
 									onValueChange={setDestinationSearch}
 								/>
-								<ComboboxList>
+								<ComboboxList className="max-h-[min(24rem,calc(var(--radix-popper-available-height)-2.5rem))] overscroll-contain">
 									<ComboboxEmpty>No workspaces found.</ComboboxEmpty>
 									{destinationOptions.map((workspace) => (
 										<ComboboxItem key={workspace.id} value={workspace.id}>
