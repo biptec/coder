@@ -1901,6 +1901,9 @@ func New(options *Options) *API {
 					r.Delete("/", api.deleteWorkspaceAgentPortShare)
 				})
 				r.Get("/timings", api.workspaceTimings)
+				r.Get("/command-activity", api.workspaceCommandActivity)
+				r.Get("/connection-activity", api.workspaceConnectionActivity)
+				r.Get("/volume-copy-operation", api.workspaceActiveVolumeCopyOperation)
 				r.Get("/volume-copy-volumes", api.workspaceVolumeCopyVolumes)
 				r.Post("/volume-copy-operations", api.postWorkspaceVolumeCopyOperation)
 				r.Route("/acl", func(r chi.Router) {

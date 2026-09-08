@@ -109,6 +109,27 @@ func TestConnectionLog(t *testing.T) {
 
 			mDB := dbmock.NewMockStore(gomock.NewController(t))
 			mDB.EXPECT().GetWorkspaceByAgentID(gomock.Any(), agent.ID).Return(workspace, nil)
+			connectionStatus := agentProtoConnectionActionToConnectionLog(t, *tt.action)
+			connectionType := agentProtoConnectionTypeToConnectionLog(t, *tt.typ)
+			activityTime := dbtime.Time(tt.time).In(time.UTC)
+			switch connectionStatus {
+			case database.ConnectionStatusConnected:
+				mDB.EXPECT().RecordWorkspaceConnectionStarted(gomock.Any(), database.RecordWorkspaceConnectionStartedParams{
+					ConnectedAt:  sql.NullTime{Time: activityTime, Valid: true},
+					WorkspaceID:  workspace.ID,
+					AgentID:      agent.ID,
+					ConnectionID: tt.id,
+					Type:         connectionType,
+				}).Return(nil)
+			case database.ConnectionStatusDisconnected:
+				mDB.EXPECT().RecordWorkspaceConnectionFinished(gomock.Any(), database.RecordWorkspaceConnectionFinishedParams{
+					WorkspaceID:    workspace.ID,
+					AgentID:        agent.ID,
+					Type:           connectionType,
+					DisconnectedAt: sql.NullTime{Time: activityTime, Valid: true},
+					ConnectionID:   tt.id,
+				}).Return(nil)
+			}
 
 			api := &agentapi.ConnLogAPI{
 				ConnectionLogger: asAtomicPointer[connectionlog.ConnectionLogger](connLogger),
@@ -136,7 +157,7 @@ func TestConnectionLog(t *testing.T) {
 			expectedIP := database.ParseIP(expectedIPRaw)
 
 			require.True(t, connLogger.Contains(t, database.UpsertConnectionLogParams{
-				Time:             dbtime.Time(tt.time).In(time.UTC),
+				Time:             activityTime,
 				OrganizationID:   workspace.OrganizationID,
 				WorkspaceOwnerID: workspace.OwnerID,
 				WorkspaceID:      workspace.ID,
@@ -146,14 +167,14 @@ func TestConnectionLog(t *testing.T) {
 					UUID:  uuid.Nil,
 					Valid: false,
 				},
-				ConnectionStatus: agentProtoConnectionActionToConnectionLog(t, *tt.action),
+				ConnectionStatus: connectionStatus,
 
 				Code: sql.NullInt32{
 					Int32: tt.status,
 					Valid: *tt.action == agentproto.Connection_DISCONNECT,
 				},
 				IP:   expectedIP,
-				Type: agentProtoConnectionTypeToConnectionLog(t, *tt.typ),
+				Type: connectionType,
 				DisconnectReason: sql.NullString{
 					String: tt.reason,
 					Valid:  tt.reason != "",

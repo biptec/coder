@@ -386,7 +386,10 @@ const TableLoader: FC = () => {
 };
 
 const cantBeChecked = (workspace: Workspace) => {
-	return ["deleting", "pending"].includes(workspace.latest_build.status);
+	return (
+		Boolean(workspace.volume_copy_operation_id) ||
+		["deleting", "pending"].includes(workspace.latest_build.status)
+	);
 };
 
 type WorkspaceActionsCellProps = {

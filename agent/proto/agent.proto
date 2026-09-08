@@ -395,6 +395,34 @@ message ReportConnectionRequest {
 	Connection connection = 1;
 }
 
+message CommandActivity {
+	enum Action {
+		ACTION_UNSPECIFIED = 0;
+		SESSION_STARTED = 1;
+		STARTED = 2;
+		FINISHED = 3;
+	}
+	enum Source {
+		SOURCE_UNSPECIFIED = 0;
+		AGENTPROC = 1;
+		SSH = 2;
+	}
+
+	bytes id = 1;
+	bytes session_id = 2;
+	Action action = 3;
+	Source source = 4;
+	string command = 5;
+	repeated string argv = 6;
+	string work_dir = 7;
+	google.protobuf.Timestamp timestamp = 8;
+	optional int32 exit_code = 9;
+}
+
+message ReportCommandActivityRequest {
+	CommandActivity activity = 1;
+}
+
 message SubAgent {
 	string name = 1;
 	bytes id = 2;
@@ -671,6 +699,7 @@ service Agent {
 	rpc GetResourcesMonitoringConfiguration(GetResourcesMonitoringConfigurationRequest) returns (GetResourcesMonitoringConfigurationResponse);
 	rpc PushResourcesMonitoringUsage(PushResourcesMonitoringUsageRequest) returns (PushResourcesMonitoringUsageResponse);
 	rpc ReportConnection(ReportConnectionRequest) returns (google.protobuf.Empty);
+	rpc ReportCommandActivity(ReportCommandActivityRequest) returns (google.protobuf.Empty);
 	rpc CreateSubAgent(CreateSubAgentRequest) returns (CreateSubAgentResponse);
 	rpc DeleteSubAgent(DeleteSubAgentRequest) returns (DeleteSubAgentResponse);
 	rpc ListSubAgents(ListSubAgentsRequest) returns (ListSubAgentsResponse);

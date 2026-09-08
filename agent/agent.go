@@ -31,6 +31,7 @@ import (
 	"golang.org/x/xerrors"
 	googleproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"storj.io/drpc/drpcerr"
 	"tailscale.com/net/speedtest"
 	"tailscale.com/tailcfg"
 	"tailscale.com/types/netlogtype"
@@ -215,25 +216,27 @@ func New(options Options) Agent {
 	hardCtx, hardCancel := context.WithCancel(context.Background())
 	gracefulCtx, gracefulCancel := context.WithCancel(hardCtx)
 	a := &agent{
-		clock:                   options.Clock,
-		tailnetListenPort:       options.TailnetListenPort,
-		reconnectingPTYTimeout:  options.ReconnectingPTYTimeout,
-		logger:                  options.Logger,
-		gracefulCtx:             gracefulCtx,
-		gracefulCancel:          gracefulCancel,
-		hardCtx:                 hardCtx,
-		hardCancel:              hardCancel,
-		coordDisconnected:       make(chan struct{}),
-		environmentVariables:    options.EnvironmentVariables,
-		client:                  options.Client,
-		filesystem:              options.Filesystem,
-		logDir:                  options.LogDir,
-		tempDir:                 options.TempDir,
-		scriptDataDir:           options.ScriptDataDir,
-		lifecycleUpdate:         make(chan struct{}, 1),
-		lifecycleReported:       make(chan codersdk.WorkspaceAgentLifecycle, 1),
-		lifecycleStates:         []agentsdk.PostLifecycleRequest{{State: codersdk.WorkspaceAgentLifecycleCreated}},
-		reportConnectionsUpdate: make(chan struct{}, 1),
+		clock:                       options.Clock,
+		tailnetListenPort:           options.TailnetListenPort,
+		reconnectingPTYTimeout:      options.ReconnectingPTYTimeout,
+		logger:                      options.Logger,
+		gracefulCtx:                 gracefulCtx,
+		gracefulCancel:              gracefulCancel,
+		hardCtx:                     hardCtx,
+		hardCancel:                  hardCancel,
+		coordDisconnected:           make(chan struct{}),
+		environmentVariables:        options.EnvironmentVariables,
+		client:                      options.Client,
+		filesystem:                  options.Filesystem,
+		logDir:                      options.LogDir,
+		tempDir:                     options.TempDir,
+		scriptDataDir:               options.ScriptDataDir,
+		lifecycleUpdate:             make(chan struct{}, 1),
+		lifecycleReported:           make(chan codersdk.WorkspaceAgentLifecycle, 1),
+		lifecycleStates:             []agentsdk.PostLifecycleRequest{{State: codersdk.WorkspaceAgentLifecycleCreated}},
+		reportConnectionsUpdate:     make(chan struct{}, 1),
+		commandActivitySessionID:    uuid.New(),
+		reportCommandActivityUpdate: make(chan struct{}, 1),
 		listeningPortsHandler: listeningPortsHandler{
 			getter:      options.ListeningPortsGetter,
 			ignorePorts: maps.Clone(options.IgnorePorts),
@@ -268,6 +271,13 @@ func New(options Options) Agent {
 	// coordinator during shut down.
 	close(a.coordDisconnected)
 	a.announcementBanners.Store(new([]codersdk.BannerConfig))
+	a.queueCommandActivity(&proto.ReportCommandActivityRequest{
+		Activity: &proto.CommandActivity{
+			SessionId: append([]byte(nil), a.commandActivitySessionID[:]...),
+			Action:    proto.CommandActivity_SESSION_STARTED,
+			Timestamp: timestamppb.New(a.clock.Now()),
+		},
+	})
 	a.init()
 	return a
 }
@@ -334,6 +344,12 @@ type agent struct {
 	reportConnectionsUpdate chan struct{}
 	reportConnectionsMu     sync.Mutex
 	reportConnections       []*proto.ReportConnectionRequest
+
+	commandActivitySessionID    uuid.UUID
+	reportCommandActivityUpdate chan struct{}
+	reportCommandActivityMu     sync.Mutex
+	reportCommandActivity       []*proto.ReportCommandActivityRequest
+	commandActivityReportingOff atomic.Bool
 
 	logSender *agentsdk.LogSender
 
@@ -424,6 +440,9 @@ func (a *agent) init() {
 		BlockFileTransfer:          a.blockFileTransfer,
 		BlockReversePortForwarding: a.blockReversePortForwarding,
 		BlockLocalPortForwarding:   a.blockLocalPortForwarding,
+		ReportCommandActivity: func(command string, argv []string, workDir string) func(int) {
+			return a.startCommandActivity(proto.CommandActivity_SSH, command, argv, workDir)
+		},
 		ReportConnection: func(id uuid.UUID, magicType agentssh.MagicSessionType, ip string) func(code int, reason string) {
 			var connectionType proto.Connection_Type
 			switch magicType {
@@ -481,7 +500,9 @@ func (a *agent) init() {
 			return m.Directory
 		}
 		return ""
-	})
+	}, agentproc.WithCommandActivityReporter(func(command string, argv []string, workDir string) func(int) {
+		return a.startCommandActivity(proto.CommandActivity_AGENTPROC, command, argv, workDir)
+	}))
 	gitOpts := append([]agentgit.Option{
 		agentgit.WithClock(a.clock),
 		agentgit.WithWorkingDirectory(func() string {
@@ -1150,6 +1171,102 @@ func (a *agent) reportConnection(id uuid.UUID, connectionType proto.Connection_T
 	}
 }
 
+const reportCommandActivityBufferLimit = 8192
+
+func (a *agent) queueCommandActivity(req *proto.ReportCommandActivityRequest) bool {
+	if a.commandActivityReportingOff.Load() {
+		return false
+	}
+
+	a.reportCommandActivityMu.Lock()
+	defer a.reportCommandActivityMu.Unlock()
+	if len(a.reportCommandActivity) >= reportCommandActivityBufferLimit {
+		a.logger.Warn(a.hardCtx, "command activity report buffer limit reached, dropping event",
+			slog.F("limit", reportCommandActivityBufferLimit),
+		)
+		return false
+	}
+	a.reportCommandActivity = append(a.reportCommandActivity, req)
+	select {
+	case a.reportCommandActivityUpdate <- struct{}{}:
+	default:
+	}
+	return true
+}
+
+func (a *agent) startCommandActivity(source proto.CommandActivity_Source, command string, argv []string, workDir string) func(int) {
+	if a.commandActivityReportingOff.Load() {
+		return func(int) {}
+	}
+
+	id := uuid.New()
+	startedAt := a.clock.Now()
+	if !a.queueCommandActivity(&proto.ReportCommandActivityRequest{
+		Activity: &proto.CommandActivity{
+			Id:        append([]byte(nil), id[:]...),
+			SessionId: append([]byte(nil), a.commandActivitySessionID[:]...),
+			Action:    proto.CommandActivity_STARTED,
+			Source:    source,
+			Command:   command,
+			Argv:      append([]string(nil), argv...),
+			WorkDir:   workDir,
+			Timestamp: timestamppb.New(startedAt),
+		},
+	}) {
+		return func(int) {}
+	}
+
+	return func(exitCode int) {
+		code := int32(exitCode) //nolint:gosec // Process exit codes fit in int32.
+		a.queueCommandActivity(&proto.ReportCommandActivityRequest{
+			Activity: &proto.CommandActivity{
+				Id:        append([]byte(nil), id[:]...),
+				SessionId: append([]byte(nil), a.commandActivitySessionID[:]...),
+				Action:    proto.CommandActivity_FINISHED,
+				Source:    source,
+				Timestamp: timestamppb.New(a.clock.Now()),
+				ExitCode:  &code,
+			},
+		})
+	}
+}
+
+func (a *agent) reportCommandActivityLoop(ctx context.Context, aAPI proto.DRPCAgentClient211) error {
+	for {
+		a.reportCommandActivityMu.Lock()
+		if len(a.reportCommandActivity) == 0 {
+			a.reportCommandActivityMu.Unlock()
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-a.reportCommandActivityUpdate:
+			}
+			continue
+		}
+		req := a.reportCommandActivity[0]
+		a.reportCommandActivityMu.Unlock()
+
+		_, err := aAPI.ReportCommandActivity(ctx, req)
+		if err != nil {
+			if drpcerr.Code(err) == drpcerr.Unimplemented {
+				a.commandActivityReportingOff.Store(true)
+				a.reportCommandActivityMu.Lock()
+				a.reportCommandActivity = nil
+				a.reportCommandActivityMu.Unlock()
+				a.logger.Debug(ctx, "command activity reporting is not supported by coderd")
+				return nil
+			}
+			return xerrors.Errorf("report command activity: %w", err)
+		}
+
+		a.reportCommandActivityMu.Lock()
+		if len(a.reportCommandActivity) > 0 && a.reportCommandActivity[0] == req {
+			a.reportCommandActivity = a.reportCommandActivity[1:]
+		}
+		a.reportCommandActivityMu.Unlock()
+	}
+}
+
 // fetchServiceBannerLoop fetches the service banner on an interval.  It will
 // not be fetched immediately; the expectation is that it is primed elsewhere
 // (and must be done before the session actually starts).
@@ -1283,6 +1400,7 @@ func (a *agent) run() (retErr error) {
 	// Connection reports are part of auditing, we should keep sending them via
 	// gracefulShutdownBehaviorRemain.
 	connMan.startAgentAPI("report connections", gracefulShutdownBehaviorRemain, a.reportConnectionsLoop)
+	connMan.startAgentAPI211("report command activity", gracefulShutdownBehaviorRemain, a.reportCommandActivityLoop)
 
 	// Push resolved workspace context (instructions, skills, MCP
 	// configs, MCP server tool lists) to coderd. The push loop
@@ -2633,6 +2751,41 @@ func (a *apiConnRoutineManager) startAgentAPI210(
 	a.eg.Go(func() error {
 		logger.Debug(ctx, "starting agent routine")
 		err := f(ctx, a.aAPI)
+		err = shouldPropagateError(ctx, logger, err)
+		logger.Debug(ctx, "routine exited", slog.Error(err))
+		if err != nil {
+			return xerrors.Errorf("error in routine %s: %w", name, err)
+		}
+		return nil
+	})
+}
+
+// startAgentAPI211 starts a routine that uses the v2.11 Agent API. The agent
+// still negotiates v2.10 so it can connect to older coderd releases; an older
+// peer returns Unimplemented when the v2.11 RPC is invoked.
+func (a *apiConnRoutineManager) startAgentAPI211(
+	name string, behavior gracefulShutdownBehavior,
+	f func(context.Context, proto.DRPCAgentClient211) error,
+) {
+	client, ok := a.aAPI.(proto.DRPCAgentClient211)
+	if !ok {
+		a.logger.Debug(a.remainCtx, "v2.11 agent API client is unavailable", slog.F("name", name))
+		return
+	}
+
+	logger := a.logger.With(slog.F("name", name))
+	var ctx context.Context
+	switch behavior {
+	case gracefulShutdownBehaviorStop:
+		ctx = a.stopCtx
+	case gracefulShutdownBehaviorRemain:
+		ctx = a.remainCtx
+	default:
+		panic("unknown behavior")
+	}
+	a.eg.Go(func() error {
+		logger.Debug(ctx, "starting agent routine")
+		err := f(ctx, client)
 		err = shouldPropagateError(ctx, logger, err)
 		logger.Debug(ctx, "routine exited", slog.Error(err))
 		if err != nil {

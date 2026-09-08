@@ -1081,6 +1081,14 @@ func (m queryMetricsStore) FindMatchingPresetID(ctx context.Context, arg databas
 	return r0, r1
 }
 
+func (m queryMetricsStore) FinishWorkspaceCommandActivity(ctx context.Context, arg database.FinishWorkspaceCommandActivityParams) (int64, error) {
+	start := time.Now()
+	r0, r1 := m.s.FinishWorkspaceCommandActivity(ctx, arg)
+	m.queryLatencies.WithLabelValues("FinishWorkspaceCommandActivity").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "FinishWorkspaceCommandActivity").Inc()
+	return r0, r1
+}
+
 func (m queryMetricsStore) GetAIBridgeInterceptionByID(ctx context.Context, id uuid.UUID) (database.AIBridgeInterception, error) {
 	start := time.Now()
 	r0, r1 := m.s.GetAIBridgeInterceptionByID(ctx, id)
@@ -3753,6 +3761,22 @@ func (m queryMetricsStore) GetWorkspaceByWorkspaceAppID(ctx context.Context, wor
 	return r0, r1
 }
 
+func (m queryMetricsStore) GetWorkspaceCommandActivityByWorkspaceID(ctx context.Context, arg database.GetWorkspaceCommandActivityByWorkspaceIDParams) ([]database.GetWorkspaceCommandActivityByWorkspaceIDRow, error) {
+	start := time.Now()
+	r0, r1 := m.s.GetWorkspaceCommandActivityByWorkspaceID(ctx, arg)
+	m.queryLatencies.WithLabelValues("GetWorkspaceCommandActivityByWorkspaceID").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetWorkspaceCommandActivityByWorkspaceID").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) GetWorkspaceConnectionActivityByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) ([]database.GetWorkspaceConnectionActivityByWorkspaceIDRow, error) {
+	start := time.Now()
+	r0, r1 := m.s.GetWorkspaceConnectionActivityByWorkspaceID(ctx, workspaceID)
+	m.queryLatencies.WithLabelValues("GetWorkspaceConnectionActivityByWorkspaceID").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetWorkspaceConnectionActivityByWorkspaceID").Inc()
+	return r0, r1
+}
+
 func (m queryMetricsStore) GetWorkspaceModulesByJobID(ctx context.Context, jobID uuid.UUID) ([]database.WorkspaceModule, error) {
 	start := time.Now()
 	r0, r1 := m.s.GetWorkspaceModulesByJobID(ctx, jobID)
@@ -3862,6 +3886,14 @@ func (m queryMetricsStore) GetWorkspaceVolumeCopyLockByWorkspaceID(ctx context.C
 	r0, r1 := m.s.GetWorkspaceVolumeCopyLockByWorkspaceID(ctx, workspaceID)
 	m.queryLatencies.WithLabelValues("GetWorkspaceVolumeCopyLockByWorkspaceID").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetWorkspaceVolumeCopyLockByWorkspaceID").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) GetWorkspaceVolumeCopyLocksByWorkspaceIDs(ctx context.Context, workspaceIds []uuid.UUID) ([]database.WorkspaceVolumeCopyLock, error) {
+	start := time.Now()
+	r0, r1 := m.s.GetWorkspaceVolumeCopyLocksByWorkspaceIDs(ctx, workspaceIds)
+	m.queryLatencies.WithLabelValues("GetWorkspaceVolumeCopyLocksByWorkspaceIDs").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetWorkspaceVolumeCopyLocksByWorkspaceIDs").Inc()
 	return r0, r1
 }
 
@@ -4585,6 +4617,14 @@ func (m queryMetricsStore) InsertWorkspaceBuildParameters(ctx context.Context, a
 	return r0
 }
 
+func (m queryMetricsStore) InsertWorkspaceCommandActivity(ctx context.Context, arg database.InsertWorkspaceCommandActivityParams) error {
+	start := time.Now()
+	r0 := m.s.InsertWorkspaceCommandActivity(ctx, arg)
+	m.queryLatencies.WithLabelValues("InsertWorkspaceCommandActivity").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "InsertWorkspaceCommandActivity").Inc()
+	return r0
+}
+
 func (m queryMetricsStore) InsertWorkspaceModule(ctx context.Context, arg database.InsertWorkspaceModuleParams) (database.WorkspaceModule, error) {
 	start := time.Now()
 	r0, r1 := m.s.InsertWorkspaceModule(ctx, arg)
@@ -4630,6 +4670,14 @@ func (m queryMetricsStore) InsertWorkspaceVolumeCopyOperation(ctx context.Contex
 	r0, r1 := m.s.InsertWorkspaceVolumeCopyOperation(ctx, arg)
 	m.queryLatencies.WithLabelValues("InsertWorkspaceVolumeCopyOperation").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "InsertWorkspaceVolumeCopyOperation").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) InterruptWorkspaceCommandActivityByAgentSession(ctx context.Context, arg database.InterruptWorkspaceCommandActivityByAgentSessionParams) (int64, error) {
+	start := time.Now()
+	r0, r1 := m.s.InterruptWorkspaceCommandActivityByAgentSession(ctx, arg)
+	m.queryLatencies.WithLabelValues("InterruptWorkspaceCommandActivityByAgentSession").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "InterruptWorkspaceCommandActivityByAgentSession").Inc()
 	return r0, r1
 }
 
@@ -4937,6 +4985,30 @@ func (m queryMetricsStore) PopNextQueuedMessage(ctx context.Context, chatID uuid
 	return r0, r1
 }
 
+func (m queryMetricsStore) PruneWorkspaceCommandActivity(ctx context.Context, arg database.PruneWorkspaceCommandActivityParams) (int64, error) {
+	start := time.Now()
+	r0, r1 := m.s.PruneWorkspaceCommandActivity(ctx, arg)
+	m.queryLatencies.WithLabelValues("PruneWorkspaceCommandActivity").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "PruneWorkspaceCommandActivity").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) RecordWorkspaceConnectionFinished(ctx context.Context, arg database.RecordWorkspaceConnectionFinishedParams) error {
+	start := time.Now()
+	r0 := m.s.RecordWorkspaceConnectionFinished(ctx, arg)
+	m.queryLatencies.WithLabelValues("RecordWorkspaceConnectionFinished").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "RecordWorkspaceConnectionFinished").Inc()
+	return r0
+}
+
+func (m queryMetricsStore) RecordWorkspaceConnectionStarted(ctx context.Context, arg database.RecordWorkspaceConnectionStartedParams) error {
+	start := time.Now()
+	r0 := m.s.RecordWorkspaceConnectionStarted(ctx, arg)
+	m.queryLatencies.WithLabelValues("RecordWorkspaceConnectionStarted").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "RecordWorkspaceConnectionStarted").Inc()
+	return r0
+}
+
 func (m queryMetricsStore) ReduceWorkspaceAgentShareLevelToAuthenticatedByTemplate(ctx context.Context, templateID uuid.UUID) error {
 	start := time.Now()
 	r0 := m.s.ReduceWorkspaceAgentShareLevelToAuthenticatedByTemplate(ctx, templateID)
@@ -4975,6 +5047,14 @@ func (m queryMetricsStore) ReorderChatQueuedMessageToHead(ctx context.Context, a
 	m.queryLatencies.WithLabelValues("ReorderChatQueuedMessageToHead").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "ReorderChatQueuedMessageToHead").Inc()
 	return r0, r1
+}
+
+func (m queryMetricsStore) ResetWorkspaceActiveConnectionsByAgentID(ctx context.Context, arg database.ResetWorkspaceActiveConnectionsByAgentIDParams) error {
+	start := time.Now()
+	r0 := m.s.ResetWorkspaceActiveConnectionsByAgentID(ctx, arg)
+	m.queryLatencies.WithLabelValues("ResetWorkspaceActiveConnectionsByAgentID").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "ResetWorkspaceActiveConnectionsByAgentID").Inc()
+	return r0
 }
 
 func (m queryMetricsStore) ResolveUserChatSpendLimit(ctx context.Context, userID database.ResolveUserChatSpendLimitParams) (database.ResolveUserChatSpendLimitRow, error) {

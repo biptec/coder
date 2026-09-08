@@ -9,6 +9,11 @@ SELECT *
 FROM workspace_volume_copy_locks
 WHERE workspace_id = @workspace_id;
 
+-- name: GetWorkspaceVolumeCopyLocksByWorkspaceIDs :many
+SELECT *
+FROM workspace_volume_copy_locks
+WHERE workspace_id = ANY(@workspace_ids::uuid[]);
+
 -- name: InsertWorkspaceVolumeCopyLock :exec
 INSERT INTO workspace_volume_copy_locks (
     workspace_id,
@@ -70,10 +75,10 @@ ORDER BY created_at DESC
 LIMIT @limit_count;
 
 -- name: GetActiveWorkspaceVolumeCopyOperations :many
-SELECT *
-FROM workspace_volume_copy_operations
-WHERE status IN ('pending', 'running')
-ORDER BY created_at ASC;
+SELECT DISTINCT operations.*
+FROM workspace_volume_copy_operations AS operations
+JOIN workspace_volume_copy_locks AS locks ON locks.operation_id = operations.id
+ORDER BY operations.created_at ASC;
 
 -- name: MarkWorkspaceVolumeCopyOperationRunning :one
 UPDATE workspace_volume_copy_operations

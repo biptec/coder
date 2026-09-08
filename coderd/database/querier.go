@@ -286,6 +286,7 @@ type sqlcQuerier interface {
 	// The query finds presets where all preset parameters are present in the provided parameters,
 	// and returns the preset with the most parameters (largest subset).
 	FindMatchingPresetID(ctx context.Context, arg FindMatchingPresetIDParams) (uuid.UUID, error)
+	FinishWorkspaceCommandActivity(ctx context.Context, arg FinishWorkspaceCommandActivityParams) (int64, error)
 	GetAIBridgeInterceptionByID(ctx context.Context, id uuid.UUID) (AIBridgeInterception, error)
 	// Look up the parent interception and the root of the thread by finding
 	// which interception recorded a tool usage with the given tool call ID.
@@ -951,6 +952,8 @@ type sqlcQuerier interface {
 	GetWorkspaceByOwnerIDAndName(ctx context.Context, arg GetWorkspaceByOwnerIDAndNameParams) (Workspace, error)
 	GetWorkspaceByResourceID(ctx context.Context, resourceID uuid.UUID) (Workspace, error)
 	GetWorkspaceByWorkspaceAppID(ctx context.Context, workspaceAppID uuid.UUID) (Workspace, error)
+	GetWorkspaceCommandActivityByWorkspaceID(ctx context.Context, arg GetWorkspaceCommandActivityByWorkspaceIDParams) ([]GetWorkspaceCommandActivityByWorkspaceIDRow, error)
+	GetWorkspaceConnectionActivityByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) ([]GetWorkspaceConnectionActivityByWorkspaceIDRow, error)
 	GetWorkspaceModulesByJobID(ctx context.Context, jobID uuid.UUID) ([]WorkspaceModule, error)
 	GetWorkspaceModulesCreatedAfter(ctx context.Context, createdAt time.Time) ([]WorkspaceModule, error)
 	GetWorkspaceProxies(ctx context.Context) ([]WorkspaceProxy, error)
@@ -972,6 +975,7 @@ type sqlcQuerier interface {
 	GetWorkspaceResourcesCreatedAfter(ctx context.Context, createdAt time.Time) ([]WorkspaceResource, error)
 	GetWorkspaceUniqueOwnerCountByTemplateIDs(ctx context.Context, templateIds []uuid.UUID) ([]GetWorkspaceUniqueOwnerCountByTemplateIDsRow, error)
 	GetWorkspaceVolumeCopyLockByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) (WorkspaceVolumeCopyLock, error)
+	GetWorkspaceVolumeCopyLocksByWorkspaceIDs(ctx context.Context, workspaceIds []uuid.UUID) ([]WorkspaceVolumeCopyLock, error)
 	GetWorkspaceVolumeCopyOperationByID(ctx context.Context, id uuid.UUID) (WorkspaceVolumeCopyOperation, error)
 	GetWorkspaceVolumeCopyOperationsByWorkspaceID(ctx context.Context, arg GetWorkspaceVolumeCopyOperationsByWorkspaceIDParams) ([]WorkspaceVolumeCopyOperation, error)
 	// build_params is used to filter by build parameters if present.
@@ -1122,12 +1126,14 @@ type sqlcQuerier interface {
 	InsertWorkspaceAppStatus(ctx context.Context, arg InsertWorkspaceAppStatusParams) (WorkspaceAppStatus, error)
 	InsertWorkspaceBuild(ctx context.Context, arg InsertWorkspaceBuildParams) error
 	InsertWorkspaceBuildParameters(ctx context.Context, arg InsertWorkspaceBuildParametersParams) error
+	InsertWorkspaceCommandActivity(ctx context.Context, arg InsertWorkspaceCommandActivityParams) error
 	InsertWorkspaceModule(ctx context.Context, arg InsertWorkspaceModuleParams) (WorkspaceModule, error)
 	InsertWorkspaceProxy(ctx context.Context, arg InsertWorkspaceProxyParams) (WorkspaceProxy, error)
 	InsertWorkspaceResource(ctx context.Context, arg InsertWorkspaceResourceParams) (WorkspaceResource, error)
 	InsertWorkspaceResourceMetadata(ctx context.Context, arg InsertWorkspaceResourceMetadataParams) ([]WorkspaceResourceMetadatum, error)
 	InsertWorkspaceVolumeCopyLock(ctx context.Context, arg InsertWorkspaceVolumeCopyLockParams) error
 	InsertWorkspaceVolumeCopyOperation(ctx context.Context, arg InsertWorkspaceVolumeCopyOperationParams) (WorkspaceVolumeCopyOperation, error)
+	InterruptWorkspaceCommandActivityByAgentSession(ctx context.Context, arg InterruptWorkspaceCommandActivityByAgentSessionParams) (int64, error)
 	// Returns true when there is no heartbeat row for (chat_id, runner_id)
 	// or the existing row is older than @stale_seconds seconds by database
 	// time. chatstate calls this in a single query so the staleness check
@@ -1219,6 +1225,9 @@ type sqlcQuerier interface {
 	// sequence, so this is acceptable.
 	PinChatByID(ctx context.Context, id uuid.UUID) error
 	PopNextQueuedMessage(ctx context.Context, chatID uuid.UUID) (ChatQueuedMessage, error)
+	PruneWorkspaceCommandActivity(ctx context.Context, arg PruneWorkspaceCommandActivityParams) (int64, error)
+	RecordWorkspaceConnectionFinished(ctx context.Context, arg RecordWorkspaceConnectionFinishedParams) error
+	RecordWorkspaceConnectionStarted(ctx context.Context, arg RecordWorkspaceConnectionStartedParams) error
 	ReduceWorkspaceAgentShareLevelToAuthenticatedByTemplate(ctx context.Context, templateID uuid.UUID) error
 	RegisterWorkspaceProxy(ctx context.Context, arg RegisterWorkspaceProxyParams) (WorkspaceProxy, error)
 	RemoveUserFromGroups(ctx context.Context, arg RemoveUserFromGroupsParams) ([]uuid.UUID, error)
@@ -1228,6 +1237,7 @@ type sqlcQuerier interface {
 	// Sets the target queued message's position to one less than the
 	// current minimum position for that chat, moving it to the head.
 	ReorderChatQueuedMessageToHead(ctx context.Context, arg ReorderChatQueuedMessageToHeadParams) (int64, error)
+	ResetWorkspaceActiveConnectionsByAgentID(ctx context.Context, arg ResetWorkspaceActiveConnectionsByAgentIDParams) error
 	// Resolves the effective spend limit for a user using the hierarchy:
 	// 1. Individual user override (highest priority, applies globally across
 	//    all organizations since it lives on the users table)

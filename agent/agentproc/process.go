@@ -82,16 +82,17 @@ func (p *process) output() (string, *workspacesdk.ProcessTruncation) {
 
 // manager tracks processes spawned by the agent.
 type manager struct {
-	mu         sync.Mutex
-	logger     slog.Logger
-	execer     agentexec.Execer
-	fs         afero.Fs
-	clock      quartz.Clock
-	procs      map[string]*process
-	closed     bool
-	updateEnv  func(current []string) (updated []string, err error)
-	workingDir func() string
-	envInfo    usershell.EnvInfoer
+	mu                    sync.Mutex
+	logger                slog.Logger
+	execer                agentexec.Execer
+	fs                    afero.Fs
+	clock                 quartz.Clock
+	procs                 map[string]*process
+	closed                bool
+	updateEnv             func(current []string) (updated []string, err error)
+	workingDir            func() string
+	envInfo               usershell.EnvInfoer
+	reportCommandActivity CommandActivityReporter
 }
 
 // newManager creates a new process manager.
@@ -248,6 +249,11 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 	m.procs[id] = proc
 	m.mu.Unlock()
 
+	finishActivity := func(int) {}
+	if m.reportCommandActivity != nil {
+		finishActivity = m.reportCommandActivity(req.Command, req.Argv, cmd.Dir)
+	}
+
 	go func() {
 		err := cmd.Wait()
 		exitedAt := m.clock.Now().Unix()
@@ -274,6 +280,7 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 		}
 		proc.exitCode = &code
 		proc.mu.Unlock()
+		finishActivity(code)
 		_ = proc.closeInput()
 
 		// Wake any waiters blocked on new output or

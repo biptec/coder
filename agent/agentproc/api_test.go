@@ -1208,6 +1208,53 @@ func TestProcessLifecycle(t *testing.T) {
 		require.Equal(t, 42, *resp.ExitCode)
 	})
 
+	t.Run("ReportsCommandActivity", func(t *testing.T) {
+		t.Parallel()
+
+		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true}).Leveled(slog.LevelDebug)
+		var reportedCommand string
+		var reportedArgv []string
+		var reportedWorkDir string
+		exitCodes := make(chan int, 1)
+		api := agentproc.NewAPI(
+			logger,
+			agentexec.DefaultExecer,
+			nil,
+			nil,
+			nil,
+			nil,
+			nil,
+			agentproc.WithCommandActivityReporter(func(command string, argv []string, workDir string) func(int) {
+				reportedCommand = command
+				reportedArgv = append([]string(nil), argv...)
+				reportedWorkDir = workDir
+				return func(exitCode int) { exitCodes <- exitCode }
+			}),
+		)
+		t.Cleanup(func() { _ = api.Close() })
+		handler := agentchat.Middleware(api.Routes())
+		workDir := t.TempDir()
+
+		id := startAndGetID(t, handler, workspacesdk.StartProcessRequest{
+			Command: "exit 42",
+			WorkDir: workDir,
+		})
+		resp := waitForExit(t, handler, id)
+		require.False(t, resp.Running)
+		require.NotNil(t, resp.ExitCode)
+		require.Equal(t, 42, *resp.ExitCode)
+		require.Equal(t, "exit 42", reportedCommand)
+		require.Empty(t, reportedArgv)
+		require.Equal(t, workDir, reportedWorkDir)
+
+		select {
+		case exitCode := <-exitCodes:
+			require.Equal(t, 42, exitCode)
+		case <-time.After(testutil.WaitShort):
+			t.Fatal("timed out waiting for command activity completion")
+		}
+	})
+
 	t.Run("StartSignalVerifyExit", func(t *testing.T) {
 		t.Parallel()
 

@@ -88,6 +88,7 @@ func TestBuildJobUsesReadOnlySourceAndPinnedImage(t *testing.T) {
 	require.NoError(t, err)
 
 	spec := job["spec"].(map[string]any)
+	require.EqualValues(t, 60, spec["ttlSecondsAfterFinished"])
 	template := spec["template"].(map[string]any)
 	podSpec := template["spec"].(map[string]any)
 	require.Equal(t, false, podSpec["automountServiceAccountToken"])
@@ -153,6 +154,34 @@ func TestEnsureCopyJobIsIdempotentOnConflict(t *testing.T) {
 		DestinationClaim: "destination-home",
 	}})
 	require.NoError(t, err)
+}
+
+func TestDeleteCopyJobWaitsForJobToDisappear(t *testing.T) {
+	t.Parallel()
+
+	var deleted bool
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/apis/batch/v1/namespaces/coder-workspaces/jobs/copy-job", r.URL.Path)
+		switch r.Method {
+		case http.MethodDelete:
+			var options map[string]any
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&options))
+			require.Equal(t, "Foreground", options["propagationPolicy"])
+			deleted = true
+			_ = json.NewEncoder(rw).Encode(map[string]any{"status": "Success"})
+		case http.MethodGet:
+			require.True(t, deleted)
+			http.Error(rw, `{"reason":"NotFound"}`, http.StatusNotFound)
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	}))
+	defer server.Close()
+	baseURL, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	client := NewClient(baseURL, "", server.Client())
+
+	require.NoError(t, client.DeleteCopyJob(context.Background(), "coder-workspaces", "copy-job"))
 }
 
 func TestGetCopyJobState(t *testing.T) {

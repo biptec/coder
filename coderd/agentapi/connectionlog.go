@@ -14,6 +14,7 @@ import (
 	"github.com/coder/coder/v2/coderd/connectionlog"
 	"github.com/coder/coder/v2/coderd/database"
 	"github.com/coder/coder/v2/coderd/database/db2sdk"
+	"github.com/coder/coder/v2/coderd/database/dbauthz"
 )
 
 type ConnLogAPI struct {
@@ -73,11 +74,35 @@ func (a *ConnLogAPI) ReportConnection(ctx context.Context, req *agentproto.Repor
 	}
 	logIP := database.ParseIP(logIPRaw) // will return null if invalid
 
+	activityTime := req.GetConnection().GetTimestamp().AsTime()
+	activityCtx := dbauthz.AsWorkspaceActivity(ctx)
+	switch action {
+	case database.ConnectionStatusConnected:
+		err = a.Database.RecordWorkspaceConnectionStarted(activityCtx, database.RecordWorkspaceConnectionStartedParams{
+			ConnectedAt:  sql.NullTime{Time: activityTime, Valid: true},
+			WorkspaceID:  ws.ID,
+			AgentID:      a.AgentID,
+			ConnectionID: connectionID,
+			Type:         connectionType,
+		})
+	case database.ConnectionStatusDisconnected:
+		err = a.Database.RecordWorkspaceConnectionFinished(activityCtx, database.RecordWorkspaceConnectionFinishedParams{
+			WorkspaceID:    ws.ID,
+			AgentID:        a.AgentID,
+			Type:           connectionType,
+			DisconnectedAt: sql.NullTime{Time: activityTime, Valid: true},
+			ConnectionID:   connectionID,
+		})
+	}
+	if err != nil {
+		return nil, xerrors.Errorf("record workspace connection activity: %w", err)
+	}
+
 	reason := req.GetConnection().GetReason()
 	connLogger := *a.ConnectionLogger.Load()
 	err = connLogger.Upsert(ctx, database.UpsertConnectionLogParams{
 		ID:               uuid.New(),
-		Time:             req.GetConnection().GetTimestamp().AsTime(),
+		Time:             activityTime,
 		OrganizationID:   ws.OrganizationID,
 		WorkspaceOwnerID: ws.OwnerID,
 		WorkspaceID:      ws.ID,

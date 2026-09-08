@@ -274,19 +274,20 @@ type FakeAgentAPI struct {
 	t      testing.TB
 	logger slog.Logger
 
-	manifest            *agentproto.Manifest
-	startupCh           chan *agentproto.Startup
-	statsCh             chan *agentproto.Stats
-	appHealthCh         chan *agentproto.BatchUpdateAppHealthRequest
-	logsCh              chan<- *agentproto.BatchCreateLogsRequest
-	lifecycleStates     []codersdk.WorkspaceAgentLifecycle
-	metadata            map[string]agentsdk.Metadata
-	timings             []*agentproto.Timing
-	connectionReports   []*agentproto.ReportConnectionRequest
-	subAgents           map[uuid.UUID]*agentproto.SubAgent
-	subAgentDirs        map[uuid.UUID]string
-	subAgentDisplayApps map[uuid.UUID][]agentproto.CreateSubAgentRequest_DisplayApp
-	subAgentApps        map[uuid.UUID][]*agentproto.CreateSubAgentRequest_App
+	manifest               *agentproto.Manifest
+	startupCh              chan *agentproto.Startup
+	statsCh                chan *agentproto.Stats
+	appHealthCh            chan *agentproto.BatchUpdateAppHealthRequest
+	logsCh                 chan<- *agentproto.BatchCreateLogsRequest
+	lifecycleStates        []codersdk.WorkspaceAgentLifecycle
+	metadata               map[string]agentsdk.Metadata
+	timings                []*agentproto.Timing
+	connectionReports      []*agentproto.ReportConnectionRequest
+	commandActivityReports []*agentproto.ReportCommandActivityRequest
+	subAgents              map[uuid.UUID]*agentproto.SubAgent
+	subAgentDirs           map[uuid.UUID]string
+	subAgentDisplayApps    map[uuid.UUID][]agentproto.CreateSubAgentRequest_DisplayApp
+	subAgentApps           map[uuid.UUID][]*agentproto.CreateSubAgentRequest_App
 
 	updateStatsOverride func(
 		ctx context.Context,
@@ -302,6 +303,19 @@ type FakeAgentAPI struct {
 
 func (*FakeAgentAPI) UpdateAppStatus(context.Context, *agentproto.UpdateAppStatusRequest) (*agentproto.UpdateAppStatusResponse, error) {
 	panic("unimplemented")
+}
+
+func (f *FakeAgentAPI) ReportCommandActivity(_ context.Context, req *agentproto.ReportCommandActivityRequest) (*emptypb.Empty, error) {
+	f.Lock()
+	defer f.Unlock()
+	f.commandActivityReports = append(f.commandActivityReports, req)
+	return &emptypb.Empty{}, nil
+}
+
+func (f *FakeAgentAPI) CommandActivityReports() []*agentproto.ReportCommandActivityRequest {
+	f.Lock()
+	defer f.Unlock()
+	return slices.Clone(f.commandActivityReports)
 }
 
 // PushContextState records the incoming snapshot and returns

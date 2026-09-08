@@ -168,15 +168,16 @@ func (api *API) workspaceAgentRPC(rw http.ResponseWriter, r *http.Request) {
 		BoundaryUsageTracker:              api.BoundaryUsageTracker,
 		PortSharer:                        &api.PortSharer,
 
-		AccessURL:                 api.AccessURL,
-		AppHostname:               api.AppHostname,
-		AgentStatsRefreshInterval: api.AgentStatsRefreshInterval,
-		DisableDirectConnections:  api.DeploymentValues.DERP.Config.BlockDirect.Value(),
-		DerpForceWebSockets:       api.DeploymentValues.DERP.Config.ForceWebSockets.Value(),
-		DerpMapUpdateFrequency:    api.Options.DERPMapUpdateFrequency,
-		ExternalAuthConfigs:       api.ExternalAuthConfigs,
-		Experiments:               api.Experiments,
-		LifecycleMetrics:          api.lifecycleMetrics,
+		AccessURL:                            api.AccessURL,
+		AppHostname:                          api.AppHostname,
+		AgentStatsRefreshInterval:            api.AgentStatsRefreshInterval,
+		WorkspaceCommandActivityHistoryLimit: int32(api.DeploymentValues.WorkspaceCommandActivityHistoryLimit.Value()), // #nosec G115 -- deployment config is validated to int32 range.
+		DisableDirectConnections:             api.DeploymentValues.DERP.Config.BlockDirect.Value(),
+		DerpForceWebSockets:                  api.DeploymentValues.DERP.Config.ForceWebSockets.Value(),
+		DerpMapUpdateFrequency:               api.Options.DERPMapUpdateFrequency,
+		ExternalAuthConfigs:                  api.ExternalAuthConfigs,
+		Experiments:                          api.Experiments,
+		LifecycleMetrics:                     api.lifecycleMetrics,
 
 		// Optional:
 		UpdateAgentMetricsFn: api.UpdateAgentMetrics,
