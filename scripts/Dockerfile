@@ -18,7 +18,10 @@ LABEL \
 	org.opencontainers.image.source="https://github.com/coder/coder" \
 	org.opencontainers.image.version="$CODER_VERSION"
 
-# The coder binary is injected by scripts/build_docker.sh.
+# The coder binary and the internal workspace-volume-copy helper are injected by
+# scripts/build_docker.sh. They ship in one Coder image/package; the helper is
+# only used as the command for temporary Kubernetes volume-copy Jobs.
 COPY --chown=1000:1000 --chmod=755 coder /opt/coder
+COPY --chown=0:0 --chmod=755 coder-volume-copy-helper /opt/coder-volume-copy-helper
 
 ENTRYPOINT [ "/opt/coder", "server" ]

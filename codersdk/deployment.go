@@ -3628,7 +3628,7 @@ communicating directly.`,
 		},
 		{
 			Name:        "Workspace Volume Copy Image",
-			Description: "Immutable workspace volume copy helper image used by temporary Kubernetes Jobs. The image must contain /opt/coder-volume-copy-helper and rsync.",
+			Description: "Immutable Coder runtime image used by temporary Kubernetes workspace volume-copy Jobs. The image must contain /opt/coder-volume-copy-helper, rsync, and ACL tools.",
 			Flag:        "workspace-volume-copy-image",
 			Env:         "CODER_WORKSPACE_VOLUME_COPY_IMAGE",
 			YAML:        "workspaceVolumeCopyImage",

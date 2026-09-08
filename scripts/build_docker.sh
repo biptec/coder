@@ -76,7 +76,7 @@ if [[ "$arch" == "" ]]; then
 fi
 
 # Check dependencies
-dependencies docker
+dependencies docker go
 
 # Remove the "v" prefix.
 version="${version#v}"
@@ -96,6 +96,14 @@ if [[ ! -f "$1" ]]; then
 fi
 input_file="$(realpath "$1")"
 
+# Preserve the Go architecture before mapping the Docker platform name.
+go_arch="$arch"
+go_arm=""
+if [[ "$go_arch" == "armv7" ]]; then
+	go_arch="arm"
+	go_arm="7"
+fi
+
 # Remap the arch from Golang to Docker.
 declare -A arch_map=(
 	[amd64]="linux/amd64"
@@ -112,6 +120,14 @@ fi
 cdroot
 temp_dir="$(TMPDIR="$(dirname "$input_file")" mktemp -d)"
 ln "$input_file" "$temp_dir/coder"
+
+# Keep workspace volume-copy as an internal Coder capability without creating a
+# second container package. Every Coder image carries the small helper binary,
+# while the base image provides rsync and ACL tools needed only when a temporary
+# volume-copy Job overrides the image entrypoint.
+CGO_ENABLED=0 GOOS=linux GOARCH="$go_arch" GOARM="$go_arm" \
+	go build -o "$temp_dir/coder-volume-copy-helper" ./cmd/workspace-volume-copy-helper
+
 ln ./scripts/Dockerfile.base "$temp_dir/"
 ln ./scripts/Dockerfile "$temp_dir/"
 
