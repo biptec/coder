@@ -542,8 +542,9 @@ workspaceVolumeCopyEnabled: false
 # volume copying.
 # (default: coder-workspaces, type: string)
 workspaceVolumeCopyNamespace: coder-workspaces
-# Immutable workspace volume copy helper image used by temporary Kubernetes Jobs.
-# The image must contain /opt/coder-volume-copy-helper and rsync.
+# Immutable Coder runtime image used by temporary Kubernetes workspace volume-copy
+# Jobs. The image must contain /opt/coder-volume-copy-helper, rsync, and ACL
+# tools.
 # (default: <unset>, type: string)
 workspaceVolumeCopyImage: ""
 # URL to use for agent troubleshooting when not set in the template.

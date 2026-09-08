@@ -74,7 +74,7 @@ func TestBuildJobUsesReadOnlySourceAndPinnedImage(t *testing.T) {
 	sourceGID := uint32(1000)
 	destinationUID := uint32(2000)
 	destinationGID := uint32(3000)
-	job, err := buildJob("coder-workspaces", "copy-job", "ghcr.io/biptec/coder-volume-copy@sha256:deadbeef", operationID, true, []JobVolume{{
+	job, err := buildJob("coder-workspaces", "copy-job", "ghcr.io/biptec/coder@sha256:deadbeef", operationID, true, []JobVolume{{
 		Key:                 "home",
 		SourceClaim:         "source-home",
 		DestinationClaim:    "destination-home",
@@ -93,7 +93,7 @@ func TestBuildJobUsesReadOnlySourceAndPinnedImage(t *testing.T) {
 	require.Equal(t, false, podSpec["automountServiceAccountToken"])
 	containers := podSpec["containers"].([]any)
 	container := containers[0].(map[string]any)
-	require.Equal(t, "ghcr.io/biptec/coder-volume-copy@sha256:deadbeef", container["image"])
+	require.Equal(t, "ghcr.io/biptec/coder@sha256:deadbeef", container["image"])
 	require.Equal(t, "IfNotPresent", container["imagePullPolicy"])
 	require.Equal(t, []string{"/opt/coder-volume-copy-helper"}, container["command"])
 	securityContext := container["securityContext"].(map[string]any)
