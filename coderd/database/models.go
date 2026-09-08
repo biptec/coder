@@ -6130,6 +6130,14 @@ type Workspace struct {
 	UserACLDisplayInfo      WorkspaceACLDisplayInfo `db:"user_acl_display_info" json:"user_acl_display_info"`
 }
 
+type WorkspaceActiveConnection struct {
+	WorkspaceID  uuid.UUID      `db:"workspace_id" json:"workspace_id"`
+	AgentID      uuid.UUID      `db:"agent_id" json:"agent_id"`
+	ConnectionID uuid.UUID      `db:"connection_id" json:"connection_id"`
+	Type         ConnectionType `db:"type" json:"type"`
+	ConnectedAt  time.Time      `db:"connected_at" json:"connected_at"`
+}
+
 type WorkspaceAgent struct {
 	ID                   uuid.UUID             `db:"id" json:"id"`
 	CreatedAt            time.Time             `db:"created_at" json:"created_at"`
@@ -6474,6 +6482,30 @@ type WorkspaceBuildTable struct {
 	HasExternalAgent        sql.NullBool        `db:"has_external_agent" json:"has_external_agent"`
 	// The autostop deadline value that an autostop reminder notification was last sent for. Used for idempotence: when it equals the build deadline the reminder has already been sent, and it re-arms automatically when the deadline changes.
 	NotifiedAutostopDeadline time.Time `db:"notified_autostop_deadline" json:"notified_autostop_deadline"`
+}
+
+type WorkspaceCommandActivity struct {
+	ID          uuid.UUID     `db:"id" json:"id"`
+	WorkspaceID uuid.UUID     `db:"workspace_id" json:"workspace_id"`
+	AgentID     uuid.UUID     `db:"agent_id" json:"agent_id"`
+	SessionID   uuid.UUID     `db:"session_id" json:"session_id"`
+	Source      string        `db:"source" json:"source"`
+	Command     string        `db:"command" json:"command"`
+	Argv        []string      `db:"argv" json:"argv"`
+	WorkDir     string        `db:"work_dir" json:"work_dir"`
+	Status      string        `db:"status" json:"status"`
+	StartedAt   time.Time     `db:"started_at" json:"started_at"`
+	FinishedAt  sql.NullTime  `db:"finished_at" json:"finished_at"`
+	ExitCode    sql.NullInt32 `db:"exit_code" json:"exit_code"`
+}
+
+type WorkspaceConnectionActivity struct {
+	WorkspaceID        uuid.UUID      `db:"workspace_id" json:"workspace_id"`
+	AgentID            uuid.UUID      `db:"agent_id" json:"agent_id"`
+	Type               ConnectionType `db:"type" json:"type"`
+	LastConnectedAt    sql.NullTime   `db:"last_connected_at" json:"last_connected_at"`
+	LastDisconnectedAt sql.NullTime   `db:"last_disconnected_at" json:"last_disconnected_at"`
+	LastActivityAt     time.Time      `db:"last_activity_at" json:"last_activity_at"`
 }
 
 type WorkspaceLatestBuild struct {

@@ -4282,6 +4282,9 @@ export const DefaultChatDebugRetentionDays = 30;
  */
 export const DefaultChatWorkspaceTTL = 0;
 
+// From codersdk/deployment.go
+export const DefaultWorkspaceCommandActivityHistoryLimit = 1000;
+
 // From codersdk/externalauth.go
 export interface DeleteExternalAuthByIDResponse {
 	/**
@@ -4371,6 +4374,7 @@ export interface DeploymentValues {
 	readonly metrics_cache_refresh_interval?: number;
 	readonly agent_stat_refresh_interval?: number;
 	readonly workspace_activity_now_threshold?: number;
+	readonly workspace_command_activity_history_limit?: number;
 	readonly workspace_volume_copy_enabled?: boolean;
 	readonly workspace_volume_copy_namespace?: string;
 	readonly workspace_volume_copy_image?: string;
@@ -10049,12 +10053,18 @@ export interface Workspace {
 	 */
 	readonly task_id?: string;
 	readonly shared_with?: readonly SharedWorkspaceActor[];
+	readonly volume_copy_operation_id?: string;
 }
 
 // From codersdk/workspaces.go
 export interface WorkspaceACL {
 	readonly users: readonly WorkspaceUser[];
 	readonly group: readonly WorkspaceGroup[];
+}
+
+// From codersdk/workspacevolumecopy.go
+export interface WorkspaceActiveVolumeCopyOperation {
+	readonly operation?: WorkspaceVolumeCopyOperation;
 }
 
 // From codersdk/workspaceagents.go
@@ -10708,6 +10718,64 @@ export interface WorkspaceBuildUpdate {
 // From codersdk/workspaces.go
 export interface WorkspaceBuildsRequest extends Pagination {
 	readonly since?: string;
+}
+
+// From codersdk/workspacecommandactivity.go
+export interface WorkspaceCommandActivity {
+	readonly id: string;
+	readonly agent_id: string;
+	readonly session_id: string;
+	readonly source: WorkspaceCommandActivitySource;
+	readonly command?: string;
+	readonly argv?: readonly string[];
+	readonly work_dir?: string;
+	readonly status: WorkspaceCommandActivityStatus;
+	readonly started_at: string;
+	readonly finished_at?: string;
+	readonly exit_code?: number;
+}
+
+// From codersdk/workspacecommandactivity.go
+export interface WorkspaceCommandActivityResponse {
+	readonly activity: readonly WorkspaceCommandActivity[];
+	readonly history_limit: number;
+}
+
+// From codersdk/workspacecommandactivity.go
+export type WorkspaceCommandActivitySource = "agentproc" | "ssh";
+
+export const WorkspaceCommandActivitySources: WorkspaceCommandActivitySource[] =
+	["agentproc", "ssh"];
+
+// From codersdk/workspacecommandactivity.go
+export type WorkspaceCommandActivityStatus =
+	| "failed"
+	| "interrupted"
+	| "running"
+	| "succeeded";
+
+export const WorkspaceCommandActivityStatuses: WorkspaceCommandActivityStatus[] =
+	["failed", "interrupted", "running", "succeeded"];
+
+// From codersdk/workspaceconnectionactivity.go
+export interface WorkspaceConnectionActivityResponse {
+	readonly active: boolean;
+	readonly active_connections: number;
+	readonly last_activity_at?: string;
+	readonly types: readonly WorkspaceConnectionActivityType[];
+}
+
+// From codersdk/workspaceconnectionactivity.go
+/**
+ * WorkspaceConnectionActivityType summarizes connection activity of one type
+ * across every agent in a workspace.
+ */
+export interface WorkspaceConnectionActivityType {
+	readonly type: ConnectionType;
+	readonly active_connections: number;
+	readonly last_connected_at?: string;
+	readonly last_disconnected_at?: string;
+	readonly last_activity_at?: string;
 }
 
 // From codersdk/deployment.go

@@ -64,7 +64,7 @@ func Test_sessionStart_orphan(t *testing.T) {
 		// we don't really care what the error is here.  In the larger scenario,
 		// the client has disconnected, so we can't return any error information
 		// to them.
-		_ = s.startPTYSession(logger, sess, "ssh", cmd, ptyInfo, windowSize)
+		_ = s.startPTYSession(logger, sess, MagicSessionTypeSSH, "ssh", cmd, ptyInfo, windowSize)
 	}()
 
 	readDone := make(chan struct{})
@@ -90,6 +90,42 @@ func Test_sessionStart_orphan(t *testing.T) {
 
 	err = fromClient.Close()
 	require.NoError(t, err)
+}
+
+func Test_startCommandActivity(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testutil.WaitMedium)
+	defer cancel()
+	var calls int
+	var command string
+	var argv []string
+	var workDir string
+	var exitCode int
+	s, err := NewServer(ctx, testutil.Logger(t), prometheus.NewRegistry(), afero.NewMemMapFs(), agentexec.DefaultExecer, &Config{
+		ReportCommandActivity: func(gotCommand string, gotArgv []string, gotWorkDir string) func(int) {
+			calls++
+			command = gotCommand
+			argv = append([]string(nil), gotArgv...)
+			workDir = gotWorkDir
+			return func(gotExitCode int) { exitCode = gotExitCode }
+		},
+	})
+	require.NoError(t, err)
+	defer s.Close()
+
+	finish := s.startCommandActivity("echo hello", "/workspace", MagicSessionTypeSSH)
+	finish(7)
+	require.Equal(t, 1, calls)
+	require.Equal(t, "echo hello", command)
+	require.Empty(t, argv)
+	require.Equal(t, "/workspace", workDir)
+	require.Equal(t, 7, exitCode)
+
+	s.startCommandActivity("", "/workspace", MagicSessionTypeSSH)(0)
+	s.startCommandActivity("code --wait", "/workspace", MagicSessionTypeVSCode)(0)
+	s.startCommandActivity("idea", "/workspace", MagicSessionTypeJetBrains)(0)
+	require.Equal(t, 1, calls, "interactive/IDE sessions must not be recorded as commands")
 }
 
 func waitForChan(ctx context.Context, t *testing.T, c <-chan struct{}, msg string) {

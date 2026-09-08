@@ -53,6 +53,13 @@ func (f *fakeWorkspaceVolumeCopyKubernetes) EnsureCopyJob(_ context.Context, _, 
 	return nil
 }
 
+func (f *fakeWorkspaceVolumeCopyKubernetes) DeleteCopyJob(_ context.Context, _, jobName string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.jobs, jobName)
+	return nil
+}
+
 func (f *fakeWorkspaceVolumeCopyKubernetes) GetCopyJobState(_ context.Context, _, jobName string) (volcopyk8s.JobState, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -151,6 +158,33 @@ func TestWorkspaceVolumeCopyCrossOwnerLocksLifecycle(t *testing.T) {
 	require.Equal(t, destination.ID, operation.DestinationWorkspaceID)
 	require.False(t, operation.AllowSourceRunning)
 
+	activeSource, err := client.WorkspaceActiveVolumeCopyOperation(ctx, source.ID)
+	require.NoError(t, err)
+	require.NotNil(t, activeSource.Operation)
+	require.Equal(t, operation.ID, activeSource.Operation.ID)
+	activeDestination, err := client.WorkspaceActiveVolumeCopyOperation(ctx, destination.ID)
+	require.NoError(t, err)
+	require.NotNil(t, activeDestination.Operation)
+	require.Equal(t, operation.ID, activeDestination.Operation.ID)
+
+	sourceWithCopy, err := client.Workspace(ctx, source.ID)
+	require.NoError(t, err)
+	require.NotNil(t, sourceWithCopy.VolumeCopyOperationID)
+	require.Equal(t, operation.ID, *sourceWithCopy.VolumeCopyOperationID)
+	destinationWithCopy, err := client.Workspace(ctx, destination.ID)
+	require.NoError(t, err)
+	require.NotNil(t, destinationWithCopy.VolumeCopyOperationID)
+	require.Equal(t, operation.ID, *destinationWithCopy.VolumeCopyOperationID)
+
+	// A second copy cannot be started while either participant is locked, even
+	// if a client has lost the original operation URL/state.
+	_, err = client.CreateWorkspaceVolumeCopy(ctx, source.ID, codersdk.CreateWorkspaceVolumeCopyRequest{
+		DestinationWorkspaceID: destination.ID,
+		Volumes:                []codersdk.WorkspaceVolumeCopySelection{{Key: "home"}},
+	})
+	require.Error(t, err)
+	require.Equal(t, http.StatusConflict, coderdtest.SDKError(t, err).StatusCode())
+
 	internalCtx := dbauthz.AsWorkspaceVolumeCopy(ctx)
 	sourceLock, err := db.GetWorkspaceVolumeCopyLockByWorkspaceID(internalCtx, source.ID)
 	require.NoError(t, err)
@@ -175,6 +209,15 @@ func TestWorkspaceVolumeCopyCrossOwnerLocksLifecycle(t *testing.T) {
 	require.ErrorIs(t, err, sql.ErrNoRows)
 	_, err = db.GetWorkspaceVolumeCopyLockByWorkspaceID(internalCtx, destination.ID)
 	require.ErrorIs(t, err, sql.ErrNoRows)
+	activeSource, err = client.WorkspaceActiveVolumeCopyOperation(ctx, source.ID)
+	require.NoError(t, err)
+	require.Nil(t, activeSource.Operation)
+	sourceAfterCopy, err := client.Workspace(ctx, source.ID)
+	require.NoError(t, err)
+	require.Nil(t, sourceAfterCopy.VolumeCopyOperationID)
+	destinationAfterCopy, err := client.Workspace(ctx, destination.ID)
+	require.NoError(t, err)
+	require.Nil(t, destinationAfterCopy.VolumeCopyOperationID)
 
 	// Sync again is intentionally a live-copy-only workflow. A successful strict
 	// copy must be rejected by the API even though the UI does not offer the action.

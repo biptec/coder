@@ -76,8 +76,9 @@ type Workspace struct {
 	// and IsPrebuild returns false.
 	IsPrebuild bool `json:"is_prebuild"`
 	// TaskID, if set, indicates that the workspace is relevant to the given codersdk.Task.
-	TaskID     uuid.NullUUID          `json:"task_id,omitempty"`
-	SharedWith []SharedWorkspaceActor `json:"shared_with,omitempty"`
+	TaskID                uuid.NullUUID          `json:"task_id,omitempty"`
+	SharedWith            []SharedWorkspaceActor `json:"shared_with,omitempty"`
+	VolumeCopyOperationID *uuid.UUID             `json:"volume_copy_operation_id,omitempty" format:"uuid"`
 }
 
 func (w Workspace) FullName() string {

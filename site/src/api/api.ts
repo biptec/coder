@@ -1373,6 +1373,36 @@ class ApiMethods {
 		return response.data;
 	};
 
+	getWorkspaceCommandActivity = async (
+		workspaceId: string,
+	): Promise<TypesGen.WorkspaceCommandActivityResponse> => {
+		const response =
+			await this.axios.get<TypesGen.WorkspaceCommandActivityResponse>(
+				`/api/v2/workspaces/${workspaceId}/command-activity`,
+			);
+		return response.data;
+	};
+
+	getWorkspaceConnectionActivity = async (
+		workspaceId: string,
+	): Promise<TypesGen.WorkspaceConnectionActivityResponse> => {
+		const response =
+			await this.axios.get<TypesGen.WorkspaceConnectionActivityResponse>(
+				`/api/v2/workspaces/${workspaceId}/connection-activity`,
+			);
+		return response.data;
+	};
+
+	getWorkspaceActiveVolumeCopyOperation = async (
+		workspaceId: string,
+	): Promise<TypesGen.WorkspaceActiveVolumeCopyOperation> => {
+		const response =
+			await this.axios.get<TypesGen.WorkspaceActiveVolumeCopyOperation>(
+				`/api/v2/workspaces/${workspaceId}/volume-copy-operation`,
+			);
+		return response.data;
+	};
+
 	getWorkspaceVolumeCopyVolumes = async (
 		workspaceId: string,
 	): Promise<readonly TypesGen.WorkspaceVolumeCopyVolume[]> => {

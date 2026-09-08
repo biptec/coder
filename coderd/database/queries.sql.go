@@ -36279,6 +36279,437 @@ func (q *sqlQuerier) UpdateWorkspaceBuildProvisionerStateByID(ctx context.Contex
 	return err
 }
 
+const finishWorkspaceCommandActivity = `-- name: FinishWorkspaceCommandActivity :execrows
+UPDATE workspace_command_activity
+SET status = CASE WHEN $1::integer = 0 THEN 'succeeded' ELSE 'failed' END,
+    finished_at = $2,
+    exit_code = $1
+WHERE id = $3
+  AND workspace_id = $4
+  AND agent_id = $5
+  AND session_id = $6
+  AND status = 'running'
+`
+
+type FinishWorkspaceCommandActivityParams struct {
+	ExitCode    sql.NullInt32 `db:"exit_code" json:"exit_code"`
+	FinishedAt  sql.NullTime  `db:"finished_at" json:"finished_at"`
+	ID          uuid.UUID     `db:"id" json:"id"`
+	WorkspaceID uuid.UUID     `db:"workspace_id" json:"workspace_id"`
+	AgentID     uuid.UUID     `db:"agent_id" json:"agent_id"`
+	SessionID   uuid.UUID     `db:"session_id" json:"session_id"`
+}
+
+func (q *sqlQuerier) FinishWorkspaceCommandActivity(ctx context.Context, arg FinishWorkspaceCommandActivityParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, finishWorkspaceCommandActivity,
+		arg.ExitCode,
+		arg.FinishedAt,
+		arg.ID,
+		arg.WorkspaceID,
+		arg.AgentID,
+		arg.SessionID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const getWorkspaceCommandActivityByWorkspaceID = `-- name: GetWorkspaceCommandActivityByWorkspaceID :many
+WITH recent_completed AS (
+    SELECT completed.id, completed.workspace_id, completed.agent_id, completed.session_id, completed.source, completed.command, completed.argv, completed.work_dir, completed.status, completed.started_at, completed.finished_at, completed.exit_code
+    FROM workspace_command_activity AS completed
+    WHERE completed.workspace_id = $1
+      AND completed.status != 'running'
+    ORDER BY completed.started_at DESC, completed.id DESC
+    LIMIT $2
+), running AS (
+    SELECT active.id, active.workspace_id, active.agent_id, active.session_id, active.source, active.command, active.argv, active.work_dir, active.status, active.started_at, active.finished_at, active.exit_code
+    FROM workspace_command_activity AS active
+    WHERE active.workspace_id = $1
+      AND active.status = 'running'
+)
+SELECT id, workspace_id, agent_id, session_id, source, command, argv, work_dir, status, started_at, finished_at, exit_code FROM running
+UNION ALL
+SELECT id, workspace_id, agent_id, session_id, source, command, argv, work_dir, status, started_at, finished_at, exit_code FROM recent_completed
+ORDER BY started_at DESC, id DESC
+`
+
+type GetWorkspaceCommandActivityByWorkspaceIDParams struct {
+	WorkspaceID  uuid.UUID `db:"workspace_id" json:"workspace_id"`
+	HistoryLimit int32     `db:"history_limit" json:"history_limit"`
+}
+
+type GetWorkspaceCommandActivityByWorkspaceIDRow struct {
+	ID          uuid.UUID     `db:"id" json:"id"`
+	WorkspaceID uuid.UUID     `db:"workspace_id" json:"workspace_id"`
+	AgentID     uuid.UUID     `db:"agent_id" json:"agent_id"`
+	SessionID   uuid.UUID     `db:"session_id" json:"session_id"`
+	Source      string        `db:"source" json:"source"`
+	Command     string        `db:"command" json:"command"`
+	Argv        []string      `db:"argv" json:"argv"`
+	WorkDir     string        `db:"work_dir" json:"work_dir"`
+	Status      string        `db:"status" json:"status"`
+	StartedAt   time.Time     `db:"started_at" json:"started_at"`
+	FinishedAt  sql.NullTime  `db:"finished_at" json:"finished_at"`
+	ExitCode    sql.NullInt32 `db:"exit_code" json:"exit_code"`
+}
+
+func (q *sqlQuerier) GetWorkspaceCommandActivityByWorkspaceID(ctx context.Context, arg GetWorkspaceCommandActivityByWorkspaceIDParams) ([]GetWorkspaceCommandActivityByWorkspaceIDRow, error) {
+	rows, err := q.db.QueryContext(ctx, getWorkspaceCommandActivityByWorkspaceID, arg.WorkspaceID, arg.HistoryLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetWorkspaceCommandActivityByWorkspaceIDRow
+	for rows.Next() {
+		var i GetWorkspaceCommandActivityByWorkspaceIDRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.AgentID,
+			&i.SessionID,
+			&i.Source,
+			&i.Command,
+			pq.Array(&i.Argv),
+			&i.WorkDir,
+			&i.Status,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.ExitCode,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const insertWorkspaceCommandActivity = `-- name: InsertWorkspaceCommandActivity :exec
+INSERT INTO workspace_command_activity (
+    id,
+    workspace_id,
+    agent_id,
+    session_id,
+    source,
+    command,
+    argv,
+    work_dir,
+    status,
+    started_at
+) VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7,
+    $8,
+    'running',
+    $9
+)
+ON CONFLICT (id) DO NOTHING
+`
+
+type InsertWorkspaceCommandActivityParams struct {
+	ID          uuid.UUID `db:"id" json:"id"`
+	WorkspaceID uuid.UUID `db:"workspace_id" json:"workspace_id"`
+	AgentID     uuid.UUID `db:"agent_id" json:"agent_id"`
+	SessionID   uuid.UUID `db:"session_id" json:"session_id"`
+	Source      string    `db:"source" json:"source"`
+	Command     string    `db:"command" json:"command"`
+	Argv        []string  `db:"argv" json:"argv"`
+	WorkDir     string    `db:"work_dir" json:"work_dir"`
+	StartedAt   time.Time `db:"started_at" json:"started_at"`
+}
+
+func (q *sqlQuerier) InsertWorkspaceCommandActivity(ctx context.Context, arg InsertWorkspaceCommandActivityParams) error {
+	_, err := q.db.ExecContext(ctx, insertWorkspaceCommandActivity,
+		arg.ID,
+		arg.WorkspaceID,
+		arg.AgentID,
+		arg.SessionID,
+		arg.Source,
+		arg.Command,
+		pq.Array(arg.Argv),
+		arg.WorkDir,
+		arg.StartedAt,
+	)
+	return err
+}
+
+const interruptWorkspaceCommandActivityByAgentSession = `-- name: InterruptWorkspaceCommandActivityByAgentSession :execrows
+UPDATE workspace_command_activity
+SET status = 'interrupted',
+    finished_at = $1,
+    exit_code = NULL
+WHERE workspace_id = $2
+  AND agent_id = $3
+  AND session_id != $4
+  AND status = 'running'
+`
+
+type InterruptWorkspaceCommandActivityByAgentSessionParams struct {
+	FinishedAt  sql.NullTime `db:"finished_at" json:"finished_at"`
+	WorkspaceID uuid.UUID    `db:"workspace_id" json:"workspace_id"`
+	AgentID     uuid.UUID    `db:"agent_id" json:"agent_id"`
+	SessionID   uuid.UUID    `db:"session_id" json:"session_id"`
+}
+
+func (q *sqlQuerier) InterruptWorkspaceCommandActivityByAgentSession(ctx context.Context, arg InterruptWorkspaceCommandActivityByAgentSessionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, interruptWorkspaceCommandActivityByAgentSession,
+		arg.FinishedAt,
+		arg.WorkspaceID,
+		arg.AgentID,
+		arg.SessionID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const pruneWorkspaceCommandActivity = `-- name: PruneWorkspaceCommandActivity :execrows
+DELETE FROM workspace_command_activity
+WHERE id IN (
+    SELECT completed.id
+    FROM workspace_command_activity AS completed
+    WHERE completed.workspace_id = $1
+      AND completed.status != 'running'
+    ORDER BY completed.started_at DESC, completed.id DESC
+    OFFSET $2
+)
+`
+
+type PruneWorkspaceCommandActivityParams struct {
+	WorkspaceID  uuid.UUID `db:"workspace_id" json:"workspace_id"`
+	HistoryLimit int32     `db:"history_limit" json:"history_limit"`
+}
+
+func (q *sqlQuerier) PruneWorkspaceCommandActivity(ctx context.Context, arg PruneWorkspaceCommandActivityParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, pruneWorkspaceCommandActivity, arg.WorkspaceID, arg.HistoryLimit)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const getWorkspaceConnectionActivityByWorkspaceID = `-- name: GetWorkspaceConnectionActivityByWorkspaceID :many
+WITH active AS (
+    SELECT
+        workspace_id,
+        agent_id,
+        type,
+        COUNT(*)::integer AS active_connections
+    FROM workspace_active_connections
+    WHERE workspace_id = $1
+    GROUP BY workspace_id, agent_id, type
+)
+SELECT
+    connection_activity.agent_id,
+    connection_activity.type,
+    connection_activity.last_connected_at,
+    connection_activity.last_disconnected_at,
+    connection_activity.last_activity_at,
+    COALESCE(active.active_connections, 0)::integer AS active_connections
+FROM workspace_connection_activity AS connection_activity
+LEFT JOIN active ON
+    active.workspace_id = connection_activity.workspace_id
+    AND active.agent_id = connection_activity.agent_id
+    AND active.type = connection_activity.type
+WHERE connection_activity.workspace_id = $1
+ORDER BY connection_activity.type, connection_activity.agent_id
+`
+
+type GetWorkspaceConnectionActivityByWorkspaceIDRow struct {
+	AgentID            uuid.UUID      `db:"agent_id" json:"agent_id"`
+	Type               ConnectionType `db:"type" json:"type"`
+	LastConnectedAt    sql.NullTime   `db:"last_connected_at" json:"last_connected_at"`
+	LastDisconnectedAt sql.NullTime   `db:"last_disconnected_at" json:"last_disconnected_at"`
+	LastActivityAt     time.Time      `db:"last_activity_at" json:"last_activity_at"`
+	ActiveConnections  int32          `db:"active_connections" json:"active_connections"`
+}
+
+func (q *sqlQuerier) GetWorkspaceConnectionActivityByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) ([]GetWorkspaceConnectionActivityByWorkspaceIDRow, error) {
+	rows, err := q.db.QueryContext(ctx, getWorkspaceConnectionActivityByWorkspaceID, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetWorkspaceConnectionActivityByWorkspaceIDRow
+	for rows.Next() {
+		var i GetWorkspaceConnectionActivityByWorkspaceIDRow
+		if err := rows.Scan(
+			&i.AgentID,
+			&i.Type,
+			&i.LastConnectedAt,
+			&i.LastDisconnectedAt,
+			&i.LastActivityAt,
+			&i.ActiveConnections,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const recordWorkspaceConnectionFinished = `-- name: RecordWorkspaceConnectionFinished :exec
+WITH removed AS (
+    DELETE FROM workspace_active_connections
+    WHERE agent_id = $2
+      AND connection_id = $5
+    RETURNING workspace_id, agent_id, type
+)
+INSERT INTO workspace_connection_activity (
+    workspace_id,
+    agent_id,
+    type,
+    last_disconnected_at,
+    last_activity_at
+) VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $4
+)
+ON CONFLICT (workspace_id, agent_id, type) DO UPDATE SET
+    last_disconnected_at = GREATEST(workspace_connection_activity.last_disconnected_at, EXCLUDED.last_disconnected_at),
+    last_activity_at = GREATEST(workspace_connection_activity.last_activity_at, EXCLUDED.last_activity_at)
+`
+
+type RecordWorkspaceConnectionFinishedParams struct {
+	WorkspaceID    uuid.UUID      `db:"workspace_id" json:"workspace_id"`
+	AgentID        uuid.UUID      `db:"agent_id" json:"agent_id"`
+	Type           ConnectionType `db:"type" json:"type"`
+	DisconnectedAt sql.NullTime   `db:"disconnected_at" json:"disconnected_at"`
+	ConnectionID   uuid.UUID      `db:"connection_id" json:"connection_id"`
+}
+
+func (q *sqlQuerier) RecordWorkspaceConnectionFinished(ctx context.Context, arg RecordWorkspaceConnectionFinishedParams) error {
+	_, err := q.db.ExecContext(ctx, recordWorkspaceConnectionFinished,
+		arg.WorkspaceID,
+		arg.AgentID,
+		arg.Type,
+		arg.DisconnectedAt,
+		arg.ConnectionID,
+	)
+	return err
+}
+
+const recordWorkspaceConnectionStarted = `-- name: RecordWorkspaceConnectionStarted :exec
+WITH active AS (
+    INSERT INTO workspace_active_connections (
+        workspace_id,
+        agent_id,
+        connection_id,
+        type,
+        connected_at
+    ) VALUES (
+        $2,
+        $3,
+        $4,
+        $5,
+        $1
+    )
+    ON CONFLICT (agent_id, connection_id) DO UPDATE SET
+        workspace_id = EXCLUDED.workspace_id,
+        type = EXCLUDED.type,
+        connected_at = LEAST(workspace_active_connections.connected_at, EXCLUDED.connected_at)
+    RETURNING workspace_id, agent_id, type
+)
+INSERT INTO workspace_connection_activity (
+    workspace_id,
+    agent_id,
+    type,
+    last_connected_at,
+    last_activity_at
+)
+SELECT
+    workspace_id,
+    agent_id,
+    type,
+    $1,
+    $1
+FROM active
+ON CONFLICT (workspace_id, agent_id, type) DO UPDATE SET
+    last_connected_at = GREATEST(workspace_connection_activity.last_connected_at, EXCLUDED.last_connected_at),
+    last_activity_at = GREATEST(workspace_connection_activity.last_activity_at, EXCLUDED.last_activity_at)
+`
+
+type RecordWorkspaceConnectionStartedParams struct {
+	ConnectedAt  sql.NullTime   `db:"connected_at" json:"connected_at"`
+	WorkspaceID  uuid.UUID      `db:"workspace_id" json:"workspace_id"`
+	AgentID      uuid.UUID      `db:"agent_id" json:"agent_id"`
+	ConnectionID uuid.UUID      `db:"connection_id" json:"connection_id"`
+	Type         ConnectionType `db:"type" json:"type"`
+}
+
+func (q *sqlQuerier) RecordWorkspaceConnectionStarted(ctx context.Context, arg RecordWorkspaceConnectionStartedParams) error {
+	_, err := q.db.ExecContext(ctx, recordWorkspaceConnectionStarted,
+		arg.ConnectedAt,
+		arg.WorkspaceID,
+		arg.AgentID,
+		arg.ConnectionID,
+		arg.Type,
+	)
+	return err
+}
+
+const resetWorkspaceActiveConnectionsByAgentID = `-- name: ResetWorkspaceActiveConnectionsByAgentID :exec
+WITH removed AS (
+    DELETE FROM workspace_active_connections AS active_connection
+    WHERE active_connection.workspace_id = $2
+      AND active_connection.agent_id = $3
+    RETURNING active_connection.workspace_id, active_connection.agent_id, active_connection.type
+), removed_types AS (
+    SELECT DISTINCT workspace_id, agent_id, type
+    FROM removed
+)
+INSERT INTO workspace_connection_activity (
+    workspace_id,
+    agent_id,
+    type,
+    last_disconnected_at,
+    last_activity_at
+)
+SELECT
+    workspace_id,
+    agent_id,
+    type,
+    $1,
+    $1
+FROM removed_types
+ON CONFLICT (workspace_id, agent_id, type) DO UPDATE SET
+    last_disconnected_at = GREATEST(workspace_connection_activity.last_disconnected_at, EXCLUDED.last_disconnected_at),
+    last_activity_at = GREATEST(workspace_connection_activity.last_activity_at, EXCLUDED.last_activity_at)
+`
+
+type ResetWorkspaceActiveConnectionsByAgentIDParams struct {
+	DisconnectedAt sql.NullTime `db:"disconnected_at" json:"disconnected_at"`
+	WorkspaceID    uuid.UUID    `db:"workspace_id" json:"workspace_id"`
+	AgentID        uuid.UUID    `db:"agent_id" json:"agent_id"`
+}
+
+func (q *sqlQuerier) ResetWorkspaceActiveConnectionsByAgentID(ctx context.Context, arg ResetWorkspaceActiveConnectionsByAgentIDParams) error {
+	_, err := q.db.ExecContext(ctx, resetWorkspaceActiveConnectionsByAgentID, arg.DisconnectedAt, arg.WorkspaceID, arg.AgentID)
+	return err
+}
+
 const getWorkspaceModulesByJobID = `-- name: GetWorkspaceModulesByJobID :many
 SELECT
 	id, job_id, transition, source, version, key, created_at
@@ -39038,10 +39469,10 @@ func (q *sqlQuerier) DeleteWorkspaceVolumeCopyLocksByOperationID(ctx context.Con
 }
 
 const getActiveWorkspaceVolumeCopyOperations = `-- name: GetActiveWorkspaceVolumeCopyOperations :many
-SELECT id, created_at, updated_at, initiator_id, source_workspace_id, destination_workspace_id, allow_source_running, volumes, status, namespace, job_name, error, started_at, completed_at, sync_of
-FROM workspace_volume_copy_operations
-WHERE status IN ('pending', 'running')
-ORDER BY created_at ASC
+SELECT DISTINCT operations.id, operations.created_at, operations.updated_at, operations.initiator_id, operations.source_workspace_id, operations.destination_workspace_id, operations.allow_source_running, operations.volumes, operations.status, operations.namespace, operations.job_name, operations.error, operations.started_at, operations.completed_at, operations.sync_of
+FROM workspace_volume_copy_operations AS operations
+JOIN workspace_volume_copy_locks AS locks ON locks.operation_id = operations.id
+ORDER BY operations.created_at ASC
 `
 
 func (q *sqlQuerier) GetActiveWorkspaceVolumeCopyOperations(ctx context.Context) ([]WorkspaceVolumeCopyOperation, error) {
@@ -39094,6 +39525,35 @@ func (q *sqlQuerier) GetWorkspaceVolumeCopyLockByWorkspaceID(ctx context.Context
 	var i WorkspaceVolumeCopyLock
 	err := row.Scan(&i.WorkspaceID, &i.OperationID, &i.CreatedAt)
 	return i, err
+}
+
+const getWorkspaceVolumeCopyLocksByWorkspaceIDs = `-- name: GetWorkspaceVolumeCopyLocksByWorkspaceIDs :many
+SELECT workspace_id, operation_id, created_at
+FROM workspace_volume_copy_locks
+WHERE workspace_id = ANY($1::uuid[])
+`
+
+func (q *sqlQuerier) GetWorkspaceVolumeCopyLocksByWorkspaceIDs(ctx context.Context, workspaceIds []uuid.UUID) ([]WorkspaceVolumeCopyLock, error) {
+	rows, err := q.db.QueryContext(ctx, getWorkspaceVolumeCopyLocksByWorkspaceIDs, pq.Array(workspaceIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []WorkspaceVolumeCopyLock
+	for rows.Next() {
+		var i WorkspaceVolumeCopyLock
+		if err := rows.Scan(&i.WorkspaceID, &i.OperationID, &i.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getWorkspaceVolumeCopyOperationByID = `-- name: GetWorkspaceVolumeCopyOperationByID :one

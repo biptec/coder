@@ -128,7 +128,10 @@ const WorkspacesPage: FC = () => {
 			// Check if any workspace has an active build
 			const hasActiveBuilds = state.data.workspaces?.some((workspace) => {
 				const status = workspace.latest_build.status;
-				return ACTIVE_BUILD_STATUSES.includes(status);
+				return (
+					ACTIVE_BUILD_STATUSES.includes(status) ||
+					Boolean(workspace.volume_copy_operation_id)
+				);
 			});
 
 			// Poll every 5s if there are active builds, otherwise every 30s

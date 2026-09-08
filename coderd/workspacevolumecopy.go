@@ -60,6 +60,51 @@ type workspaceVolumeCopyAuditFields struct {
 	SyncOf                 uuid.NullUUID                           `json:"sync_of,omitempty"`
 }
 
+// @Summary Get the active persistent-volume copy operation for a workspace
+// @ID get-workspace-active-volume-copy
+// @Security CoderSessionToken
+// @Produce json
+// @Tags Workspaces
+// @Param workspace path string true "Workspace ID" format(uuid)
+// @Success 200 {object} codersdk.WorkspaceActiveVolumeCopyOperation
+// @Router /api/v2/workspaces/{workspace}/volume-copy-operation [get]
+func (api *API) workspaceActiveVolumeCopyOperation(rw http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	workspace := httpmw.WorkspaceParam(r)
+	if !api.workspaceVolumeCopyEnabled(rw) {
+		return
+	}
+	if !api.Authorize(r, policy.ActionWorkspaceVolumeCopy, workspace) {
+		httpapi.Forbidden(rw)
+		return
+	}
+
+	internalCtx := dbauthz.AsWorkspaceVolumeCopy(ctx)
+	lock, err := api.Database.GetWorkspaceVolumeCopyLockByWorkspaceID(internalCtx, workspace.ID)
+	if xerrors.Is(err, sql.ErrNoRows) {
+		httpapi.Write(ctx, rw, http.StatusOK, codersdk.WorkspaceActiveVolumeCopyOperation{})
+		return
+	}
+	if err != nil {
+		httpapi.InternalServerError(rw, err)
+		return
+	}
+	operation, err := api.Database.GetWorkspaceVolumeCopyOperationByID(internalCtx, lock.OperationID)
+	if err != nil {
+		httpapi.InternalServerError(rw, err)
+		return
+	}
+	if !api.authorizeWorkspaceVolumeCopyOperation(rw, r, operation) {
+		return
+	}
+	response, err := workspaceVolumeCopyOperationToSDK(operation)
+	if err != nil {
+		httpapi.InternalServerError(rw, err)
+		return
+	}
+	httpapi.Write(ctx, rw, http.StatusOK, codersdk.WorkspaceActiveVolumeCopyOperation{Operation: &response})
+}
+
 // @Summary List copyable persistent volumes for a workspace
 // @ID get-workspace-volume-copy-volumes
 // @Security CoderSessionToken
@@ -682,9 +727,16 @@ func (api *API) reconcileWorkspaceVolumeCopiesOnce(ctx context.Context) error {
 }
 
 func (api *API) reconcileWorkspaceVolumeCopy(ctx context.Context, operation database.WorkspaceVolumeCopyOperation) error {
+	switch codersdk.WorkspaceVolumeCopyStatus(operation.Status) {
+	case codersdk.WorkspaceVolumeCopyStatusSucceeded,
+		codersdk.WorkspaceVolumeCopyStatusFailed,
+		codersdk.WorkspaceVolumeCopyStatusCanceled:
+		return api.cleanupWorkspaceVolumeCopy(ctx, operation)
+	}
+
 	resolved, err := decodeResolvedWorkspaceVolumeCopies(operation.Volumes)
 	if err != nil {
-		return api.failWorkspaceVolumeCopy(ctx, operation.ID, "Invalid persisted volume copy plan: "+err.Error())
+		return api.failWorkspaceVolumeCopy(ctx, operation, "Invalid persisted volume copy plan: "+err.Error())
 	}
 	jobVolumes := make([]volcopyk8s.JobVolume, 0, len(resolved))
 	for _, volume := range resolved {
@@ -714,7 +766,7 @@ func (api *API) reconcileWorkspaceVolumeCopy(ctx context.Context, operation data
 		if err != nil {
 			var apiErr *volcopyk8s.APIError
 			if errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 && apiErr.StatusCode != http.StatusTooManyRequests {
-				return api.failWorkspaceVolumeCopy(ctx, operation.ID, "Kubernetes rejected the volume copy Job: "+err.Error())
+				return api.failWorkspaceVolumeCopy(ctx, operation, "Kubernetes rejected the volume copy Job: "+err.Error())
 			}
 			return err
 		}
@@ -732,7 +784,7 @@ func (api *API) reconcileWorkspaceVolumeCopy(ctx context.Context, operation data
 
 	state, err := api.workspaceVolumeCopyKubernetes.GetCopyJobState(ctx, operation.Namespace, operation.JobName)
 	if errors.Is(err, volcopyk8s.ErrNotFound) {
-		return api.failWorkspaceVolumeCopy(ctx, operation.ID, "Kubernetes volume copy Job disappeared before completion.")
+		return api.failWorkspaceVolumeCopy(ctx, operation, "Kubernetes volume copy Job disappeared before completion.")
 	}
 	if err != nil {
 		return err
@@ -742,41 +794,52 @@ func (api *API) reconcileWorkspaceVolumeCopy(ctx context.Context, operation data
 		if message == "" {
 			message = "Kubernetes volume copy Job failed."
 		}
-		return api.failWorkspaceVolumeCopy(ctx, operation.ID, message)
+		return api.failWorkspaceVolumeCopy(ctx, operation, message)
 	}
 	if !state.Succeeded {
 		return nil
 	}
-	return api.succeedWorkspaceVolumeCopy(ctx, operation.ID)
+	return api.succeedWorkspaceVolumeCopy(ctx, operation)
 }
 
-func (api *API) succeedWorkspaceVolumeCopy(ctx context.Context, operationID uuid.UUID) error {
+func (api *API) succeedWorkspaceVolumeCopy(ctx context.Context, operation database.WorkspaceVolumeCopyOperation) error {
 	now := dbtime.Now()
-	internalCtx := dbauthz.AsWorkspaceVolumeCopy(ctx)
-	return api.Database.InTx(func(tx database.Store) error {
-		if _, err := tx.MarkWorkspaceVolumeCopyOperationSucceeded(internalCtx, database.MarkWorkspaceVolumeCopyOperationSucceededParams{
+	updated, err := api.Database.MarkWorkspaceVolumeCopyOperationSucceeded(
+		dbauthz.AsWorkspaceVolumeCopy(ctx),
+		database.MarkWorkspaceVolumeCopyOperationSucceededParams{
 			UpdatedAt:   now,
 			CompletedAt: sql.NullTime{Time: now, Valid: true},
-			ID:          operationID,
-		}); err != nil {
-			return err
-		}
-		return tx.DeleteWorkspaceVolumeCopyLocksByOperationID(internalCtx, operationID)
-	}, nil)
+			ID:          operation.ID,
+		},
+	)
+	if err != nil {
+		return err
+	}
+	return api.cleanupWorkspaceVolumeCopy(ctx, updated)
 }
 
-func (api *API) failWorkspaceVolumeCopy(ctx context.Context, operationID uuid.UUID, message string) error {
+func (api *API) failWorkspaceVolumeCopy(ctx context.Context, operation database.WorkspaceVolumeCopyOperation, message string) error {
 	now := dbtime.Now()
-	internalCtx := dbauthz.AsWorkspaceVolumeCopy(ctx)
-	return api.Database.InTx(func(tx database.Store) error {
-		if _, err := tx.MarkWorkspaceVolumeCopyOperationFailed(internalCtx, database.MarkWorkspaceVolumeCopyOperationFailedParams{
+	updated, err := api.Database.MarkWorkspaceVolumeCopyOperationFailed(
+		dbauthz.AsWorkspaceVolumeCopy(ctx),
+		database.MarkWorkspaceVolumeCopyOperationFailedParams{
 			UpdatedAt:   now,
 			CompletedAt: sql.NullTime{Time: now, Valid: true},
 			Error:       message,
-			ID:          operationID,
-		}); err != nil {
-			return err
-		}
-		return tx.DeleteWorkspaceVolumeCopyLocksByOperationID(internalCtx, operationID)
-	}, nil)
+			ID:          operation.ID,
+		},
+	)
+	if err != nil {
+		return err
+	}
+	return api.cleanupWorkspaceVolumeCopy(ctx, updated)
+}
+
+func (api *API) cleanupWorkspaceVolumeCopy(ctx context.Context, operation database.WorkspaceVolumeCopyOperation) error {
+	if err := api.workspaceVolumeCopyKubernetes.DeleteCopyJob(ctx, operation.Namespace, operation.JobName); err != nil {
+		return err
+	}
+	return api.Database.DeleteWorkspaceVolumeCopyLocksByOperationID(
+		dbauthz.AsWorkspaceVolumeCopy(ctx), operation.ID,
+	)
 }

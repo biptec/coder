@@ -1,0 +1,3 @@
+DROP TABLE workspace_active_connections;
+DROP TABLE workspace_connection_activity;
+DROP TABLE workspace_command_activity;

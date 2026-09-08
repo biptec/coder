@@ -1,4 +1,5 @@
 import {
+	ActivityIcon,
 	CopyIcon,
 	DatabaseBackupIcon,
 	DownloadIcon,
@@ -161,6 +162,7 @@ export const WorkspaceMoreActions: FC<WorkspaceMoreActionsProps> = ({
 
 					{permissions?.updateWorkspaceVersion && (
 						<DropdownMenuItem
+							disabled={Boolean(workspace.volume_copy_operation_id)}
 							onClick={() => {
 								setChangeVersionDialogOpen(true);
 							}}
@@ -178,6 +180,15 @@ export const WorkspaceMoreActions: FC<WorkspaceMoreActionsProps> = ({
 						Duplicate&hellip;
 					</DropdownMenuItem>
 
+					<DropdownMenuItem asChild>
+						<RouterLink
+							to={`/@${workspace.owner_name}/${workspace.name}/command-activity`}
+						>
+							<ActivityIcon />
+							Command activity
+						</RouterLink>
+					</DropdownMenuItem>
+
 					{dashboard.appearance.workspace_volume_copy_enabled &&
 						permissions?.volumeCopyWorkspace && (
 							<DropdownMenuItem asChild>
@@ -185,7 +196,9 @@ export const WorkspaceMoreActions: FC<WorkspaceMoreActionsProps> = ({
 									to={`/@${workspace.owner_name}/${workspace.name}/volume-copy`}
 								>
 									<DatabaseBackupIcon />
-									Copy volumes&hellip;
+									{workspace.volume_copy_operation_id
+										? "Copying volumes…"
+										: "Copy volumes…"}
 								</RouterLink>
 							</DropdownMenuItem>
 						)}
@@ -198,6 +211,7 @@ export const WorkspaceMoreActions: FC<WorkspaceMoreActionsProps> = ({
 					<DropdownMenuSeparator />
 
 					<DropdownMenuItem
+						disabled={Boolean(workspace.volume_copy_operation_id)}
 						className="text-content-destructive focus:text-content-destructive"
 						onClick={() => {
 							setIsConfirmingDelete(true);

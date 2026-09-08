@@ -612,7 +612,10 @@ var AIBudgetPeriods = []string{
 	string(AIBudgetPeriodMonth),
 }
 
-const DefaultWorkspaceActivityNowThreshold = 5 * time.Minute
+const (
+	DefaultWorkspaceActivityNowThreshold        = 5 * time.Minute
+	DefaultWorkspaceCommandActivityHistoryLimit = int64(1000)
+)
 
 // DeploymentValues is the central configuration values the coder server.
 type DeploymentValues struct {
@@ -649,6 +652,7 @@ type DeploymentValues struct {
 	MetricsCacheRefreshInterval             serpent.Duration                     `json:"metrics_cache_refresh_interval,omitempty" typescript:",notnull"`
 	AgentStatRefreshInterval                serpent.Duration                     `json:"agent_stat_refresh_interval,omitempty" typescript:",notnull"`
 	WorkspaceActivityNowThreshold           serpent.Duration                     `json:"workspace_activity_now_threshold,omitempty" typescript:",notnull"`
+	WorkspaceCommandActivityHistoryLimit    serpent.Int64                        `json:"workspace_command_activity_history_limit,omitempty" typescript:",notnull"`
 	WorkspaceVolumeCopyEnabled              serpent.Bool                         `json:"workspace_volume_copy_enabled,omitempty" typescript:",notnull"`
 	WorkspaceVolumeCopyNamespace            serpent.String                       `json:"workspace_volume_copy_namespace,omitempty" typescript:",notnull"`
 	WorkspaceVolumeCopyImage                serpent.String                       `json:"workspace_volume_copy_image,omitempty" typescript:",notnull"`
@@ -3605,6 +3609,24 @@ communicating directly.`,
 				return nil
 			}),
 			Annotations: serpent.Annotations{}.Mark(annotationFormatDuration, "true"),
+		},
+		{
+			Name:        "Workspace Command Activity History Limit",
+			Description: "Maximum completed command activity records retained per workspace. Running commands are retained in addition to this limit.",
+			Flag:        "workspace-command-activity-history-limit",
+			Env:         "CODER_WORKSPACE_COMMAND_ACTIVITY_HISTORY_LIMIT",
+			YAML:        "workspaceCommandActivityHistoryLimit",
+			Hidden:      true,
+			Default:     fmt.Sprintf("%d", DefaultWorkspaceCommandActivityHistoryLimit),
+			Value: serpent.Validate(&c.WorkspaceCommandActivityHistoryLimit, func(value *serpent.Int64) error {
+				if value.Value() <= 0 {
+					return xerrors.New("workspace command activity history limit must be greater than zero")
+				}
+				if value.Value() > 2147483647 {
+					return xerrors.New("workspace command activity history limit must not exceed 2147483647")
+				}
+				return nil
+			}),
 		},
 		{
 			Name:        "Workspace Volume Copy Enabled",

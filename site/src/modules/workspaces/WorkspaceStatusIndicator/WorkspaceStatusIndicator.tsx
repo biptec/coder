@@ -42,6 +42,11 @@ export const WorkspaceStatusIndicator: FC<WorkspaceStatusIndicatorProps> = ({
 		workspace.latest_build.job,
 	);
 
+	if (workspace.volume_copy_operation_id) {
+		text = "Copying";
+		type = "active";
+	}
+
 	if (!workspace.health.healthy) {
 		type = "warning";
 	}

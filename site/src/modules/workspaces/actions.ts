@@ -71,6 +71,14 @@ export const abilitiesByWorkspaceStatus = (
 		};
 	}
 
+	if (workspace.volume_copy_operation_id) {
+		return {
+			actions: [],
+			canCancel: false,
+			canAcceptJobs: true,
+		};
+	}
+
 	const status = workspace.latest_build.status;
 
 	switch (status) {

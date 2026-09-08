@@ -3569,6 +3569,14 @@ CREATE TABLE webpush_subscriptions (
     endpoint_auth_key text NOT NULL
 );
 
+CREATE TABLE workspace_active_connections (
+    workspace_id uuid NOT NULL,
+    agent_id uuid NOT NULL,
+    connection_id uuid NOT NULL,
+    type connection_type NOT NULL,
+    connected_at timestamp with time zone NOT NULL
+);
+
 CREATE TABLE workspace_agent_context_resources (
     workspace_agent_id uuid NOT NULL,
     source text NOT NULL,
@@ -3881,6 +3889,32 @@ CREATE VIEW workspace_build_with_user AS
      LEFT JOIN visible_users ON ((workspace_builds.initiator_id = visible_users.id)));
 
 COMMENT ON VIEW workspace_build_with_user IS 'Joins in the username + avatar url of the initiated by user.';
+
+CREATE TABLE workspace_command_activity (
+    id uuid NOT NULL,
+    workspace_id uuid NOT NULL,
+    agent_id uuid NOT NULL,
+    session_id uuid NOT NULL,
+    source text NOT NULL,
+    command text DEFAULT ''::text NOT NULL,
+    argv text[] DEFAULT '{}'::text[] NOT NULL,
+    work_dir text DEFAULT ''::text NOT NULL,
+    status text NOT NULL,
+    started_at timestamp with time zone NOT NULL,
+    finished_at timestamp with time zone,
+    exit_code integer,
+    CONSTRAINT workspace_command_activity_source_check CHECK ((source = ANY (ARRAY['agentproc'::text, 'ssh'::text]))),
+    CONSTRAINT workspace_command_activity_status_check CHECK ((status = ANY (ARRAY['running'::text, 'succeeded'::text, 'failed'::text, 'interrupted'::text])))
+);
+
+CREATE TABLE workspace_connection_activity (
+    workspace_id uuid NOT NULL,
+    agent_id uuid NOT NULL,
+    type connection_type NOT NULL,
+    last_connected_at timestamp with time zone,
+    last_disconnected_at timestamp with time zone,
+    last_activity_at timestamp with time zone NOT NULL
+);
 
 CREATE VIEW workspace_latest_builds AS
  SELECT latest_build.id,
@@ -4443,6 +4477,9 @@ ALTER TABLE ONLY users
 ALTER TABLE ONLY webpush_subscriptions
     ADD CONSTRAINT webpush_subscriptions_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY workspace_active_connections
+    ADD CONSTRAINT workspace_active_connections_pkey PRIMARY KEY (agent_id, connection_id);
+
 ALTER TABLE ONLY workspace_agent_context_resources
     ADD CONSTRAINT workspace_agent_context_resources_pkey PRIMARY KEY (workspace_agent_id, source);
 
@@ -4511,6 +4548,12 @@ ALTER TABLE ONLY workspace_builds
 
 ALTER TABLE ONLY workspace_builds
     ADD CONSTRAINT workspace_builds_workspace_id_build_number_key UNIQUE (workspace_id, build_number);
+
+ALTER TABLE ONLY workspace_command_activity
+    ADD CONSTRAINT workspace_command_activity_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY workspace_connection_activity
+    ADD CONSTRAINT workspace_connection_activity_pkey PRIMARY KEY (workspace_id, agent_id, type);
 
 ALTER TABLE ONLY workspace_proxies
     ADD CONSTRAINT workspace_proxies_pkey PRIMARY KEY (id);
@@ -4804,6 +4847,8 @@ CREATE UNIQUE INDEX users_username_lower_idx ON users USING btree (lower(usernam
 
 CREATE UNIQUE INDEX webpush_subscriptions_user_id_endpoint_idx ON webpush_subscriptions USING btree (user_id, endpoint);
 
+CREATE INDEX workspace_active_connections_workspace_idx ON workspace_active_connections USING btree (workspace_id, type, connected_at);
+
 CREATE INDEX workspace_agent_devcontainers_workspace_agent_id ON workspace_agent_devcontainers USING btree (workspace_agent_id);
 
 COMMENT ON INDEX workspace_agent_devcontainers_workspace_agent_id IS 'Workspace agent foreign key and query index';
@@ -4831,6 +4876,10 @@ COMMENT ON INDEX workspace_app_audit_sessions_unique_index IS 'Unique index to e
 CREATE INDEX workspace_app_stats_workspace_id_idx ON workspace_app_stats USING btree (workspace_id);
 
 CREATE INDEX workspace_app_statuses_app_id_idx ON workspace_app_statuses USING btree (app_id, created_at DESC);
+
+CREATE INDEX workspace_command_activity_agent_running_idx ON workspace_command_activity USING btree (agent_id, session_id) WHERE (status = 'running'::text);
+
+CREATE INDEX workspace_command_activity_workspace_started_idx ON workspace_command_activity USING btree (workspace_id, started_at DESC, id DESC);
 
 CREATE INDEX workspace_modules_created_at_idx ON workspace_modules USING btree (created_at);
 
@@ -5321,6 +5370,12 @@ ALTER TABLE ONLY user_status_changes
 ALTER TABLE ONLY webpush_subscriptions
     ADD CONSTRAINT webpush_subscriptions_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY workspace_active_connections
+    ADD CONSTRAINT workspace_active_connections_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES workspace_agents(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_active_connections
+    ADD CONSTRAINT workspace_active_connections_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY workspace_agent_context_resources
     ADD CONSTRAINT workspace_agent_context_resources_workspace_agent_id_fkey FOREIGN KEY (workspace_agent_id) REFERENCES workspace_agents(id) ON DELETE CASCADE;
 
@@ -5401,6 +5456,15 @@ ALTER TABLE ONLY workspace_builds
 
 ALTER TABLE ONLY workspace_builds
     ADD CONSTRAINT workspace_builds_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_command_activity
+    ADD CONSTRAINT workspace_command_activity_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_connection_activity
+    ADD CONSTRAINT workspace_connection_activity_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES workspace_agents(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_connection_activity
+    ADD CONSTRAINT workspace_connection_activity_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY workspace_modules
     ADD CONSTRAINT workspace_modules_job_id_fkey FOREIGN KEY (job_id) REFERENCES provisioner_jobs(id) ON DELETE CASCADE;

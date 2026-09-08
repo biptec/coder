@@ -56,6 +56,7 @@ type API struct {
 	*LogsAPI
 	*ScriptsAPI
 	*ConnLogAPI
+	*CommandActivityAPI
 	*SubAgentAPI
 	*BoundaryLogsAPI
 	*ContextAPI
@@ -97,14 +98,15 @@ type Options struct {
 	LifecycleMetrics                  *LifecycleMetrics
 	PortSharer                        *atomic.Pointer[portsharing.PortSharer]
 
-	AccessURL                 *url.URL
-	AppHostname               string
-	AgentStatsRefreshInterval time.Duration
-	DisableDirectConnections  bool
-	DerpForceWebSockets       bool
-	DerpMapUpdateFrequency    time.Duration
-	ExternalAuthConfigs       []*externalauth.Config
-	Experiments               codersdk.Experiments
+	AccessURL                            *url.URL
+	AppHostname                          string
+	AgentStatsRefreshInterval            time.Duration
+	WorkspaceCommandActivityHistoryLimit int32
+	DisableDirectConnections             bool
+	DerpForceWebSockets                  bool
+	DerpMapUpdateFrequency               time.Duration
+	ExternalAuthConfigs                  []*externalauth.Config
+	Experiments                          codersdk.Experiments
 
 	UpdateAgentMetricsFn func(ctx context.Context, labels prometheusmetrics.AgentMetricLabels, metrics []*agentproto.Stats_Metric)
 }
@@ -219,6 +221,14 @@ func New(opts Options, workspace database.Workspace, agent database.WorkspaceAge
 		Database:         opts.Database,
 		Workspace:        api.cachedWorkspaceFields,
 		Log:              opts.Log,
+	}
+
+	api.CommandActivityAPI = &CommandActivityAPI{
+		AgentID:      agent.ID,
+		WorkspaceID:  opts.WorkspaceID,
+		Database:     opts.Database,
+		HistoryLimit: opts.WorkspaceCommandActivityHistoryLimit,
+		Log:          opts.Log,
 	}
 
 	api.DRPCService = &tailnet.DRPCService{

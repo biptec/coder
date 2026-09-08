@@ -89,6 +89,8 @@ var BlockedFileTransferCommands = []string{"nc", "rsync", "scp", "sftp"}
 
 type reportConnectionFunc func(id uuid.UUID, sessionType MagicSessionType, ip string) (disconnected func(code int, reason string))
 
+type reportCommandActivityFunc func(command string, argv []string, workDir string) func(exitCode int)
+
 // Config sets configuration parameters for the agent SSH server.
 type Config struct {
 	// MaxTimeout sets the absolute connection timeout, none if empty. If set to
@@ -126,6 +128,8 @@ type Config struct {
 	BlockLocalPortForwarding bool
 	// ReportConnection.
 	ReportConnection reportConnectionFunc
+	// ReportCommandActivity records non-interactive SSH commands.
+	ReportCommandActivity reportCommandActivityFunc
 	// Experimental: allow connecting to running containers via Docker exec.
 	// Note that this is different from the devcontainers feature, which uses
 	// subagents.
@@ -193,6 +197,9 @@ func NewServer(ctx context.Context, logger slog.Logger, prometheusRegistry *prom
 	}
 	if config.ReportConnection == nil {
 		config.ReportConnection = func(uuid.UUID, MagicSessionType, string) func(int, string) { return func(int, string) {} }
+	}
+	if config.ReportCommandActivity == nil {
+		config.ReportCommandActivity = func(string, []string, string) func(int) { return func(int) {} }
 	}
 
 	forwardHandler := &ssh.ForwardedTCPHandler{}
@@ -648,12 +655,12 @@ func (s *Server) sessionStart(logger slog.Logger, session ssh.Session, env []str
 	}
 
 	if isPty {
-		return s.startPTYSession(logger, session, magicTypeLabel, cmd, sshPty, windowSize)
+		return s.startPTYSession(logger, session, magicType, magicTypeLabel, cmd, sshPty, windowSize)
 	}
-	return s.startNonPTYSession(logger, session, magicTypeLabel, cmd.AsExec())
+	return s.startNonPTYSession(logger, session, magicType, magicTypeLabel, cmd.AsExec())
 }
 
-func (s *Server) startNonPTYSession(logger slog.Logger, session ssh.Session, magicTypeLabel string, cmd *exec.Cmd) error {
+func (s *Server) startNonPTYSession(logger slog.Logger, session ssh.Session, magicType MagicSessionType, magicTypeLabel string, cmd *exec.Cmd) (retErr error) {
 	s.metrics.sessionsTotal.WithLabelValues(magicTypeLabel, "no").Add(1)
 
 	// Create a process group and send SIGHUP to child processes,
@@ -688,6 +695,10 @@ func (s *Server) startNonPTYSession(logger slog.Logger, session ssh.Session, mag
 		s.metrics.sessionErrors.WithLabelValues(magicTypeLabel, "no", "start_command").Add(1)
 		return xerrors.Errorf("start: %w", err)
 	}
+	finishActivity := s.startCommandActivity(session.RawCommand(), cmd.Dir, magicType)
+	defer func() {
+		finishActivity(commandActivityExitCode(retErr))
+	}()
 
 	// Since we don't cancel the process when the session stops, we still need to tear it down if we are closing. So
 	// track it here.
@@ -709,7 +720,8 @@ func (s *Server) startNonPTYSession(logger slog.Logger, session ssh.Session, mag
 			handleSignal(logger, sig, cmd.Process, s.metrics, magicTypeLabel)
 		}
 	}()
-	return cmd.Wait()
+	retErr = cmd.Wait()
+	return retErr
 }
 
 // ptySession is the interface to the ssh.Session that startPTYSession uses
@@ -722,7 +734,7 @@ type ptySession interface {
 	Signals(chan<- ssh.Signal)
 }
 
-func (s *Server) startPTYSession(logger slog.Logger, session ptySession, magicTypeLabel string, cmd *pty.Cmd, sshPty ssh.Pty, windowSize <-chan ssh.Window) (retErr error) {
+func (s *Server) startPTYSession(logger slog.Logger, session ptySession, magicType MagicSessionType, magicTypeLabel string, cmd *pty.Cmd, sshPty ssh.Pty, windowSize <-chan ssh.Window) (retErr error) {
 	s.metrics.sessionsTotal.WithLabelValues(magicTypeLabel, "yes").Add(1)
 
 	ctx := session.Context()
@@ -763,6 +775,10 @@ func (s *Server) startPTYSession(logger slog.Logger, session ptySession, magicTy
 		s.metrics.sessionErrors.WithLabelValues(magicTypeLabel, "yes", "start_command").Add(1)
 		return xerrors.Errorf("start command: %w", err)
 	}
+	finishActivity := s.startCommandActivity(session.RawCommand(), cmd.Dir, magicType)
+	defer func() {
+		finishActivity(commandActivityExitCode(retErr))
+	}()
 	defer func() {
 		closeErr := ptty.Close()
 		if closeErr != nil {
@@ -844,6 +860,24 @@ func (s *Server) startPTYSession(logger slog.Logger, session ptySession, magicTy
 		return xerrors.Errorf("process wait: %w", err)
 	}
 	return nil
+}
+
+func (s *Server) startCommandActivity(command, workDir string, sessionType MagicSessionType) func(int) {
+	if command == "" || sessionType == MagicSessionTypeVSCode || sessionType == MagicSessionTypeJetBrains {
+		return func(int) {}
+	}
+	return s.config.ReportCommandActivity(command, nil, workDir)
+}
+
+func commandActivityExitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return -1
 }
 
 func handleSignal(logger slog.Logger, ssig ssh.Signal, signaler interface{ Signal(os.Signal) error }, metrics *sshServerMetrics, magicTypeLabel string) {

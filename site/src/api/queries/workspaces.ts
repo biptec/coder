@@ -15,6 +15,7 @@ import type {
 	UsageAppName,
 	Workspace,
 	WorkspaceACL,
+	WorkspaceActiveVolumeCopyOperation,
 	WorkspaceAgent,
 	WorkspaceAgentDevcontainer,
 	WorkspaceAgentListContainersResponse,
@@ -22,6 +23,8 @@ import type {
 	WorkspaceAgentLog,
 	WorkspaceBuild,
 	WorkspaceBuildParameter,
+	WorkspaceCommandActivityResponse,
+	WorkspaceConnectionActivityResponse,
 	WorkspaceRole,
 	WorkspacesRequest,
 	WorkspacesResponse,
@@ -54,6 +57,42 @@ export const workspaceById = (workspaceId: string) => {
 		queryFn: () => API.getWorkspace(workspaceId),
 	};
 };
+
+export const workspaceCommandActivity = (workspaceId?: string) => ({
+	queryKey: ["workspaces", workspaceId, "command-activity"],
+	queryFn: (): Promise<WorkspaceCommandActivityResponse> => {
+		if (!workspaceId) {
+			return Promise.reject(new Error("Workspace ID is required"));
+		}
+		return API.getWorkspaceCommandActivity(workspaceId);
+	},
+	enabled: Boolean(workspaceId),
+	refetchInterval: 1_000,
+});
+
+export const workspaceConnectionActivity = (workspaceId?: string) => ({
+	queryKey: ["workspaces", workspaceId, "connection-activity"],
+	queryFn: (): Promise<WorkspaceConnectionActivityResponse> => {
+		if (!workspaceId) {
+			return Promise.reject(new Error("Workspace ID is required"));
+		}
+		return API.getWorkspaceConnectionActivity(workspaceId);
+	},
+	enabled: Boolean(workspaceId),
+	refetchInterval: 1_000,
+});
+
+export const workspaceActiveVolumeCopyOperation = (workspaceId?: string) => ({
+	queryKey: ["workspaces", workspaceId, "active-volume-copy"],
+	queryFn: (): Promise<WorkspaceActiveVolumeCopyOperation> => {
+		if (!workspaceId) {
+			return Promise.reject(new Error("Workspace ID is required"));
+		}
+		return API.getWorkspaceActiveVolumeCopyOperation(workspaceId);
+	},
+	enabled: Boolean(workspaceId),
+	refetchInterval: 2_000,
+});
 
 export const workspaceVolumeCopyVolumes = (workspaceId?: string) => ({
 	queryKey: ["workspaces", workspaceId, "volume-copy-volumes"],

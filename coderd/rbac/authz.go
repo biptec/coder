@@ -84,6 +84,7 @@ const (
 	SubjectTypeBoundaryUsageTracker         SubjectType = "boundary_usage_tracker"
 	SubjectTypeWorkspaceBuilder             SubjectType = "workspace_builder"
 	SubjectTypeWorkspaceVolumeCopy          SubjectType = "workspace_volume_copy"
+	SubjectTypeWorkspaceActivity            SubjectType = "workspace_activity"
 	SubjectTypeChatd                        SubjectType = "chatd"
 	SubjectTypeAIProviderMetadataReader     SubjectType = "ai_provider_metadata_reader"
 	SubjectTypeSCIMProvisioner              SubjectType = "scim_provisioner"

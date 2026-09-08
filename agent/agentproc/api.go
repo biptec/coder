@@ -31,6 +31,20 @@ const (
 	maxWaitDuration = 5 * time.Minute
 )
 
+// CommandActivityReporter records a process after it has started. The returned
+// function is called exactly once when the process exits.
+type CommandActivityReporter func(command string, argv []string, workDir string) func(exitCode int)
+
+// Option configures the process API.
+type Option func(*manager)
+
+// WithCommandActivityReporter records processes started through the agent API.
+func WithCommandActivityReporter(reporter CommandActivityReporter) Option {
+	return func(manager *manager) {
+		manager.reportCommandActivity = reporter
+	}
+}
+
 // API exposes process-related operations through the agent.
 type API struct {
 	logger    slog.Logger
@@ -39,10 +53,14 @@ type API struct {
 }
 
 // NewAPI creates a new process API handler.
-func NewAPI(logger slog.Logger, execer agentexec.Execer, fs afero.Fs, pathStore *agentgit.PathStore, envInfo usershell.EnvInfoer, updateEnv func(current []string) (updated []string, err error), workingDir func() string) *API {
+func NewAPI(logger slog.Logger, execer agentexec.Execer, fs afero.Fs, pathStore *agentgit.PathStore, envInfo usershell.EnvInfoer, updateEnv func(current []string) (updated []string, err error), workingDir func() string, options ...Option) *API {
+	manager := newManager(logger, execer, fs, envInfo, updateEnv, workingDir)
+	for _, option := range options {
+		option(manager)
+	}
 	return &API{
 		logger:    logger,
-		manager:   newManager(logger, execer, fs, envInfo, updateEnv, workingDir),
+		manager:   manager,
 		pathStore: pathStore,
 	}
 }

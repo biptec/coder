@@ -63,6 +63,7 @@ type Kubernetes interface {
 	ListWorkspaceVolumes(ctx context.Context, namespace string, workspaceID uuid.UUID) ([]Volume, error)
 	EnsureCopyJob(ctx context.Context, namespace, jobName, image string, operationID uuid.UUID, allowSourceChanges bool, volumes []JobVolume) error
 	GetCopyJobState(ctx context.Context, namespace, jobName string) (JobState, error)
+	DeleteCopyJob(ctx context.Context, namespace, jobName string) error
 }
 
 type Client struct {
@@ -203,6 +204,37 @@ func (c *Client) EnsureCopyJob(ctx context.Context, namespace, jobName, image st
 	return err
 }
 
+func (c *Client) DeleteCopyJob(ctx context.Context, namespace, jobName string) error {
+	path := fmt.Sprintf("/apis/batch/v1/namespaces/%s/jobs/%s", url.PathEscape(namespace), url.PathEscape(jobName))
+	foreground := "Foreground"
+	deleteOptions := map[string]any{
+		"apiVersion":        "v1",
+		"kind":              "DeleteOptions",
+		"propagationPolicy": foreground,
+	}
+	var response json.RawMessage
+	if err := c.doJSON(ctx, http.MethodDelete, path, deleteOptions, &response); err != nil {
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
+			return nil
+		}
+		return err
+	}
+
+	// Foreground deletion is asynchronous. Keep the workspace lifecycle lock
+	// until Kubernetes confirms that the Job (and therefore its owned Pod) is
+	// gone. Reconciliation retries this on the next tick while the Job is still
+	// terminating.
+	_, err := c.GetCopyJobState(ctx, namespace, jobName)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return errors.New("kubernetes volume copy Job deletion is still in progress")
+}
+
 func (c *Client) GetCopyJobState(ctx context.Context, namespace, jobName string) (JobState, error) {
 	path := fmt.Sprintf("/apis/batch/v1/namespaces/%s/jobs/%s", url.PathEscape(namespace), url.PathEscape(jobName))
 	var response jobResponse
@@ -340,7 +372,7 @@ func buildJob(namespace, jobName, image string, operationID uuid.UUID, allowSour
 		"spec": map[string]any{
 			"backoffLimit":            0,
 			"activeDeadlineSeconds":   21600,
-			"ttlSecondsAfterFinished": 86400,
+			"ttlSecondsAfterFinished": 60,
 			"template": map[string]any{
 				"metadata": map[string]any{"labels": labels},
 				"spec": map[string]any{

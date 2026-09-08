@@ -55,6 +55,23 @@ type WorkspaceVolumeCopyOperation struct {
 	SyncOf                 *uuid.UUID                     `json:"sync_of,omitempty" format:"uuid"`
 }
 
+type WorkspaceActiveVolumeCopyOperation struct {
+	Operation *WorkspaceVolumeCopyOperation `json:"operation,omitempty"`
+}
+
+func (c *Client) WorkspaceActiveVolumeCopyOperation(ctx context.Context, workspaceID uuid.UUID) (WorkspaceActiveVolumeCopyOperation, error) {
+	res, err := c.Request(ctx, http.MethodGet, "/api/v2/workspaces/"+workspaceID.String()+"/volume-copy-operation", nil)
+	if err != nil {
+		return WorkspaceActiveVolumeCopyOperation{}, xerrors.Errorf("execute request: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return WorkspaceActiveVolumeCopyOperation{}, ReadBodyAsError(res)
+	}
+	var response WorkspaceActiveVolumeCopyOperation
+	return response, json.NewDecoder(res.Body).Decode(&response)
+}
+
 func (c *Client) WorkspaceVolumeCopyVolumes(ctx context.Context, workspaceID uuid.UUID) ([]WorkspaceVolumeCopyVolume, error) {
 	res, err := c.Request(ctx, http.MethodGet, "/api/v2/workspaces/"+workspaceID.String()+"/volume-copy-volumes", nil)
 	if err != nil {

@@ -132,6 +132,7 @@ func (api *API) workspace(rw http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	applyWorkspaceVolumeCopyState(&w, workspace.ID, data.volumeCopyLocks)
 	httpapi.Write(ctx, rw, http.StatusOK, w)
 }
 
@@ -352,6 +353,7 @@ func (api *API) workspaceByOwnerAndName(rw http.ResponseWriter, r *http.Request)
 		})
 		return
 	}
+	applyWorkspaceVolumeCopyState(&w, workspace.ID, data.volumeCopyLocks)
 	httpapi.Write(ctx, rw, http.StatusOK, w)
 }
 
@@ -1595,6 +1597,7 @@ func (api *API) putWorkspaceDormant(rw http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	applyWorkspaceVolumeCopyState(&w, workspace.ID, data.volumeCopyLocks)
 	httpapi.Write(ctx, rw, http.StatusOK, w)
 }
 
@@ -2175,7 +2178,9 @@ func (api *API) watchWorkspace(
 					Detail:  err.Error(),
 				},
 			})
+			return
 		}
+		applyWorkspaceVolumeCopyState(&w, workspace.ID, data.volumeCopyLocks)
 		_ = sendEvent(codersdk.ServerSentEvent{
 			Type: codersdk.ServerSentEventTypeData,
 			Data: w,
@@ -2588,10 +2593,11 @@ func (api *API) patchWorkspaceACL(rw http.ResponseWriter, r *http.Request) {
 }
 
 type workspaceData struct {
-	templates    []database.Template
-	builds       []codersdk.WorkspaceBuild
-	appStatuses  []codersdk.WorkspaceAppStatus
-	allowRenames bool
+	templates       []database.Template
+	builds          []codersdk.WorkspaceBuild
+	appStatuses     []codersdk.WorkspaceAppStatus
+	volumeCopyLocks []database.WorkspaceVolumeCopyLock
+	allowRenames    bool
 }
 
 // @Summary Completely clears the workspace's user and group ACLs.
@@ -2679,10 +2685,11 @@ func (api *API) workspaceData(ctx context.Context, workspaces []database.Workspa
 	}
 
 	var (
-		templates   []database.Template
-		builds      []database.WorkspaceBuild
-		appStatuses []database.WorkspaceAppStatus
-		eg          errgroup.Group
+		templates       []database.Template
+		builds          []database.WorkspaceBuild
+		appStatuses     []database.WorkspaceAppStatus
+		volumeCopyLocks []database.WorkspaceVolumeCopyLock
+		eg              errgroup.Group
 	)
 	eg.Go(func() (err error) {
 		templates, err = api.Database.GetTemplatesWithFilter(ctx, database.GetTemplatesWithFilterParams{
@@ -2708,6 +2715,15 @@ func (api *API) workspaceData(ctx context.Context, workspaces []database.Workspa
 		appStatuses, err = api.Database.GetLatestWorkspaceAppStatusesByWorkspaceIDs(dbauthz.AsSystemRestricted(ctx), workspaceIDs)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return xerrors.Errorf("get workspace app statuses: %w", err)
+		}
+		return nil
+	})
+	eg.Go(func() (err error) {
+		volumeCopyLocks, err = api.Database.GetWorkspaceVolumeCopyLocksByWorkspaceIDs(
+			dbauthz.AsWorkspaceVolumeCopy(ctx), workspaceIDs,
+		)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return xerrors.Errorf("get workspace volume copy locks: %w", err)
 		}
 		return nil
 	})
@@ -2740,11 +2756,23 @@ func (api *API) workspaceData(ctx context.Context, workspaces []database.Workspa
 	}
 
 	return workspaceData{
-		templates:    templates,
-		appStatuses:  db2sdk.WorkspaceAppStatuses(appStatuses),
-		builds:       apiBuilds,
-		allowRenames: api.Options.AllowWorkspaceRenames,
+		templates:       templates,
+		appStatuses:     db2sdk.WorkspaceAppStatuses(appStatuses),
+		builds:          apiBuilds,
+		volumeCopyLocks: volumeCopyLocks,
+		allowRenames:    api.Options.AllowWorkspaceRenames,
 	}, nil
+}
+
+func applyWorkspaceVolumeCopyState(workspace *codersdk.Workspace, workspaceID uuid.UUID, locks []database.WorkspaceVolumeCopyLock) {
+	for _, lock := range locks {
+		if lock.WorkspaceID != workspaceID {
+			continue
+		}
+		operationID := lock.OperationID
+		workspace.VolumeCopyOperationID = &operationID
+		return
+	}
 }
 
 func convertWorkspaces(
@@ -2765,6 +2793,10 @@ func convertWorkspaces(
 	appStatusesByWorkspaceID := map[uuid.UUID]codersdk.WorkspaceAppStatus{}
 	for _, appStatus := range data.appStatuses {
 		appStatusesByWorkspaceID[appStatus.WorkspaceID] = appStatus
+	}
+	volumeCopyOperationByWorkspaceID := map[uuid.UUID]uuid.UUID{}
+	for _, lock := range data.volumeCopyLocks {
+		volumeCopyOperationByWorkspaceID[lock.WorkspaceID] = lock.OperationID
 	}
 
 	apiWorkspaces := make([]codersdk.Workspace, 0, len(workspaces))
@@ -2796,6 +2828,10 @@ func convertWorkspaces(
 		)
 		if err != nil {
 			return nil, xerrors.Errorf("convert workspace: %w", err)
+		}
+		if operationID, ok := volumeCopyOperationByWorkspaceID[workspace.ID]; ok {
+			operationID := operationID
+			w.VolumeCopyOperationID = &operationID
 		}
 
 		apiWorkspaces = append(apiWorkspaces, w)

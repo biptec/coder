@@ -173,6 +173,14 @@ func (q *querier) authorizeWorkspaceByAgentID(ctx context.Context, agentID uuid.
 	return q.authorizeContext(ctx, action, workspace)
 }
 
+func (q *querier) authorizeWorkspaceActivity(ctx context.Context, workspaceID uuid.UUID, action policy.Action) error {
+	workspace, err := q.db.GetWorkspaceByID(ctx, workspaceID)
+	if err != nil {
+		return err
+	}
+	return q.authorizeContext(ctx, action, workspace)
+}
+
 // authorizePrebuiltWorkspace handles authorization for workspace resource types.
 // prebuilt_workspaces are a subset of workspaces, currently limited to
 // supporting delete operations. This function first attempts normal workspace
@@ -749,6 +757,24 @@ var (
 		Scope: rbac.ScopeAll,
 	}.WithCachedASTValue()
 
+	subjectWorkspaceActivity = rbac.Subject{
+		Type:         rbac.SubjectTypeWorkspaceActivity,
+		FriendlyName: "Workspace Activity",
+		ID:           uuid.Nil.String(),
+		Roles: rbac.Roles([]rbac.Role{
+			{
+				Identifier:  rbac.RoleIdentifier{Name: "workspace-activity"},
+				DisplayName: "Workspace Activity",
+				Site: rbac.Permissions(map[string][]policy.Action{
+					rbac.ResourceWorkspace.Type: {policy.ActionRead, policy.ActionUpdate},
+				}),
+				User:    []rbac.Permission{},
+				ByOrgID: map[string]rbac.OrgPermissions{},
+			},
+		}),
+		Scope: rbac.ScopeAll,
+	}.WithCachedASTValue()
+
 	subjectChatd = rbac.Subject{
 		Type:         rbac.SubjectTypeChatd,
 		FriendlyName: "Chatd",
@@ -933,6 +959,12 @@ func AsWorkspaceBuilder(ctx context.Context) context.Context {
 // both source and destination workspaces before switching to this context.
 func AsWorkspaceVolumeCopy(ctx context.Context) context.Context {
 	return As(ctx, subjectWorkspaceVolumeCopy)
+}
+
+// AsWorkspaceActivity returns a narrowly scoped internal actor used by
+// workspace agents to persist command and connection activity.
+func AsWorkspaceActivity(ctx context.Context) context.Context {
+	return As(ctx, subjectWorkspaceActivity)
 }
 
 // AsChatd returns a context with an actor scoped to the chat
@@ -2735,6 +2767,13 @@ func (q *querier) FindMatchingPresetID(ctx context.Context, arg database.FindMat
 		return uuid.Nil, err
 	}
 	return q.db.FindMatchingPresetID(ctx, arg)
+}
+
+func (q *querier) FinishWorkspaceCommandActivity(ctx context.Context, arg database.FinishWorkspaceCommandActivityParams) (int64, error) {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionUpdate); err != nil {
+		return 0, err
+	}
+	return q.db.FinishWorkspaceCommandActivity(ctx, arg)
 }
 
 func (q *querier) GetAIBridgeInterceptionByID(ctx context.Context, id uuid.UUID) (database.AIBridgeInterception, error) {
@@ -5582,6 +5621,20 @@ func (q *querier) GetWorkspaceByWorkspaceAppID(ctx context.Context, workspaceApp
 	return fetch(q.log, q.auth, q.db.GetWorkspaceByWorkspaceAppID)(ctx, workspaceAppID)
 }
 
+func (q *querier) GetWorkspaceCommandActivityByWorkspaceID(ctx context.Context, arg database.GetWorkspaceCommandActivityByWorkspaceIDParams) ([]database.GetWorkspaceCommandActivityByWorkspaceIDRow, error) {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionRead); err != nil {
+		return nil, err
+	}
+	return q.db.GetWorkspaceCommandActivityByWorkspaceID(ctx, arg)
+}
+
+func (q *querier) GetWorkspaceConnectionActivityByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) ([]database.GetWorkspaceConnectionActivityByWorkspaceIDRow, error) {
+	if err := q.authorizeWorkspaceActivity(ctx, workspaceID, policy.ActionRead); err != nil {
+		return nil, err
+	}
+	return q.db.GetWorkspaceConnectionActivityByWorkspaceID(ctx, workspaceID)
+}
+
 func (q *querier) GetWorkspaceModulesByJobID(ctx context.Context, jobID uuid.UUID) ([]database.WorkspaceModule, error) {
 	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceSystem); err != nil {
 		return nil, err
@@ -5722,6 +5775,13 @@ func (q *querier) GetWorkspaceVolumeCopyLockByWorkspaceID(ctx context.Context, w
 		return database.WorkspaceVolumeCopyLock{}, err
 	}
 	return q.db.GetWorkspaceVolumeCopyLockByWorkspaceID(ctx, workspaceID)
+}
+
+func (q *querier) GetWorkspaceVolumeCopyLocksByWorkspaceIDs(ctx context.Context, workspaceIds []uuid.UUID) ([]database.WorkspaceVolumeCopyLock, error) {
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspaceVolumeCopy); err != nil {
+		return nil, err
+	}
+	return q.db.GetWorkspaceVolumeCopyLocksByWorkspaceIDs(ctx, workspaceIds)
 }
 
 func (q *querier) GetWorkspaceVolumeCopyOperationByID(ctx context.Context, id uuid.UUID) (database.WorkspaceVolumeCopyOperation, error) {
@@ -6540,6 +6600,13 @@ func (q *querier) InsertWorkspaceBuildParameters(ctx context.Context, arg databa
 	return q.db.InsertWorkspaceBuildParameters(ctx, arg)
 }
 
+func (q *querier) InsertWorkspaceCommandActivity(ctx context.Context, arg database.InsertWorkspaceCommandActivityParams) error {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionUpdate); err != nil {
+		return err
+	}
+	return q.db.InsertWorkspaceCommandActivity(ctx, arg)
+}
+
 func (q *querier) InsertWorkspaceModule(ctx context.Context, arg database.InsertWorkspaceModuleParams) (database.WorkspaceModule, error) {
 	if err := q.authorizeContext(ctx, policy.ActionCreate, rbac.ResourceSystem); err != nil {
 		return database.WorkspaceModule{}, err
@@ -6577,6 +6644,13 @@ func (q *querier) InsertWorkspaceVolumeCopyOperation(ctx context.Context, arg da
 		return database.WorkspaceVolumeCopyOperation{}, err
 	}
 	return q.db.InsertWorkspaceVolumeCopyOperation(ctx, arg)
+}
+
+func (q *querier) InterruptWorkspaceCommandActivityByAgentSession(ctx context.Context, arg database.InterruptWorkspaceCommandActivityByAgentSessionParams) (int64, error) {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionUpdate); err != nil {
+		return 0, err
+	}
+	return q.db.InterruptWorkspaceCommandActivityByAgentSession(ctx, arg)
 }
 
 func (q *querier) IsChatHeartbeatStale(ctx context.Context, arg database.IsChatHeartbeatStaleParams) (bool, error) {
@@ -6898,6 +6972,27 @@ func (q *querier) PopNextQueuedMessage(ctx context.Context, chatID uuid.UUID) (d
 	return q.db.PopNextQueuedMessage(ctx, chatID)
 }
 
+func (q *querier) PruneWorkspaceCommandActivity(ctx context.Context, arg database.PruneWorkspaceCommandActivityParams) (int64, error) {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionUpdate); err != nil {
+		return 0, err
+	}
+	return q.db.PruneWorkspaceCommandActivity(ctx, arg)
+}
+
+func (q *querier) RecordWorkspaceConnectionFinished(ctx context.Context, arg database.RecordWorkspaceConnectionFinishedParams) error {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionUpdate); err != nil {
+		return err
+	}
+	return q.db.RecordWorkspaceConnectionFinished(ctx, arg)
+}
+
+func (q *querier) RecordWorkspaceConnectionStarted(ctx context.Context, arg database.RecordWorkspaceConnectionStartedParams) error {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionUpdate); err != nil {
+		return err
+	}
+	return q.db.RecordWorkspaceConnectionStarted(ctx, arg)
+}
+
 func (q *querier) ReduceWorkspaceAgentShareLevelToAuthenticatedByTemplate(ctx context.Context, templateID uuid.UUID) error {
 	template, err := q.db.GetTemplateByID(ctx, templateID)
 	if err != nil {
@@ -6947,6 +7042,13 @@ func (q *querier) ReorderChatQueuedMessageToHead(ctx context.Context, arg databa
 	}
 	_ = chat
 	return q.db.ReorderChatQueuedMessageToHead(ctx, arg)
+}
+
+func (q *querier) ResetWorkspaceActiveConnectionsByAgentID(ctx context.Context, arg database.ResetWorkspaceActiveConnectionsByAgentIDParams) error {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionUpdate); err != nil {
+		return err
+	}
+	return q.db.ResetWorkspaceActiveConnectionsByAgentID(ctx, arg)
 }
 
 func (q *querier) ResolveUserChatSpendLimit(ctx context.Context, arg database.ResolveUserChatSpendLimitParams) (database.ResolveUserChatSpendLimitRow, error) {
