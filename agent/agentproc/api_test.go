@@ -581,10 +581,11 @@ func TestListProcesses(t *testing.T) {
 		waitForExit(t, handler, spoofedID)
 		w = getList(t, handler)
 		require.Equal(t, http.StatusOK, w.Code)
-		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-		for i := range resp.Processes {
-			if resp.Processes[i].ID == spoofedID {
-				require.Empty(t, resp.Processes[i].Tool)
+		var spoofedResp workspacesdk.ListProcessesResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&spoofedResp))
+		for i := range spoofedResp.Processes {
+			if spoofedResp.Processes[i].ID == spoofedID {
+				require.Empty(t, spoofedResp.Processes[i].Tool)
 				return
 			}
 		}
