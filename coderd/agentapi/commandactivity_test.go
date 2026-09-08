@@ -47,7 +47,7 @@ func TestCommandActivity(t *testing.T) {
 			Source:      "agentproc",
 			Tool:        "exec",
 			Command:     "echo hello",
-			Argv:        nil,
+			Argv:        []string{},
 			WorkDir:     "/workspace",
 			StartedAt:   activityTime,
 		}).Return(nil)

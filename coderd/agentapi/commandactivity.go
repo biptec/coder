@@ -86,9 +86,11 @@ func (a *CommandActivityAPI) ReportCommandActivity(ctx context.Context, req *age
 			Source:      source,
 			Tool:        activity.GetTool(),
 			Command:     activity.GetCommand(),
-			Argv:        append([]string(nil), activity.GetArgv()...),
-			WorkDir:     activity.GetWorkDir(),
-			StartedAt:   activityTime,
+			// Keep argv non-nil so pq.Array serializes command-string activity as
+			// an empty PostgreSQL array instead of NULL. The column is NOT NULL.
+			Argv:      append([]string{}, activity.GetArgv()...),
+			WorkDir:   activity.GetWorkDir(),
+			StartedAt: activityTime,
 		}); err != nil {
 			return nil, xerrors.Errorf("insert workspace command activity: %w", err)
 		}
