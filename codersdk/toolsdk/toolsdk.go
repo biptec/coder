@@ -23,6 +23,23 @@ import (
 	"github.com/coder/coder/v2/codersdk/workspacesdk"
 )
 
+type invocationToolContextKey struct{}
+
+// WithInvocationTool records the assistant-facing MCP tool name on a tool
+// invocation context. Execution tools propagate this metadata to the workspace
+// agent so command activity can attribute the process without exposing the
+// marker in the user command environment.
+func WithInvocationTool(ctx context.Context, tool string) context.Context {
+	return context.WithValue(ctx, invocationToolContextKey{}, strings.TrimSpace(tool))
+}
+
+// InvocationToolFromContext returns the assistant-facing MCP tool name for the
+// current invocation, if one was supplied by the MCP adapter.
+func InvocationToolFromContext(ctx context.Context) string {
+	tool, _ := ctx.Value(invocationToolContextKey{}).(string)
+	return tool
+}
+
 // Tool name constants to avoid hardcoded strings
 const (
 	ToolNameReportTask                  = "coder_report_task"

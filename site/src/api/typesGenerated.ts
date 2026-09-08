@@ -10726,6 +10726,7 @@ export interface WorkspaceCommandActivity {
 	readonly agent_id: string;
 	readonly session_id: string;
 	readonly source: WorkspaceCommandActivitySource;
+	readonly tool?: string;
 	readonly command?: string;
 	readonly argv?: readonly string[];
 	readonly work_dir?: string;

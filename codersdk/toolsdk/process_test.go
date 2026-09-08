@@ -72,7 +72,8 @@ func TestWorkspaceProcessIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("StartListOutput", func(t *testing.T) {
-		started, err := testTool(t, toolsdk.WorkspaceProcessStart, deps, toolsdk.WorkspaceProcessStartArgs{
+		ctx := toolsdk.WithInvocationTool(t.Context(), "process_start")
+		started, err := toolsdk.WorkspaceProcessStart.Handler(ctx, deps, toolsdk.WorkspaceProcessStartArgs{
 			Workspace:  workspace.Name,
 			Command:    `printf '%s:%s\n' "$PROCESS_TOOL_VALUE" "$PWD"; sleep 2; echo done`,
 			WorkDir:    "/tmp",
@@ -95,6 +96,7 @@ func TestWorkspaceProcessIntegration(t *testing.T) {
 			}
 			found = true
 			require.Equal(t, "/tmp", process.WorkDir)
+			require.Equal(t, "process_start", process.Tool)
 			require.True(t, process.Background)
 			require.Contains(t, process.Command, "PROCESS_TOOL_VALUE")
 			break

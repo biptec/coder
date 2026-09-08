@@ -11,6 +11,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"golang.org/x/xerrors"
+
+	"github.com/coder/coder/v2/codersdk/toolsdk"
 )
 
 const defaultActivityLimit = 20
@@ -196,6 +198,7 @@ func (s *Server) withActivityTracking(tool server.ServerTool, toolName string) s
 	original := tool.Handler
 	tool.Handler = func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		id := s.activityStore.Start(s.activityUserID, toolName, activityWorkspace(request))
+		ctx = toolsdk.WithInvocationTool(ctx, toolName)
 		result, err := original(ctx, request)
 		status := "success"
 		if err != nil || (result != nil && result.IsError) {

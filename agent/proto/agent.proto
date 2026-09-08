@@ -417,6 +417,7 @@ message CommandActivity {
 	string work_dir = 7;
 	google.protobuf.Timestamp timestamp = 8;
 	optional int32 exit_code = 9;
+	string tool = 10;
 }
 
 message ReportCommandActivityRequest {

@@ -550,6 +550,47 @@ func TestListProcesses(t *testing.T) {
 		require.Empty(t, resp.Processes)
 	})
 
+	t.Run("IncludesValidatedToolAttribution", func(t *testing.T) {
+		t.Parallel()
+
+		handler := newTestAPI(t)
+		id := startAndGetID(t, handler, workspacesdk.StartProcessRequest{
+			Command: "echo attributed",
+			Tool:    "process_start",
+		})
+		waitForExit(t, handler, id)
+
+		w := getList(t, handler)
+		require.Equal(t, http.StatusOK, w.Code)
+		var resp workspacesdk.ListProcessesResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+		var found *workspacesdk.ProcessInfo
+		for i := range resp.Processes {
+			if resp.Processes[i].ID == id {
+				found = &resp.Processes[i]
+				break
+			}
+		}
+		require.NotNil(t, found)
+		require.Equal(t, "process_start", found.Tool)
+
+		spoofedID := startAndGetID(t, handler, workspacesdk.StartProcessRequest{
+			Command: "echo spoofed",
+			Tool:    "not-a-real-mcp-tool",
+		})
+		waitForExit(t, handler, spoofedID)
+		w = getList(t, handler)
+		require.Equal(t, http.StatusOK, w.Code)
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+		for i := range resp.Processes {
+			if resp.Processes[i].ID == spoofedID {
+				require.Empty(t, resp.Processes[i].Tool)
+				return
+			}
+		}
+		t.Fatal("spoofed process not found in list")
+	})
+
 	t.Run("FilterByChatID", func(t *testing.T) {
 		t.Parallel()
 
@@ -1215,6 +1256,7 @@ func TestProcessLifecycle(t *testing.T) {
 		var reportedCommand string
 		var reportedArgv []string
 		var reportedWorkDir string
+		var reportedTool string
 		exitCodes := make(chan int, 1)
 		api := agentproc.NewAPI(
 			logger,
@@ -1224,10 +1266,11 @@ func TestProcessLifecycle(t *testing.T) {
 			nil,
 			nil,
 			nil,
-			agentproc.WithCommandActivityReporter(func(command string, argv []string, workDir string) func(int) {
+			agentproc.WithCommandActivityReporter(func(command string, argv []string, workDir, tool string) func(int) {
 				reportedCommand = command
 				reportedArgv = append([]string(nil), argv...)
 				reportedWorkDir = workDir
+				reportedTool = tool
 				return func(exitCode int) { exitCodes <- exitCode }
 			}),
 		)
@@ -1238,6 +1281,7 @@ func TestProcessLifecycle(t *testing.T) {
 		id := startAndGetID(t, handler, workspacesdk.StartProcessRequest{
 			Command: "exit 42",
 			WorkDir: workDir,
+			Tool:    "exec",
 		})
 		resp := waitForExit(t, handler, id)
 		require.False(t, resp.Running)
@@ -1246,6 +1290,7 @@ func TestProcessLifecycle(t *testing.T) {
 		require.Equal(t, "exit 42", reportedCommand)
 		require.Empty(t, reportedArgv)
 		require.Equal(t, workDir, reportedWorkDir)
+		require.Equal(t, "exec", reportedTool)
 
 		select {
 		case exitCode := <-exitCodes:

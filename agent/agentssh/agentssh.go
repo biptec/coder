@@ -32,6 +32,7 @@ import (
 	"github.com/coder/coder/v2/agent/agentrsa"
 	"github.com/coder/coder/v2/agent/usershell"
 	"github.com/coder/coder/v2/codersdk"
+	"github.com/coder/coder/v2/codersdk/workspacesdk"
 	"github.com/coder/coder/v2/pty"
 )
 
@@ -89,7 +90,7 @@ var BlockedFileTransferCommands = []string{"nc", "rsync", "scp", "sftp"}
 
 type reportConnectionFunc func(id uuid.UUID, sessionType MagicSessionType, ip string) (disconnected func(code int, reason string))
 
-type reportCommandActivityFunc func(command string, argv []string, workDir string) func(exitCode int)
+type reportCommandActivityFunc func(command string, argv []string, workDir, tool string) func(exitCode int)
 
 // Config sets configuration parameters for the agent SSH server.
 type Config struct {
@@ -199,7 +200,7 @@ func NewServer(ctx context.Context, logger slog.Logger, prometheusRegistry *prom
 		config.ReportConnection = func(uuid.UUID, MagicSessionType, string) func(int, string) { return func(int, string) {} }
 	}
 	if config.ReportCommandActivity == nil {
-		config.ReportCommandActivity = func(string, []string, string) func(int) { return func(int) {} }
+		config.ReportCommandActivity = func(string, []string, string, string) func(int) { return func(int) {} }
 	}
 
 	forwardHandler := &ssh.ForwardedTCPHandler{}
@@ -401,6 +402,24 @@ func (s *sessionCloseTracker) Close() error {
 	return s.Session.Close()
 }
 
+func extractCommandActivityTool(env []string) (tool string, filteredEnv []string) {
+	prefix := workspacesdk.MCPToolEnvironmentVariable + "="
+	for _, kv := range env {
+		if strings.HasPrefix(kv, prefix) {
+			tool = strings.TrimSpace(strings.TrimPrefix(kv, prefix))
+		}
+	}
+	// SSH is currently used by the assistant-facing bash tool. Ignore arbitrary
+	// values supplied by ordinary SSH clients rather than persisting spoofed tool
+	// names in command activity.
+	if tool != "bash" {
+		tool = ""
+	}
+	return tool, slices.DeleteFunc(env, func(kv string) bool {
+		return strings.HasPrefix(kv, prefix)
+	})
+}
+
 func extractContainerInfo(env []string) (container, containerUser string, filteredEnv []string) {
 	for _, kv := range env {
 		if strings.HasPrefix(kv, ContainerEnvironmentVariable+"=") {
@@ -431,6 +450,7 @@ func (s *Server) sessionHandler(session ssh.Session) {
 
 	env := session.Environ()
 	magicType, magicTypeRaw, env := extractMagicSessionType(env)
+	commandActivityTool, env := extractCommandActivityTool(env)
 
 	// It's not safe to assume RemoteAddr() returns a non-nil value. slog.F usage is fine because it correctly
 	// handles nil.
@@ -544,7 +564,7 @@ func (s *Server) sessionHandler(session ssh.Session) {
 		env = append(env, fmt.Sprintf("DISPLAY=localhost:%d.%d", display, x11.ScreenNumber))
 	}
 
-	err := s.sessionStart(logger, session, env, magicType, container, containerUser)
+	err := s.sessionStart(logger, session, env, magicType, commandActivityTool, container, containerUser)
 	var exitError *exec.ExitError
 	if xerrors.As(err, &exitError) {
 		code := exitError.ExitCode()
@@ -618,7 +638,7 @@ func (s *Server) fileTransferBlocked(session ssh.Session) bool {
 	return false
 }
 
-func (s *Server) sessionStart(logger slog.Logger, session ssh.Session, env []string, magicType MagicSessionType, container, containerUser string) (retErr error) {
+func (s *Server) sessionStart(logger slog.Logger, session ssh.Session, env []string, magicType MagicSessionType, commandActivityTool, container, containerUser string) (retErr error) {
 	ctx := session.Context()
 
 	magicTypeLabel := magicTypeMetricLabel(magicType)
@@ -655,12 +675,12 @@ func (s *Server) sessionStart(logger slog.Logger, session ssh.Session, env []str
 	}
 
 	if isPty {
-		return s.startPTYSession(logger, session, magicType, magicTypeLabel, cmd, sshPty, windowSize)
+		return s.startPTYSession(logger, session, magicType, magicTypeLabel, commandActivityTool, cmd, sshPty, windowSize)
 	}
-	return s.startNonPTYSession(logger, session, magicType, magicTypeLabel, cmd.AsExec())
+	return s.startNonPTYSession(logger, session, magicType, magicTypeLabel, commandActivityTool, cmd.AsExec())
 }
 
-func (s *Server) startNonPTYSession(logger slog.Logger, session ssh.Session, magicType MagicSessionType, magicTypeLabel string, cmd *exec.Cmd) (retErr error) {
+func (s *Server) startNonPTYSession(logger slog.Logger, session ssh.Session, magicType MagicSessionType, magicTypeLabel, commandActivityTool string, cmd *exec.Cmd) (retErr error) {
 	s.metrics.sessionsTotal.WithLabelValues(magicTypeLabel, "no").Add(1)
 
 	// Create a process group and send SIGHUP to child processes,
@@ -695,7 +715,7 @@ func (s *Server) startNonPTYSession(logger slog.Logger, session ssh.Session, mag
 		s.metrics.sessionErrors.WithLabelValues(magicTypeLabel, "no", "start_command").Add(1)
 		return xerrors.Errorf("start: %w", err)
 	}
-	finishActivity := s.startCommandActivity(session.RawCommand(), cmd.Dir, magicType)
+	finishActivity := s.startCommandActivity(session.RawCommand(), cmd.Dir, magicType, commandActivityTool)
 	defer func() {
 		finishActivity(commandActivityExitCode(retErr))
 	}()
@@ -734,7 +754,7 @@ type ptySession interface {
 	Signals(chan<- ssh.Signal)
 }
 
-func (s *Server) startPTYSession(logger slog.Logger, session ptySession, magicType MagicSessionType, magicTypeLabel string, cmd *pty.Cmd, sshPty ssh.Pty, windowSize <-chan ssh.Window) (retErr error) {
+func (s *Server) startPTYSession(logger slog.Logger, session ptySession, magicType MagicSessionType, magicTypeLabel, commandActivityTool string, cmd *pty.Cmd, sshPty ssh.Pty, windowSize <-chan ssh.Window) (retErr error) {
 	s.metrics.sessionsTotal.WithLabelValues(magicTypeLabel, "yes").Add(1)
 
 	ctx := session.Context()
@@ -775,7 +795,7 @@ func (s *Server) startPTYSession(logger slog.Logger, session ptySession, magicTy
 		s.metrics.sessionErrors.WithLabelValues(magicTypeLabel, "yes", "start_command").Add(1)
 		return xerrors.Errorf("start command: %w", err)
 	}
-	finishActivity := s.startCommandActivity(session.RawCommand(), cmd.Dir, magicType)
+	finishActivity := s.startCommandActivity(session.RawCommand(), cmd.Dir, magicType, commandActivityTool)
 	defer func() {
 		finishActivity(commandActivityExitCode(retErr))
 	}()
@@ -862,11 +882,11 @@ func (s *Server) startPTYSession(logger slog.Logger, session ptySession, magicTy
 	return nil
 }
 
-func (s *Server) startCommandActivity(command, workDir string, sessionType MagicSessionType) func(int) {
+func (s *Server) startCommandActivity(command, workDir string, sessionType MagicSessionType, tool string) func(int) {
 	if command == "" || sessionType == MagicSessionTypeVSCode || sessionType == MagicSessionTypeJetBrains {
 		return func(int) {}
 	}
-	return s.config.ReportCommandActivity(command, nil, workDir)
+	return s.config.ReportCommandActivity(command, nil, workDir, tool)
 }
 
 func commandActivityExitCode(err error) int {

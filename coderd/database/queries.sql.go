@@ -36317,21 +36317,21 @@ func (q *sqlQuerier) FinishWorkspaceCommandActivity(ctx context.Context, arg Fin
 
 const getWorkspaceCommandActivityByWorkspaceID = `-- name: GetWorkspaceCommandActivityByWorkspaceID :many
 WITH recent_completed AS (
-    SELECT completed.id, completed.workspace_id, completed.agent_id, completed.session_id, completed.source, completed.command, completed.argv, completed.work_dir, completed.status, completed.started_at, completed.finished_at, completed.exit_code
+    SELECT completed.id, completed.workspace_id, completed.agent_id, completed.session_id, completed.source, completed.command, completed.argv, completed.work_dir, completed.status, completed.started_at, completed.finished_at, completed.exit_code, completed.tool
     FROM workspace_command_activity AS completed
     WHERE completed.workspace_id = $1
       AND completed.status != 'running'
     ORDER BY completed.started_at DESC, completed.id DESC
     LIMIT $2
 ), running AS (
-    SELECT active.id, active.workspace_id, active.agent_id, active.session_id, active.source, active.command, active.argv, active.work_dir, active.status, active.started_at, active.finished_at, active.exit_code
+    SELECT active.id, active.workspace_id, active.agent_id, active.session_id, active.source, active.command, active.argv, active.work_dir, active.status, active.started_at, active.finished_at, active.exit_code, active.tool
     FROM workspace_command_activity AS active
     WHERE active.workspace_id = $1
       AND active.status = 'running'
 )
-SELECT id, workspace_id, agent_id, session_id, source, command, argv, work_dir, status, started_at, finished_at, exit_code FROM running
+SELECT id, workspace_id, agent_id, session_id, source, command, argv, work_dir, status, started_at, finished_at, exit_code, tool FROM running
 UNION ALL
-SELECT id, workspace_id, agent_id, session_id, source, command, argv, work_dir, status, started_at, finished_at, exit_code FROM recent_completed
+SELECT id, workspace_id, agent_id, session_id, source, command, argv, work_dir, status, started_at, finished_at, exit_code, tool FROM recent_completed
 ORDER BY started_at DESC, id DESC
 `
 
@@ -36353,6 +36353,7 @@ type GetWorkspaceCommandActivityByWorkspaceIDRow struct {
 	StartedAt   time.Time     `db:"started_at" json:"started_at"`
 	FinishedAt  sql.NullTime  `db:"finished_at" json:"finished_at"`
 	ExitCode    sql.NullInt32 `db:"exit_code" json:"exit_code"`
+	Tool        string        `db:"tool" json:"tool"`
 }
 
 func (q *sqlQuerier) GetWorkspaceCommandActivityByWorkspaceID(ctx context.Context, arg GetWorkspaceCommandActivityByWorkspaceIDParams) ([]GetWorkspaceCommandActivityByWorkspaceIDRow, error) {
@@ -36377,6 +36378,7 @@ func (q *sqlQuerier) GetWorkspaceCommandActivityByWorkspaceID(ctx context.Contex
 			&i.StartedAt,
 			&i.FinishedAt,
 			&i.ExitCode,
+			&i.Tool,
 		); err != nil {
 			return nil, err
 		}
@@ -36398,6 +36400,7 @@ INSERT INTO workspace_command_activity (
     agent_id,
     session_id,
     source,
+    tool,
     command,
     argv,
     work_dir,
@@ -36412,8 +36415,9 @@ INSERT INTO workspace_command_activity (
     $6,
     $7,
     $8,
+    $9,
     'running',
-    $9
+    $10
 )
 ON CONFLICT (id) DO NOTHING
 `
@@ -36424,6 +36428,7 @@ type InsertWorkspaceCommandActivityParams struct {
 	AgentID     uuid.UUID `db:"agent_id" json:"agent_id"`
 	SessionID   uuid.UUID `db:"session_id" json:"session_id"`
 	Source      string    `db:"source" json:"source"`
+	Tool        string    `db:"tool" json:"tool"`
 	Command     string    `db:"command" json:"command"`
 	Argv        []string  `db:"argv" json:"argv"`
 	WorkDir     string    `db:"work_dir" json:"work_dir"`
@@ -36437,6 +36442,7 @@ func (q *sqlQuerier) InsertWorkspaceCommandActivity(ctx context.Context, arg Ins
 		arg.AgentID,
 		arg.SessionID,
 		arg.Source,
+		arg.Tool,
 		arg.Command,
 		pq.Array(arg.Argv),
 		arg.WorkDir,

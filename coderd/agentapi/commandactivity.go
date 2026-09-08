@@ -84,6 +84,7 @@ func (a *CommandActivityAPI) ReportCommandActivity(ctx context.Context, req *age
 			AgentID:     a.AgentID,
 			SessionID:   sessionID,
 			Source:      source,
+			Tool:        activity.GetTool(),
 			Command:     activity.GetCommand(),
 			Argv:        append([]string(nil), activity.GetArgv()...),
 			WorkDir:     activity.GetWorkDir(),

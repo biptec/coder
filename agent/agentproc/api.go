@@ -33,7 +33,7 @@ const (
 
 // CommandActivityReporter records a process after it has started. The returned
 // function is called exactly once when the process exits.
-type CommandActivityReporter func(command string, argv []string, workDir string) func(exitCode int)
+type CommandActivityReporter func(command string, argv []string, workDir, tool string) func(exitCode int)
 
 // Option configures the process API.
 type Option func(*manager)

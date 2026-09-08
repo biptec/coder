@@ -121,6 +121,7 @@ The command is executed by the workspace Agent using sh -c. If workdir is omitte
 			Argv:        args.Argv,
 			WorkDir:     args.WorkDir,
 			Env:         args.Env,
+			Tool:        InvocationToolFromContext(ctx),
 			Background:  args.Background,
 			Interactive: args.Interactive,
 			Stdin:       args.Stdin,

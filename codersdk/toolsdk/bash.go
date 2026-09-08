@@ -16,6 +16,7 @@ import (
 	"github.com/coder/aisdk-go"
 	"github.com/coder/coder/v2/cli/cliui"
 	"github.com/coder/coder/v2/codersdk"
+	"github.com/coder/coder/v2/codersdk/workspacesdk"
 )
 
 type WorkspaceBashArgs struct {
@@ -125,6 +126,12 @@ Examples:
 			return WorkspaceBashResult{}, xerrors.Errorf("failed to create SSH session: %w", err)
 		}
 		defer session.Close()
+
+		if tool := InvocationToolFromContext(ctx); tool != "" {
+			if err := session.Setenv(workspacesdk.MCPToolEnvironmentVariable, tool); err != nil {
+				return WorkspaceBashResult{}, xerrors.Errorf("set MCP tool attribution: %w", err)
+			}
+		}
 
 		// Set default timeout if not specified (60 seconds)
 		timeoutMs := args.TimeoutMs

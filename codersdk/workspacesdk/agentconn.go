@@ -849,6 +849,10 @@ func (c *agentConn) RecreateDevcontainer(ctx context.Context, devcontainerID str
 // accepted by the workspace process API in a single request.
 const MaxProcessInputBytes = 1 << 20
 
+// MCPToolEnvironmentVariable carries MCP tool attribution across SSH session
+// setup. The agent strips it before constructing the user command environment.
+const MCPToolEnvironmentVariable = "CODER_MCP_TOOL"
+
 // StartProcessRequest is the request body for starting a
 // process on the workspace agent.
 type StartProcessRequest struct {
@@ -857,11 +861,14 @@ type StartProcessRequest struct {
 	Command string `json:"command,omitempty"`
 	// Argv executes directly without shell parsing. Argv[0] is the executable.
 	// Exactly one of Command or Argv must be provided.
-	Argv        []string          `json:"argv,omitempty"`
-	WorkDir     string            `json:"workdir,omitempty"`
-	Env         map[string]string `json:"env,omitempty"`
-	Background  bool              `json:"background,omitempty"`
-	Interactive bool              `json:"interactive,omitempty"`
+	Argv    []string          `json:"argv,omitempty"`
+	WorkDir string            `json:"workdir,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	// Tool is optional attribution metadata identifying the MCP tool that started
+	// the process. It is not added to the process environment.
+	Tool        string `json:"tool,omitempty"`
+	Background  bool   `json:"background,omitempty"`
+	Interactive bool   `json:"interactive,omitempty"`
 	// Stdin is delivered once at process start. For non-interactive processes it
 	// is followed by EOF. For interactive processes the stdin pipe remains open.
 	Stdin string `json:"stdin,omitempty"`
@@ -885,6 +892,7 @@ type ProcessInfo struct {
 	Command     string   `json:"command,omitempty"`
 	Argv        []string `json:"argv,omitempty"`
 	WorkDir     string   `json:"workdir,omitempty"`
+	Tool        string   `json:"tool,omitempty"`
 	Background  bool     `json:"background"`
 	Interactive bool     `json:"interactive,omitempty"`
 	Running     bool     `json:"running"`
