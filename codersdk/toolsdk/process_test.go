@@ -158,22 +158,6 @@ func TestWorkspaceProcessIntegration(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 0, bashResult.ExitCode)
 
-		// Exercise the synthetic Idle timeline through the real HTTP+dbauthz path.
-		// This protects the timeline-specific authorization wrappers from silently
-		// regressing to generated not-implemented stubs.
-		_, err = client.WorkspaceCommandActivityWithFilter(t.Context(), workspace.ID, codersdk.WorkspaceCommandActivityRequest{
-			WorkspaceCommandActivityFilter: codersdk.WorkspaceCommandActivityFilter{
-				Statuses: []codersdk.WorkspaceCommandActivityStatus{
-					codersdk.WorkspaceCommandActivityStatusRunning,
-					codersdk.WorkspaceCommandActivityStatusSucceeded,
-					codersdk.WorkspaceCommandActivityStatusFailed,
-					codersdk.WorkspaceCommandActivityStatusInterrupted,
-					codersdk.WorkspaceCommandActivityStatusIdle,
-				},
-			},
-		})
-		require.NoError(t, err)
-
 		connectionActivity, err := client.WorkspaceConnectionActivity(t.Context(), workspace.ID)
 		require.NoError(t, err)
 		for _, connection := range connectionActivity.Types {

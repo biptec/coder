@@ -185,7 +185,7 @@ export const WorkspaceMoreActions: FC<WorkspaceMoreActionsProps> = ({
 							to={`/@${workspace.owner_name}/${workspace.name}/command-activity`}
 						>
 							<ActivityIcon />
-							Command activity
+							Activity history
 						</RouterLink>
 					</DropdownMenuItem>
 

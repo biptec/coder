@@ -36284,55 +36284,75 @@ SELECT COUNT(*)::bigint
 FROM workspace_command_activity
 WHERE workspace_id = $1
   AND (
-    COALESCE(array_length($2::text[], 1), 0) = 0
-    OR status = ANY($2::text[])
+    $2::text = ''
+    OR strpos(lower(id::text), lower($2::text)) > 0
   )
   AND (
     COALESCE(array_length($3::text[], 1), 0) = 0
-    OR tool = ANY($3::text[])
+    OR status = ANY($3::text[])
   )
   AND (
     COALESCE(array_length($4::text[], 1), 0) = 0
-    OR source = ANY($4::text[])
+    OR tool = ANY($4::text[])
   )
   AND (
-    $5::text = ''
-    OR strpos(lower(command), lower($5::text)) > 0
-    OR strpos(lower(array_to_string(argv, ' ')), lower($5::text)) > 0
+    COALESCE(array_length($5::text[], 1), 0) = 0
+    OR source = ANY($5::text[])
+    OR (
+      'mcp' = ANY($5::text[])
+      AND source = 'agentproc'
+      AND tool IN (
+        'exec', 'bash', 'process_start',
+        'coder_workspace_exec', 'coder_workspace_bash',
+        'coder_workspace_process_start', 'coder_workspace_process_start_v2'
+      )
+    )
   )
   AND (
-    $6::timestamptz = '0001-01-01 00:00:00Z'::timestamptz
-    OR started_at >= $6::timestamptz
+    $6::text = ''
+    OR strpos(lower(command), lower($6::text)) > 0
+    OR strpos(lower(array_to_string(argv, ' ')), lower($6::text)) > 0
   )
   AND (
     $7::timestamptz = '0001-01-01 00:00:00Z'::timestamptz
-    OR started_at <= $7::timestamptz
+    OR started_at >= $7::timestamptz
   )
   AND (
-    $8::bigint < 0
-    OR EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - started_at)) * 1000 >= $8::bigint
+    $8::timestamptz = '0001-01-01 00:00:00Z'::timestamptz
+    OR started_at <= $8::timestamptz
   )
   AND (
     $9::bigint < 0
-    OR EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - started_at)) * 1000 <= $9::bigint
+    OR EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - started_at)) * 1000 >= $9::bigint
+  )
+  AND (
+    $10::bigint < 0
+    OR EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - started_at)) * 1000 <= $10::bigint
+  )
+  AND (
+    $11::integer IS NULL
+    OR exit_code = $11::integer
   )
 `
 
 type CountWorkspaceCommandActivityParams struct {
-	WorkspaceID   uuid.UUID `db:"workspace_id" json:"workspace_id"`
-	Statuses      []string  `db:"statuses" json:"statuses"`
-	Tools         []string  `db:"tools" json:"tools"`
-	Sources       []string  `db:"sources" json:"sources"`
-	Search        string    `db:"search" json:"search"`
-	StartedAfter  time.Time `db:"started_after" json:"started_after"`
-	StartedBefore time.Time `db:"started_before" json:"started_before"`
-	DurationMinMs int64     `db:"duration_min_ms" json:"duration_min_ms"`
-	DurationMaxMs int64     `db:"duration_max_ms" json:"duration_max_ms"`
+	WorkspaceID   uuid.UUID     `db:"workspace_id" json:"workspace_id"`
+	IDSearch      string        `db:"id_search" json:"id_search"`
+	Statuses      []string      `db:"statuses" json:"statuses"`
+	Tools         []string      `db:"tools" json:"tools"`
+	Sources       []string      `db:"sources" json:"sources"`
+	Search        string        `db:"search" json:"search"`
+	StartedAfter  time.Time     `db:"started_after" json:"started_after"`
+	StartedBefore time.Time     `db:"started_before" json:"started_before"`
+	DurationMinMs int64         `db:"duration_min_ms" json:"duration_min_ms"`
+	DurationMaxMs int64         `db:"duration_max_ms" json:"duration_max_ms"`
+	ExitCode      sql.NullInt32 `db:"exit_code" json:"exit_code"`
 }
 
 func (q *sqlQuerier) CountWorkspaceCommandActivity(ctx context.Context, arg CountWorkspaceCommandActivityParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countWorkspaceCommandActivity,
 		arg.WorkspaceID,
+		arg.IDSearch,
 		pq.Array(arg.Statuses),
 		pq.Array(arg.Tools),
 		pq.Array(arg.Sources),
@@ -36341,131 +36361,7 @@ func (q *sqlQuerier) CountWorkspaceCommandActivity(ctx context.Context, arg Coun
 		arg.StartedBefore,
 		arg.DurationMinMs,
 		arg.DurationMaxMs,
-	)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
-const countWorkspaceCommandActivityTimeline = `-- name: CountWorkspaceCommandActivityTimeline :one
-WITH activity_rows AS (
-    SELECT id, workspace_id, agent_id, session_id, source, command, argv, work_dir, status, started_at, finished_at, exit_code, tool, kind
-    FROM workspace_command_activity AS activity
-    WHERE activity.workspace_id = $9
-), command_rows AS (
-    SELECT
-        activity_rows.id, activity_rows.workspace_id, activity_rows.agent_id, activity_rows.session_id, activity_rows.source, activity_rows.command, activity_rows.argv, activity_rows.work_dir, activity_rows.status, activity_rows.started_at, activity_rows.finished_at, activity_rows.exit_code, activity_rows.tool, activity_rows.kind,
-        COALESCE(activity_rows.finished_at, NOW()) AS busy_end
-    FROM activity_rows
-    WHERE activity_rows.kind = 'command'
-), ordered AS (
-    SELECT
-        command_rows.id, command_rows.workspace_id, command_rows.agent_id, command_rows.session_id, command_rows.source, command_rows.command, command_rows.argv, command_rows.work_dir, command_rows.status, command_rows.started_at, command_rows.finished_at, command_rows.exit_code, command_rows.tool, command_rows.kind, command_rows.busy_end,
-        MAX(command_rows.busy_end) OVER (
-            ORDER BY command_rows.started_at ASC, command_rows.id ASC
-            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-        ) AS prior_busy_end
-    FROM command_rows
-), idle_rows AS (
-    SELECT
-        'idle'::text AS status,
-        ''::text AS tool,
-        ''::text AS source,
-        ''::text AS command,
-        ARRAY[]::text[] AS argv,
-        ordered.prior_busy_end AS started_at,
-        ordered.started_at AS finished_at
-    FROM ordered
-    WHERE ordered.prior_busy_end IS NOT NULL
-      AND ordered.prior_busy_end < ordered.started_at
-
-    UNION ALL
-
-    SELECT
-        'idle'::text AS status,
-        ''::text AS tool,
-        ''::text AS source,
-        ''::text AS command,
-        ARRAY[]::text[] AS argv,
-        summary.latest_end AS started_at,
-        NULL::timestamptz AS finished_at
-    FROM (
-        SELECT
-            workspace_id,
-            MAX(busy_end) AS latest_end,
-            BOOL_OR(finished_at IS NULL) AS has_running
-        FROM command_rows
-        GROUP BY workspace_id
-    ) AS summary
-    WHERE NOT summary.has_running
-      AND summary.latest_end < NOW()
-), timeline AS (
-    SELECT status, tool, source, command, argv, started_at, finished_at
-    FROM activity_rows
-    UNION ALL
-    SELECT status, tool, source, command, argv, started_at, finished_at
-    FROM idle_rows
-)
-SELECT COUNT(*)::bigint
-FROM timeline
-WHERE (
-    COALESCE(array_length($1::text[], 1), 0) = 0
-    OR status = ANY($1::text[])
-  )
-  AND (
-    COALESCE(array_length($2::text[], 1), 0) = 0
-    OR tool = ANY($2::text[])
-  )
-  AND (
-    COALESCE(array_length($3::text[], 1), 0) = 0
-    OR source = ANY($3::text[])
-  )
-  AND (
-    $4::text = ''
-    OR strpos(lower(command), lower($4::text)) > 0
-    OR strpos(lower(array_to_string(argv, ' ')), lower($4::text)) > 0
-  )
-  AND (
-    $5::timestamptz = '0001-01-01 00:00:00Z'::timestamptz
-    OR started_at >= $5::timestamptz
-  )
-  AND (
-    $6::timestamptz = '0001-01-01 00:00:00Z'::timestamptz
-    OR started_at <= $6::timestamptz
-  )
-  AND (
-    $7::bigint < 0
-    OR EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - started_at)) * 1000 >= $7::bigint
-  )
-  AND (
-    $8::bigint < 0
-    OR EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - started_at)) * 1000 <= $8::bigint
-  )
-`
-
-type CountWorkspaceCommandActivityTimelineParams struct {
-	Statuses      []string  `db:"statuses" json:"statuses"`
-	Tools         []string  `db:"tools" json:"tools"`
-	Sources       []string  `db:"sources" json:"sources"`
-	Search        string    `db:"search" json:"search"`
-	StartedAfter  time.Time `db:"started_after" json:"started_after"`
-	StartedBefore time.Time `db:"started_before" json:"started_before"`
-	DurationMinMs int64     `db:"duration_min_ms" json:"duration_min_ms"`
-	DurationMaxMs int64     `db:"duration_max_ms" json:"duration_max_ms"`
-	WorkspaceID   uuid.UUID `db:"workspace_id" json:"workspace_id"`
-}
-
-func (q *sqlQuerier) CountWorkspaceCommandActivityTimeline(ctx context.Context, arg CountWorkspaceCommandActivityTimelineParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countWorkspaceCommandActivityTimeline,
-		pq.Array(arg.Statuses),
-		pq.Array(arg.Tools),
-		pq.Array(arg.Sources),
-		arg.Search,
-		arg.StartedAfter,
-		arg.StartedBefore,
-		arg.DurationMinMs,
-		arg.DurationMaxMs,
-		arg.WorkspaceID,
+		arg.ExitCode,
 	)
 	var column_1 int64
 	err := row.Scan(&column_1)
@@ -36476,55 +36372,75 @@ const deleteWorkspaceCommandActivityByFilter = `-- name: DeleteWorkspaceCommandA
 DELETE FROM workspace_command_activity
 WHERE workspace_id = $1
   AND (
-    COALESCE(array_length($2::text[], 1), 0) = 0
-    OR status = ANY($2::text[])
+    $2::text = ''
+    OR strpos(lower(id::text), lower($2::text)) > 0
   )
   AND (
     COALESCE(array_length($3::text[], 1), 0) = 0
-    OR tool = ANY($3::text[])
+    OR status = ANY($3::text[])
   )
   AND (
     COALESCE(array_length($4::text[], 1), 0) = 0
-    OR source = ANY($4::text[])
+    OR tool = ANY($4::text[])
   )
   AND (
-    $5::text = ''
-    OR strpos(lower(command), lower($5::text)) > 0
-    OR strpos(lower(array_to_string(argv, ' ')), lower($5::text)) > 0
+    COALESCE(array_length($5::text[], 1), 0) = 0
+    OR source = ANY($5::text[])
+    OR (
+      'mcp' = ANY($5::text[])
+      AND source = 'agentproc'
+      AND tool IN (
+        'exec', 'bash', 'process_start',
+        'coder_workspace_exec', 'coder_workspace_bash',
+        'coder_workspace_process_start', 'coder_workspace_process_start_v2'
+      )
+    )
   )
   AND (
-    $6::timestamptz = '0001-01-01 00:00:00Z'::timestamptz
-    OR started_at >= $6::timestamptz
+    $6::text = ''
+    OR strpos(lower(command), lower($6::text)) > 0
+    OR strpos(lower(array_to_string(argv, ' ')), lower($6::text)) > 0
   )
   AND (
     $7::timestamptz = '0001-01-01 00:00:00Z'::timestamptz
-    OR started_at <= $7::timestamptz
+    OR started_at >= $7::timestamptz
   )
   AND (
-    $8::bigint < 0
-    OR EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - started_at)) * 1000 >= $8::bigint
+    $8::timestamptz = '0001-01-01 00:00:00Z'::timestamptz
+    OR started_at <= $8::timestamptz
   )
   AND (
     $9::bigint < 0
-    OR EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - started_at)) * 1000 <= $9::bigint
+    OR EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - started_at)) * 1000 >= $9::bigint
+  )
+  AND (
+    $10::bigint < 0
+    OR EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - started_at)) * 1000 <= $10::bigint
+  )
+  AND (
+    $11::integer IS NULL
+    OR exit_code = $11::integer
   )
 `
 
 type DeleteWorkspaceCommandActivityByFilterParams struct {
-	WorkspaceID   uuid.UUID `db:"workspace_id" json:"workspace_id"`
-	Statuses      []string  `db:"statuses" json:"statuses"`
-	Tools         []string  `db:"tools" json:"tools"`
-	Sources       []string  `db:"sources" json:"sources"`
-	Search        string    `db:"search" json:"search"`
-	StartedAfter  time.Time `db:"started_after" json:"started_after"`
-	StartedBefore time.Time `db:"started_before" json:"started_before"`
-	DurationMinMs int64     `db:"duration_min_ms" json:"duration_min_ms"`
-	DurationMaxMs int64     `db:"duration_max_ms" json:"duration_max_ms"`
+	WorkspaceID   uuid.UUID     `db:"workspace_id" json:"workspace_id"`
+	IDSearch      string        `db:"id_search" json:"id_search"`
+	Statuses      []string      `db:"statuses" json:"statuses"`
+	Tools         []string      `db:"tools" json:"tools"`
+	Sources       []string      `db:"sources" json:"sources"`
+	Search        string        `db:"search" json:"search"`
+	StartedAfter  time.Time     `db:"started_after" json:"started_after"`
+	StartedBefore time.Time     `db:"started_before" json:"started_before"`
+	DurationMinMs int64         `db:"duration_min_ms" json:"duration_min_ms"`
+	DurationMaxMs int64         `db:"duration_max_ms" json:"duration_max_ms"`
+	ExitCode      sql.NullInt32 `db:"exit_code" json:"exit_code"`
 }
 
 func (q *sqlQuerier) DeleteWorkspaceCommandActivityByFilter(ctx context.Context, arg DeleteWorkspaceCommandActivityByFilterParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteWorkspaceCommandActivityByFilter,
 		arg.WorkspaceID,
+		arg.IDSearch,
 		pq.Array(arg.Statuses),
 		pq.Array(arg.Tools),
 		pq.Array(arg.Sources),
@@ -36533,6 +36449,7 @@ func (q *sqlQuerier) DeleteWorkspaceCommandActivityByFilter(ctx context.Context,
 		arg.StartedBefore,
 		arg.DurationMinMs,
 		arg.DurationMaxMs,
+		arg.ExitCode,
 	)
 	if err != nil {
 		return 0, err
@@ -36739,12 +36656,12 @@ INSERT INTO workspace_command_activity (
     $1,
     'mcp',
     $3,
-    '',
+    $4,
     ARRAY[]::text[],
     '',
     'tool',
     'running',
-    $4
+    $5
 )
 ON CONFLICT (id) DO NOTHING
 `
@@ -36753,6 +36670,7 @@ type InsertWorkspaceToolActivityParams struct {
 	ID          uuid.UUID `db:"id" json:"id"`
 	WorkspaceID uuid.UUID `db:"workspace_id" json:"workspace_id"`
 	Tool        string    `db:"tool" json:"tool"`
+	Command     string    `db:"command" json:"command"`
 	StartedAt   time.Time `db:"started_at" json:"started_at"`
 }
 
@@ -36761,6 +36679,7 @@ func (q *sqlQuerier) InsertWorkspaceToolActivity(ctx context.Context, arg Insert
 		arg.ID,
 		arg.WorkspaceID,
 		arg.Tool,
+		arg.Command,
 		arg.StartedAt,
 	)
 	return err
@@ -36802,80 +36721,118 @@ SELECT id, workspace_id, agent_id, session_id, source, command, argv, work_dir, 
 FROM workspace_command_activity
 WHERE workspace_id = $1
   AND (
-    COALESCE(array_length($2::text[], 1), 0) = 0
-    OR status = ANY($2::text[])
+    $2::text = ''
+    OR strpos(lower(id::text), lower($2::text)) > 0
   )
   AND (
     COALESCE(array_length($3::text[], 1), 0) = 0
-    OR tool = ANY($3::text[])
+    OR status = ANY($3::text[])
   )
   AND (
     COALESCE(array_length($4::text[], 1), 0) = 0
-    OR source = ANY($4::text[])
+    OR tool = ANY($4::text[])
   )
   AND (
-    $5::text = ''
-    OR strpos(lower(command), lower($5::text)) > 0
-    OR strpos(lower(array_to_string(argv, ' ')), lower($5::text)) > 0
+    COALESCE(array_length($5::text[], 1), 0) = 0
+    OR source = ANY($5::text[])
+    OR (
+      'mcp' = ANY($5::text[])
+      AND source = 'agentproc'
+      AND tool IN (
+        'exec', 'bash', 'process_start',
+        'coder_workspace_exec', 'coder_workspace_bash',
+        'coder_workspace_process_start', 'coder_workspace_process_start_v2'
+      )
+    )
   )
   AND (
-    $6::timestamptz = '0001-01-01 00:00:00Z'::timestamptz
-    OR started_at >= $6::timestamptz
+    $6::text = ''
+    OR strpos(lower(command), lower($6::text)) > 0
+    OR strpos(lower(array_to_string(argv, ' ')), lower($6::text)) > 0
   )
   AND (
     $7::timestamptz = '0001-01-01 00:00:00Z'::timestamptz
-    OR started_at <= $7::timestamptz
+    OR started_at >= $7::timestamptz
   )
   AND (
-    $8::bigint < 0
-    OR EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - started_at)) * 1000 >= $8::bigint
+    $8::timestamptz = '0001-01-01 00:00:00Z'::timestamptz
+    OR started_at <= $8::timestamptz
   )
   AND (
     $9::bigint < 0
-    OR EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - started_at)) * 1000 <= $9::bigint
+    OR EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - started_at)) * 1000 >= $9::bigint
+  )
+  AND (
+    $10::bigint < 0
+    OR EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - started_at)) * 1000 <= $10::bigint
+  )
+  AND (
+    $11::integer IS NULL
+    OR exit_code = $11::integer
   )
 ORDER BY
-  CASE WHEN $10::text = 'id' AND $11::text = 'asc' THEN id END ASC,
-  CASE WHEN $10::text = 'id' AND $11::text = 'desc' THEN id END DESC,
-  CASE WHEN $10::text = 'status' AND $11::text = 'asc' THEN status END ASC,
-  CASE WHEN $10::text = 'status' AND $11::text = 'desc' THEN status END DESC,
-  CASE WHEN $10::text = 'started' AND $11::text = 'asc' THEN started_at END ASC,
-  CASE WHEN $10::text = 'started' AND $11::text = 'desc' THEN started_at END DESC,
-  CASE WHEN $10::text = 'duration' AND $11::text = 'asc' THEN COALESCE(finished_at, NOW()) - started_at END ASC,
-  CASE WHEN $10::text = 'duration' AND $11::text = 'desc' THEN COALESCE(finished_at, NOW()) - started_at END DESC,
-  CASE WHEN $10::text = 'tool' AND $11::text = 'asc' THEN tool END ASC,
-  CASE WHEN $10::text = 'tool' AND $11::text = 'desc' THEN tool END DESC,
-  CASE WHEN $10::text = 'source' AND $11::text = 'asc' THEN source END ASC,
-  CASE WHEN $10::text = 'source' AND $11::text = 'desc' THEN source END DESC,
-  CASE WHEN $10::text = 'command' AND $11::text = 'asc' THEN COALESCE(NULLIF(command, ''), array_to_string(argv, ' ')) END ASC,
-  CASE WHEN $10::text = 'command' AND $11::text = 'desc' THEN COALESCE(NULLIF(command, ''), array_to_string(argv, ' ')) END DESC,
-  CASE WHEN $10::text = 'exit' AND $11::text = 'asc' THEN exit_code END ASC,
-  CASE WHEN $10::text = 'exit' AND $11::text = 'desc' THEN exit_code END DESC,
+  CASE WHEN $12::text = 'id' AND $13::text = 'asc' THEN id END ASC,
+  CASE WHEN $12::text = 'id' AND $13::text = 'desc' THEN id END DESC,
+  CASE WHEN $12::text = 'status' AND $13::text = 'asc' THEN status END ASC,
+  CASE WHEN $12::text = 'status' AND $13::text = 'desc' THEN status END DESC,
+  CASE WHEN $12::text = 'started' AND $13::text = 'asc' THEN started_at END ASC,
+  CASE WHEN $12::text = 'started' AND $13::text = 'desc' THEN started_at END DESC,
+  CASE WHEN $12::text = 'duration' AND $13::text = 'asc' THEN COALESCE(finished_at, NOW()) - started_at END ASC,
+  CASE WHEN $12::text = 'duration' AND $13::text = 'desc' THEN COALESCE(finished_at, NOW()) - started_at END DESC,
+  CASE WHEN $12::text = 'tool' AND $13::text = 'asc' THEN tool END ASC,
+  CASE WHEN $12::text = 'tool' AND $13::text = 'desc' THEN tool END DESC,
+  CASE WHEN $12::text = 'source' AND $13::text = 'asc' THEN
+    CASE
+      WHEN source = 'agentproc' AND tool IN (
+        'exec', 'bash', 'process_start',
+        'coder_workspace_exec', 'coder_workspace_bash',
+        'coder_workspace_process_start', 'coder_workspace_process_start_v2'
+      ) THEN 'mcp'
+      ELSE source
+    END
+  END ASC,
+  CASE WHEN $12::text = 'source' AND $13::text = 'desc' THEN
+    CASE
+      WHEN source = 'agentproc' AND tool IN (
+        'exec', 'bash', 'process_start',
+        'coder_workspace_exec', 'coder_workspace_bash',
+        'coder_workspace_process_start', 'coder_workspace_process_start_v2'
+      ) THEN 'mcp'
+      ELSE source
+    END
+  END DESC,
+  CASE WHEN $12::text = 'command' AND $13::text = 'asc' THEN COALESCE(NULLIF(command, ''), array_to_string(argv, ' ')) END ASC,
+  CASE WHEN $12::text = 'command' AND $13::text = 'desc' THEN COALESCE(NULLIF(command, ''), array_to_string(argv, ' ')) END DESC,
+  CASE WHEN $12::text = 'exit' AND $13::text = 'asc' THEN exit_code END ASC,
+  CASE WHEN $12::text = 'exit' AND $13::text = 'desc' THEN exit_code END DESC,
   started_at DESC,
   id DESC
-LIMIT $13
-OFFSET $12
+LIMIT $15
+OFFSET $14
 `
 
 type ListWorkspaceCommandActivityParams struct {
-	WorkspaceID   uuid.UUID `db:"workspace_id" json:"workspace_id"`
-	Statuses      []string  `db:"statuses" json:"statuses"`
-	Tools         []string  `db:"tools" json:"tools"`
-	Sources       []string  `db:"sources" json:"sources"`
-	Search        string    `db:"search" json:"search"`
-	StartedAfter  time.Time `db:"started_after" json:"started_after"`
-	StartedBefore time.Time `db:"started_before" json:"started_before"`
-	DurationMinMs int64     `db:"duration_min_ms" json:"duration_min_ms"`
-	DurationMaxMs int64     `db:"duration_max_ms" json:"duration_max_ms"`
-	SortBy        string    `db:"sort_by" json:"sort_by"`
-	SortDirection string    `db:"sort_direction" json:"sort_direction"`
-	PageOffset    int32     `db:"page_offset" json:"page_offset"`
-	PageLimit     int32     `db:"page_limit" json:"page_limit"`
+	WorkspaceID   uuid.UUID     `db:"workspace_id" json:"workspace_id"`
+	IDSearch      string        `db:"id_search" json:"id_search"`
+	Statuses      []string      `db:"statuses" json:"statuses"`
+	Tools         []string      `db:"tools" json:"tools"`
+	Sources       []string      `db:"sources" json:"sources"`
+	Search        string        `db:"search" json:"search"`
+	StartedAfter  time.Time     `db:"started_after" json:"started_after"`
+	StartedBefore time.Time     `db:"started_before" json:"started_before"`
+	DurationMinMs int64         `db:"duration_min_ms" json:"duration_min_ms"`
+	DurationMaxMs int64         `db:"duration_max_ms" json:"duration_max_ms"`
+	ExitCode      sql.NullInt32 `db:"exit_code" json:"exit_code"`
+	SortBy        string        `db:"sort_by" json:"sort_by"`
+	SortDirection string        `db:"sort_direction" json:"sort_direction"`
+	PageOffset    int32         `db:"page_offset" json:"page_offset"`
+	PageLimit     int32         `db:"page_limit" json:"page_limit"`
 }
 
 func (q *sqlQuerier) ListWorkspaceCommandActivity(ctx context.Context, arg ListWorkspaceCommandActivityParams) ([]WorkspaceCommandActivity, error) {
 	rows, err := q.db.QueryContext(ctx, listWorkspaceCommandActivity,
 		arg.WorkspaceID,
+		arg.IDSearch,
 		pq.Array(arg.Statuses),
 		pq.Array(arg.Tools),
 		pq.Array(arg.Sources),
@@ -36884,6 +36841,7 @@ func (q *sqlQuerier) ListWorkspaceCommandActivity(ctx context.Context, arg ListW
 		arg.StartedBefore,
 		arg.DurationMinMs,
 		arg.DurationMaxMs,
+		arg.ExitCode,
 		arg.SortBy,
 		arg.SortDirection,
 		arg.PageOffset,
@@ -36911,228 +36869,6 @@ func (q *sqlQuerier) ListWorkspaceCommandActivity(ctx context.Context, arg ListW
 			&i.ExitCode,
 			&i.Tool,
 			&i.Kind,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listWorkspaceCommandActivityTimeline = `-- name: ListWorkspaceCommandActivityTimeline :many
-WITH activity_rows AS (
-    SELECT id, workspace_id, agent_id, session_id, source, command, argv, work_dir, status, started_at, finished_at, exit_code, tool, kind
-    FROM workspace_command_activity AS activity
-    WHERE activity.workspace_id = $13
-), command_rows AS (
-    SELECT
-        activity_rows.id, activity_rows.workspace_id, activity_rows.agent_id, activity_rows.session_id, activity_rows.source, activity_rows.command, activity_rows.argv, activity_rows.work_dir, activity_rows.status, activity_rows.started_at, activity_rows.finished_at, activity_rows.exit_code, activity_rows.tool, activity_rows.kind,
-        COALESCE(activity_rows.finished_at, NOW()) AS busy_end
-    FROM activity_rows
-    WHERE activity_rows.kind = 'command'
-), ordered AS (
-    SELECT
-        command_rows.id, command_rows.workspace_id, command_rows.agent_id, command_rows.session_id, command_rows.source, command_rows.command, command_rows.argv, command_rows.work_dir, command_rows.status, command_rows.started_at, command_rows.finished_at, command_rows.exit_code, command_rows.tool, command_rows.kind, command_rows.busy_end,
-        MAX(command_rows.busy_end) OVER (
-            ORDER BY command_rows.started_at ASC, command_rows.id ASC
-            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-        ) AS prior_busy_end
-    FROM command_rows
-), idle_rows AS (
-    SELECT
-        md5(ordered.workspace_id::text || ':idle:' || ordered.prior_busy_end::text || ':' || ordered.started_at::text)::uuid AS id,
-        ordered.workspace_id,
-        '00000000-0000-0000-0000-000000000000'::uuid AS agent_id,
-        '00000000-0000-0000-0000-000000000000'::uuid AS session_id,
-        ''::text AS source,
-        ''::text AS tool,
-        ''::text AS command,
-        ARRAY[]::text[] AS argv,
-        ''::text AS work_dir,
-        ''::text AS kind,
-        'idle'::text AS status,
-        ordered.prior_busy_end AS started_at,
-        ordered.started_at AS finished_at,
-        NULL::integer AS exit_code
-    FROM ordered
-    WHERE ordered.prior_busy_end IS NOT NULL
-      AND ordered.prior_busy_end < ordered.started_at
-
-    UNION ALL
-
-    SELECT
-        md5(summary.workspace_id::text || ':idle:' || summary.latest_end::text || ':open')::uuid AS id,
-        summary.workspace_id,
-        '00000000-0000-0000-0000-000000000000'::uuid AS agent_id,
-        '00000000-0000-0000-0000-000000000000'::uuid AS session_id,
-        ''::text AS source,
-        ''::text AS tool,
-        ''::text AS command,
-        ARRAY[]::text[] AS argv,
-        ''::text AS work_dir,
-        ''::text AS kind,
-        'idle'::text AS status,
-        summary.latest_end AS started_at,
-        NULL::timestamptz AS finished_at,
-        NULL::integer AS exit_code
-    FROM (
-        SELECT
-            workspace_id,
-            MAX(busy_end) AS latest_end,
-            BOOL_OR(finished_at IS NULL) AS has_running
-        FROM command_rows
-        GROUP BY workspace_id
-    ) AS summary
-    WHERE NOT summary.has_running
-      AND summary.latest_end < NOW()
-), timeline AS (
-    SELECT
-        id, workspace_id, agent_id, session_id, source, tool, command, argv,
-        work_dir, kind, status, started_at, finished_at, exit_code
-    FROM activity_rows
-
-    UNION ALL
-
-    SELECT
-        id, workspace_id, agent_id, session_id, source, tool, command, argv,
-        work_dir, kind, status, started_at, finished_at, exit_code
-    FROM idle_rows
-)
-SELECT id, workspace_id, agent_id, session_id, source, tool, command, argv, work_dir, kind, status, started_at, finished_at, exit_code
-FROM timeline
-WHERE (
-    COALESCE(array_length($1::text[], 1), 0) = 0
-    OR status = ANY($1::text[])
-  )
-  AND (
-    COALESCE(array_length($2::text[], 1), 0) = 0
-    OR tool = ANY($2::text[])
-  )
-  AND (
-    COALESCE(array_length($3::text[], 1), 0) = 0
-    OR source = ANY($3::text[])
-  )
-  AND (
-    $4::text = ''
-    OR strpos(lower(command), lower($4::text)) > 0
-    OR strpos(lower(array_to_string(argv, ' ')), lower($4::text)) > 0
-  )
-  AND (
-    $5::timestamptz = '0001-01-01 00:00:00Z'::timestamptz
-    OR started_at >= $5::timestamptz
-  )
-  AND (
-    $6::timestamptz = '0001-01-01 00:00:00Z'::timestamptz
-    OR started_at <= $6::timestamptz
-  )
-  AND (
-    $7::bigint < 0
-    OR EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - started_at)) * 1000 >= $7::bigint
-  )
-  AND (
-    $8::bigint < 0
-    OR EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - started_at)) * 1000 <= $8::bigint
-  )
-ORDER BY
-  CASE WHEN $9::text = 'id' AND $10::text = 'asc' THEN id END ASC,
-  CASE WHEN $9::text = 'id' AND $10::text = 'desc' THEN id END DESC,
-  CASE WHEN $9::text = 'status' AND $10::text = 'asc' THEN status END ASC,
-  CASE WHEN $9::text = 'status' AND $10::text = 'desc' THEN status END DESC,
-  CASE WHEN $9::text = 'started' AND $10::text = 'asc' THEN started_at END ASC,
-  CASE WHEN $9::text = 'started' AND $10::text = 'desc' THEN started_at END DESC,
-  CASE WHEN $9::text = 'duration' AND $10::text = 'asc' THEN COALESCE(finished_at, NOW()) - started_at END ASC,
-  CASE WHEN $9::text = 'duration' AND $10::text = 'desc' THEN COALESCE(finished_at, NOW()) - started_at END DESC,
-  CASE WHEN $9::text = 'tool' AND $10::text = 'asc' THEN tool END ASC,
-  CASE WHEN $9::text = 'tool' AND $10::text = 'desc' THEN tool END DESC,
-  CASE WHEN $9::text = 'source' AND $10::text = 'asc' THEN source END ASC,
-  CASE WHEN $9::text = 'source' AND $10::text = 'desc' THEN source END DESC,
-  CASE WHEN $9::text = 'command' AND $10::text = 'asc' THEN COALESCE(NULLIF(command, ''), array_to_string(argv, ' ')) END ASC,
-  CASE WHEN $9::text = 'command' AND $10::text = 'desc' THEN COALESCE(NULLIF(command, ''), array_to_string(argv, ' ')) END DESC,
-  CASE WHEN $9::text = 'exit' AND $10::text = 'asc' THEN exit_code END ASC,
-  CASE WHEN $9::text = 'exit' AND $10::text = 'desc' THEN exit_code END DESC,
-  started_at DESC,
-  id DESC
-LIMIT $12
-OFFSET $11
-`
-
-type ListWorkspaceCommandActivityTimelineParams struct {
-	Statuses      []string  `db:"statuses" json:"statuses"`
-	Tools         []string  `db:"tools" json:"tools"`
-	Sources       []string  `db:"sources" json:"sources"`
-	Search        string    `db:"search" json:"search"`
-	StartedAfter  time.Time `db:"started_after" json:"started_after"`
-	StartedBefore time.Time `db:"started_before" json:"started_before"`
-	DurationMinMs int64     `db:"duration_min_ms" json:"duration_min_ms"`
-	DurationMaxMs int64     `db:"duration_max_ms" json:"duration_max_ms"`
-	SortBy        string    `db:"sort_by" json:"sort_by"`
-	SortDirection string    `db:"sort_direction" json:"sort_direction"`
-	PageOffset    int32     `db:"page_offset" json:"page_offset"`
-	PageLimit     int32     `db:"page_limit" json:"page_limit"`
-	WorkspaceID   uuid.UUID `db:"workspace_id" json:"workspace_id"`
-}
-
-type ListWorkspaceCommandActivityTimelineRow struct {
-	ID          uuid.UUID     `db:"id" json:"id"`
-	WorkspaceID uuid.UUID     `db:"workspace_id" json:"workspace_id"`
-	AgentID     uuid.UUID     `db:"agent_id" json:"agent_id"`
-	SessionID   uuid.UUID     `db:"session_id" json:"session_id"`
-	Source      string        `db:"source" json:"source"`
-	Tool        string        `db:"tool" json:"tool"`
-	Command     string        `db:"command" json:"command"`
-	Argv        []string      `db:"argv" json:"argv"`
-	WorkDir     string        `db:"work_dir" json:"work_dir"`
-	Kind        string        `db:"kind" json:"kind"`
-	Status      string        `db:"status" json:"status"`
-	StartedAt   time.Time     `db:"started_at" json:"started_at"`
-	FinishedAt  sql.NullTime  `db:"finished_at" json:"finished_at"`
-	ExitCode    sql.NullInt32 `db:"exit_code" json:"exit_code"`
-}
-
-func (q *sqlQuerier) ListWorkspaceCommandActivityTimeline(ctx context.Context, arg ListWorkspaceCommandActivityTimelineParams) ([]ListWorkspaceCommandActivityTimelineRow, error) {
-	rows, err := q.db.QueryContext(ctx, listWorkspaceCommandActivityTimeline,
-		pq.Array(arg.Statuses),
-		pq.Array(arg.Tools),
-		pq.Array(arg.Sources),
-		arg.Search,
-		arg.StartedAfter,
-		arg.StartedBefore,
-		arg.DurationMinMs,
-		arg.DurationMaxMs,
-		arg.SortBy,
-		arg.SortDirection,
-		arg.PageOffset,
-		arg.PageLimit,
-		arg.WorkspaceID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListWorkspaceCommandActivityTimelineRow
-	for rows.Next() {
-		var i ListWorkspaceCommandActivityTimelineRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.WorkspaceID,
-			&i.AgentID,
-			&i.SessionID,
-			&i.Source,
-			&i.Tool,
-			&i.Command,
-			pq.Array(&i.Argv),
-			&i.WorkDir,
-			&i.Kind,
-			&i.Status,
-			&i.StartedAt,
-			&i.FinishedAt,
-			&i.ExitCode,
 		); err != nil {
 			return nil, err
 		}

@@ -8,8 +8,8 @@ import type {
  * Applies a single durable command delta to a cached REST page.
  *
  * Returning undefined means the query shape cannot be updated safely from one
- * row alone (for example derived Idle intervals, non-default sorting, or a
- * status transition that moves a previously hidden command into the result).
+ * row alone (for example non-default sorting or a status transition that moves
+ * a previously hidden activity into the result).
  * The caller should schedule one debounced REST resync in that case.
  */
 export const updateCommandActivityCache = (
@@ -18,11 +18,6 @@ export const updateCommandActivityCache = (
 	request: WorkspaceCommandActivityRequest,
 ): WorkspaceCommandActivityResponse | undefined => {
 	const dataWithTool = withAvailableTool(data, command.tool);
-	// Idle is derived from the union of all command intervals. Any command
-	// transition can reshape one or more idle intervals, so let the server
-	// recalculate that timeline once per event burst.
-	if (request.statuses?.includes("idle")) return undefined;
-
 	const page = request.page ?? 1;
 	const pageSize = request.page_size ?? data.page_size;
 	const sortBy = request.sort_by ?? "started";
@@ -73,6 +68,12 @@ export const commandMatchesRequest = (
 	command: WorkspaceCommandActivity,
 	request: WorkspaceCommandActivityRequest,
 ): boolean => {
+	if (
+		request.id &&
+		!command.id.toLocaleLowerCase().includes(request.id.toLocaleLowerCase())
+	) {
+		return false;
+	}
 	if (request.statuses?.length && !request.statuses.includes(command.status)) {
 		return false;
 	}
@@ -118,6 +119,12 @@ export const commandMatchesRequest = (
 	if (
 		request.duration_max_ms !== undefined &&
 		duration > request.duration_max_ms
+	) {
+		return false;
+	}
+	if (
+		request.exit_code !== undefined &&
+		command.exit_code !== request.exit_code
 	) {
 		return false;
 	}

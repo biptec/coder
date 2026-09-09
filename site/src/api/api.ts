@@ -254,6 +254,7 @@ export const getWorkspaceCommandActivityURL = (
 	request: TypesGen.WorkspaceCommandActivityRequest = {},
 ): string => {
 	const searchParams = new URLSearchParams();
+	if (request.id) searchParams.set("id", request.id);
 	for (const status of request.statuses ?? [])
 		searchParams.append("status", status);
 	for (const tool of request.tools ?? []) searchParams.append("tool", tool);
@@ -268,6 +269,8 @@ export const getWorkspaceCommandActivityURL = (
 		searchParams.set("duration_min_ms", String(request.duration_min_ms));
 	if (request.duration_max_ms !== undefined)
 		searchParams.set("duration_max_ms", String(request.duration_max_ms));
+	if (request.exit_code !== undefined)
+		searchParams.set("exit_code", String(request.exit_code));
 	if (request.sort_by) searchParams.set("sort_by", request.sort_by);
 	if (request.sort_direction)
 		searchParams.set("sort_direction", request.sort_direction);

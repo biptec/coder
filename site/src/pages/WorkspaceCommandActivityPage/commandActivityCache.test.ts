@@ -4,7 +4,10 @@ import type {
 	WorkspaceCommandActivityRequest,
 	WorkspaceCommandActivityResponse,
 } from "#/api/typesGenerated";
-import { updateCommandActivityCache } from "./commandActivityCache";
+import {
+	commandMatchesRequest,
+	updateCommandActivityCache,
+} from "./commandActivityCache";
 
 const request = {
 	statuses: ["running", "succeeded", "failed", "interrupted"],
@@ -39,7 +42,6 @@ const running = {
 describe("updateCommandActivityCache", () => {
 	it("prepends a new running command on the default realtime page without a REST resync", () => {
 		const updated = updateCommandActivityCache(response, running, request);
-
 		expect(updated).toBeDefined();
 		expect(updated?.activity).toEqual([running]);
 		expect(updated?.total_count).toBe(1);
@@ -56,7 +58,6 @@ describe("updateCommandActivityCache", () => {
 			finished_at: "2026-09-09T12:00:10Z",
 			exit_code: 0,
 		} satisfies WorkspaceCommandActivity;
-
 		const updated = updateCommandActivityCache(started!, finished, request);
 		expect(updated).toBeDefined();
 		expect(updated?.activity).toEqual([finished]);
@@ -75,7 +76,6 @@ describe("updateCommandActivityCache", () => {
 			tool: "read_file",
 			argv: [],
 		} satisfies WorkspaceCommandActivity;
-
 		const updated = updateCommandActivityCache(
 			response,
 			toolOnly,
@@ -90,14 +90,22 @@ describe("updateCommandActivityCache", () => {
 		]);
 	});
 
-	it("requests a server resync when Idle is enabled", () => {
-		const withIdle = {
-			...request,
-			statuses: [...request.statuses, "idle"],
-		} satisfies WorkspaceCommandActivityRequest;
-
+	it("matches realtime rows against ID and exit filters", () => {
+		const finished = {
+			...running,
+			status: "succeeded",
+			finished_at: "2026-09-09T12:00:10Z",
+			exit_code: 17,
+		} satisfies WorkspaceCommandActivity;
 		expect(
-			updateCommandActivityCache(response, running, withIdle),
-		).toBeUndefined();
+			commandMatchesRequest(finished, {
+				...request,
+				id: "00000000-0000",
+				exit_code: 17,
+			}),
+		).toBe(true);
+		expect(commandMatchesRequest(finished, { ...request, exit_code: 1 })).toBe(
+			false,
+		);
 	});
 });

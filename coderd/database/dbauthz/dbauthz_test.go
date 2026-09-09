@@ -7327,22 +7327,13 @@ func TestWorkspaceActivityAuthorizationWrappers(t *testing.T) {
 	}
 
 	db.EXPECT().Wrappers().Return([]string{})
-	db.EXPECT().GetWorkspaceByID(gomock.Any(), workspaceID).Return(workspace, nil).Times(6)
-	db.EXPECT().CountWorkspaceCommandActivityTimeline(gomock.Any(), database.CountWorkspaceCommandActivityTimelineParams{WorkspaceID: workspaceID}).Return(int64(2), nil)
-	db.EXPECT().ListWorkspaceCommandActivityTimeline(gomock.Any(), database.ListWorkspaceCommandActivityTimelineParams{WorkspaceID: workspaceID}).Return([]database.ListWorkspaceCommandActivityTimelineRow{}, nil)
+	db.EXPECT().GetWorkspaceByID(gomock.Any(), workspaceID).Return(workspace, nil).Times(4)
 	db.EXPECT().ListWorkspaceCommandActivityTools(gomock.Any(), workspaceID).Return([]string{"process_output"}, nil)
 	db.EXPECT().GetWorkspaceCommandActivityByID(gomock.Any(), database.GetWorkspaceCommandActivityByIDParams{WorkspaceID: workspaceID, ID: activityID}).Return(database.WorkspaceCommandActivity{ID: activityID, WorkspaceID: workspaceID}, nil)
 	db.EXPECT().InsertWorkspaceToolActivity(gomock.Any(), database.InsertWorkspaceToolActivityParams{ID: activityID, WorkspaceID: workspaceID, Tool: "process_output"}).Return(nil)
 	db.EXPECT().FinishWorkspaceToolActivity(gomock.Any(), database.FinishWorkspaceToolActivityParams{ID: activityID, WorkspaceID: workspaceID, Status: "succeeded"}).Return(int64(1), nil)
 
 	q := dbauthz.New(db, authorizer, slogtest.Make(t, nil), coderdtest.AccessControlStorePointer())
-
-	count, err := q.CountWorkspaceCommandActivityTimeline(ctx, database.CountWorkspaceCommandActivityTimelineParams{WorkspaceID: workspaceID})
-	require.NoError(t, err)
-	require.EqualValues(t, 2, count)
-
-	_, err = q.ListWorkspaceCommandActivityTimeline(ctx, database.ListWorkspaceCommandActivityTimelineParams{WorkspaceID: workspaceID})
-	require.NoError(t, err)
 
 	tools, err := q.ListWorkspaceCommandActivityTools(ctx, workspaceID)
 	require.NoError(t, err)

@@ -10084,24 +10084,21 @@ export interface WorkspaceActiveVolumeCopyOperation {
 // From codersdk/workspacecommandactivity.go
 /**
  * WorkspaceActivityWatchEvent is emitted by the one-way workspace activity
- * WebSocket. Command events contain one changed row. Connection events contain
- * the small aggregated connection snapshot. Resync is reserved for bulk
+ * WebSocket. Command events contain one changed row. Resync is reserved for bulk
  * mutations where emitting every changed row would be more expensive.
  */
 export interface WorkspaceActivityWatchEvent {
 	readonly type: WorkspaceActivityWatchEventType;
 	readonly command?: WorkspaceCommandActivity;
-	readonly connection?: WorkspaceConnectionActivityResponse;
 }
 
 // From codersdk/workspacecommandactivity.go
 export type WorkspaceActivityWatchEventType =
 	| "command_resync"
-	| "command_upsert"
-	| "connection_update";
+	| "command_upsert";
 
 export const WorkspaceActivityWatchEventTypes: WorkspaceActivityWatchEventType[] =
-	["command_resync", "command_upsert", "connection_update"];
+	["command_resync", "command_upsert"];
 
 // From codersdk/workspaceagents.go
 export interface WorkspaceAgent {
@@ -10781,6 +10778,7 @@ export const WorkspaceCommandActivityDeleteModes: WorkspaceCommandActivityDelete
 
 // From codersdk/workspacecommandactivity.go
 export interface WorkspaceCommandActivityFilter {
+	readonly id?: string;
 	readonly statuses?: readonly WorkspaceCommandActivityStatus[];
 	readonly tools?: readonly string[];
 	readonly sources?: readonly WorkspaceCommandActivitySource[];
@@ -10789,6 +10787,7 @@ export interface WorkspaceCommandActivityFilter {
 	readonly started_before?: string;
 	readonly duration_min_ms?: number;
 	readonly duration_max_ms?: number;
+	readonly exit_code?: number;
 }
 
 // From codersdk/workspacecommandactivity.go
@@ -10872,13 +10871,12 @@ export const WorkspaceCommandActivitySources: WorkspaceCommandActivitySource[] =
 // From codersdk/workspacecommandactivity.go
 export type WorkspaceCommandActivityStatus =
 	| "failed"
-	| "idle"
 	| "interrupted"
 	| "running"
 	| "succeeded";
 
 export const WorkspaceCommandActivityStatuses: WorkspaceCommandActivityStatus[] =
-	["failed", "idle", "interrupted", "running", "succeeded"];
+	["failed", "interrupted", "running", "succeeded"];
 
 // From codersdk/workspaceconnectionactivity.go
 export interface WorkspaceConnectionActivityResponse {

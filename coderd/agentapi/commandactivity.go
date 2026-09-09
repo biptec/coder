@@ -14,6 +14,7 @@ import (
 	"github.com/coder/coder/v2/coderd/database/dbauthz"
 	databasepubsub "github.com/coder/coder/v2/coderd/database/pubsub"
 	coderdpubsub "github.com/coder/coder/v2/coderd/pubsub"
+	"github.com/coder/coder/v2/codersdk/toolsdk"
 )
 
 type CommandActivityAPI struct {
@@ -75,7 +76,7 @@ func (a *CommandActivityAPI) ReportCommandActivity(ctx context.Context, req *age
 		if err != nil {
 			return nil, err
 		}
-		source, err := commandActivitySource(activity.GetSource())
+		source, err := commandActivitySource(activity.GetSource(), activity.GetTool())
 		if err != nil {
 			return nil, err
 		}
@@ -172,10 +173,22 @@ func commandActivityID(activity *agentproto.CommandActivity) (uuid.UUID, error) 
 	return id, nil
 }
 
-func commandActivitySource(source agentproto.CommandActivity_Source) (string, error) {
+func commandActivitySource(source agentproto.CommandActivity_Source, tool string) (string, error) {
 	switch source {
 	case agentproto.CommandActivity_AGENTPROC:
-		return "agentproc", nil
+		// Agents older than the source-attribution change report MCP command tools
+		// as AGENTPROC. Normalize the trusted tool marker on ingest so rolling
+		// upgrades never expose the internal compatibility source to users.
+		switch tool {
+		case "exec", "bash", "process_start",
+			toolsdk.ToolNameWorkspaceExec,
+			toolsdk.ToolNameWorkspaceBash,
+			toolsdk.ToolNameWorkspaceProcessStart,
+			toolsdk.ToolNameWorkspaceProcessStartV2:
+			return "mcp", nil
+		default:
+			return "agentproc", nil
+		}
 	case agentproto.CommandActivity_SSH:
 		return "ssh", nil
 	case agentproto.CommandActivity_MCP:

@@ -1,12 +1,15 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -33,7 +36,7 @@ type PersistentActivityHandle struct {
 }
 
 type PersistentActivityRecorder interface {
-	StartToolActivity(ctx context.Context, userID, toolName, workspace string, startedAt time.Time) (PersistentActivityHandle, error)
+	StartToolActivity(ctx context.Context, userID, toolName, workspace, input string, startedAt time.Time) (PersistentActivityHandle, error)
 	FinishToolActivity(ctx context.Context, handle PersistentActivityHandle, status PersistentActivityStatus, finishedAt time.Time) error
 }
 
@@ -218,6 +221,7 @@ func (s *Server) withActivityTracking(tool server.ServerTool, toolName string) s
 	original := tool.Handler
 	tool.Handler = func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		workspace := activityWorkspace(request)
+		input := persistentActivityInput(request.GetArguments())
 		startedAt := time.Now().UTC()
 
 		activityID := ""
@@ -228,7 +232,7 @@ func (s *Server) withActivityTracking(tool server.ServerTool, toolName string) s
 		var persistent PersistentActivityHandle
 		if s.activityRecorder != nil && s.activityUserID != "" && workspace != "" && persistAsToolActivity(toolName) {
 			var err error
-			persistent, err = s.activityRecorder.StartToolActivity(ctx, s.activityUserID, toolName, workspace, startedAt)
+			persistent, err = s.activityRecorder.StartToolActivity(ctx, s.activityUserID, toolName, workspace, input, startedAt)
 			if err != nil {
 				s.Logger.Debug(ctx, "start persistent MCP tool activity", slog.Error(err), slog.F("tool", toolName), slog.F("workspace", workspace))
 			}
@@ -261,6 +265,75 @@ func (s *Server) withActivityTracking(tool server.ServerTool, toolName string) s
 		return result, err
 	}
 	return tool
+}
+
+const maxPersistentActivityInputBytes = 4096
+
+func persistentActivityInput(args map[string]any) string {
+	if len(args) == 0 {
+		return "{}"
+	}
+	sanitized := make(map[string]any, len(args))
+	for key, value := range args {
+		sanitized[key] = sanitizePersistentActivityValue(key, value, 0)
+	}
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(sanitized); err != nil {
+		return "{}"
+	}
+	return truncatePersistentActivityInput(strings.TrimSuffix(buffer.String(), "\n"), maxPersistentActivityInputBytes)
+}
+
+func sanitizePersistentActivityValue(key string, value any, depth int) any {
+	lowerKey := strings.ToLower(key)
+	if isSensitiveActivityInputKey(lowerKey) {
+		if text, ok := value.(string); ok {
+			return fmt.Sprintf("<redacted %d bytes>", len(text))
+		}
+		return "<redacted>"
+	}
+	if depth >= 4 {
+		return "<nested value omitted>"
+	}
+
+	switch typed := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for nestedKey, nestedValue := range typed {
+			out[nestedKey] = sanitizePersistentActivityValue(nestedKey, nestedValue, depth+1)
+		}
+		return out
+	case []any:
+		out := make([]any, 0, len(typed))
+		for _, item := range typed {
+			out = append(out, sanitizePersistentActivityValue("", item, depth+1))
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func isSensitiveActivityInputKey(key string) bool {
+	switch key {
+	case "authorization", "content", "contents", "data", "env", "password", "private_key", "replace", "search", "secret", "stdin", "token", "api_key", "apikey":
+		return true
+	default:
+		return false
+	}
+}
+
+func truncatePersistentActivityInput(value string, maxBytes int) string {
+	if maxBytes <= 3 || len(value) <= maxBytes {
+		return value
+	}
+	end := maxBytes - 3
+	for end > 0 && !utf8.RuneStart(value[end]) {
+		end--
+	}
+	return value[:end] + "..."
 }
 
 func persistAsToolActivity(toolName string) bool {

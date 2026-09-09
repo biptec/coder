@@ -58,6 +58,7 @@ func (r *workspaceMCPToolActivityRecorder) StartToolActivity(
 	_ string,
 	toolName string,
 	workspaceInput string,
+	input string,
 	startedAt time.Time,
 ) (mcp.PersistentActivityHandle, error) {
 	if r == nil || r.client == nil || strings.TrimSpace(workspaceInput) == "" {
@@ -75,6 +76,7 @@ func (r *workspaceMCPToolActivityRecorder) StartToolActivity(
 		ID:          activityID,
 		WorkspaceID: workspace.ID,
 		Tool:        toolName,
+		Command:     input,
 		StartedAt:   startedAt,
 	}); err != nil {
 		return mcp.PersistentActivityHandle{}, xerrors.Errorf("insert workspace MCP tool activity: %w", err)

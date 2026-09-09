@@ -401,14 +401,6 @@ func (m queryMetricsStore) CountWorkspaceCommandActivity(ctx context.Context, ar
 	return r0, r1
 }
 
-func (m queryMetricsStore) CountWorkspaceCommandActivityTimeline(ctx context.Context, arg database.CountWorkspaceCommandActivityTimelineParams) (int64, error) {
-	start := time.Now()
-	r0, r1 := m.s.CountWorkspaceCommandActivityTimeline(ctx, arg)
-	m.queryLatencies.WithLabelValues("CountWorkspaceCommandActivityTimeline").Observe(time.Since(start).Seconds())
-	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "CountWorkspaceCommandActivityTimeline").Inc()
-	return r0, r1
-}
-
 func (m queryMetricsStore) CreateUserSecret(ctx context.Context, arg database.CreateUserSecretParams) (database.UserSecret, error) {
 	start := time.Now()
 	r0, r1 := m.s.CreateUserSecret(ctx, arg)
@@ -4942,14 +4934,6 @@ func (m queryMetricsStore) ListWorkspaceCommandActivity(ctx context.Context, arg
 	r0, r1 := m.s.ListWorkspaceCommandActivity(ctx, arg)
 	m.queryLatencies.WithLabelValues("ListWorkspaceCommandActivity").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "ListWorkspaceCommandActivity").Inc()
-	return r0, r1
-}
-
-func (m queryMetricsStore) ListWorkspaceCommandActivityTimeline(ctx context.Context, arg database.ListWorkspaceCommandActivityTimelineParams) ([]database.ListWorkspaceCommandActivityTimelineRow, error) {
-	start := time.Now()
-	r0, r1 := m.s.ListWorkspaceCommandActivityTimeline(ctx, arg)
-	m.queryLatencies.WithLabelValues("ListWorkspaceCommandActivityTimeline").Observe(time.Since(start).Seconds())
-	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "ListWorkspaceCommandActivityTimeline").Inc()
 	return r0, r1
 }
 

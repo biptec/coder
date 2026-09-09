@@ -4,8 +4,8 @@ import {
 	parseWorkspaceActivityPreferences,
 } from "./activityPreferences";
 
-describe("workspace activity preferences", () => {
-	it("defaults to every ordinary status, all tools, and excludes idle", () => {
+describe("activity history preferences", () => {
+	it("defaults to every real status, all tools and sources, and excludes Idle", () => {
 		const preferences = defaultWorkspaceActivityPreferences();
 		expect(preferences.statuses).toEqual([
 			"running",
@@ -15,53 +15,86 @@ describe("workspace activity preferences", () => {
 		]);
 		expect(preferences.statuses).not.toContain("idle");
 		expect(preferences.tools).toBeNull();
+		expect(preferences.sources).toEqual([
+			"mcp",
+			"ssh",
+			"reconnecting_pty",
+			"chat",
+		]);
 	});
 
-	it("restores all page filter and table preferences", () => {
+	it("restores all committed column filters and table preferences", () => {
 		const preferences = parseWorkspaceActivityPreferences({
-			version: 1,
-			search: "needle",
+			version: 2,
+			id: "9211e11f",
+			input: "needle",
 			statuses: ["failed", "idle"],
 			tools: ["process_output", "read_file"],
-			source: "mcp",
+			sources: ["mcp", "ssh"],
 			startedAfter: "2026-09-09T10:00",
 			startedBefore: "2026-09-09T11:00",
 			durationMin: "1s",
 			durationMax: "2m",
+			exitCode: "1",
 			sortBy: "tool",
 			sortDirection: "asc",
 			pageSize: 250,
 		});
 		expect(preferences).toEqual({
-			search: "needle",
+			id: "9211e11f",
+			input: "needle",
 			statuses: ["failed", "idle"],
 			tools: ["process_output", "read_file"],
-			source: "mcp",
+			sources: ["mcp", "ssh"],
 			startedAfter: "2026-09-09T10:00",
 			startedBefore: "2026-09-09T11:00",
 			durationMin: "1s",
 			durationMax: "2m",
+			exitCode: "1",
 			sortBy: "tool",
 			sortDirection: "asc",
 			pageSize: 250,
 		});
 	});
 
-	it("sanitizes malformed stored preferences", () => {
+	it("migrates the first browser-only preference format", () => {
 		const preferences = parseWorkspaceActivityPreferences({
 			version: 1,
-			search: 42,
+			search: "old search",
+			statuses: ["succeeded", "idle"],
+			tools: null,
+			source: "mcp",
+			startedAfter: "",
+			startedBefore: "",
+			durationMin: "",
+			durationMax: "",
+			sortBy: "started",
+			sortDirection: "desc",
+			pageSize: 50,
+		});
+		expect(preferences.input).toBe("old search");
+		expect(preferences.sources).toEqual(["mcp"]);
+		expect(preferences.id).toBe("");
+		expect(preferences.exitCode).toBe("");
+	});
+
+	it("sanitizes malformed stored preferences", () => {
+		const preferences = parseWorkspaceActivityPreferences({
+			version: 2,
+			id: 42,
+			input: 42,
 			statuses: ["failed", "bogus", "failed"],
 			tools: [" process_output ", "", "process_output"],
-			source: "bogus",
+			sources: ["mcp", "vscode", "bogus"],
 			sortBy: "bogus",
 			sortDirection: "sideways",
 			pageSize: 999,
 		});
-		expect(preferences.search).toBe("");
+		expect(preferences.id).toBe("");
+		expect(preferences.input).toBe("");
 		expect(preferences.statuses).toEqual(["failed"]);
 		expect(preferences.tools).toEqual(["process_output"]);
-		expect(preferences.source).toBe("all");
+		expect(preferences.sources).toEqual(["mcp"]);
 		expect(preferences.sortBy).toBe("started");
 		expect(preferences.sortDirection).toBe("desc");
 		expect(preferences.pageSize).toBe(50);
@@ -69,7 +102,7 @@ describe("workspace activity preferences", () => {
 
 	it("drops unknown storage versions instead of guessing", () => {
 		expect(
-			parseWorkspaceActivityPreferences({ version: 2, search: "stale" }),
+			parseWorkspaceActivityPreferences({ version: 99, input: "stale" }),
 		).toEqual(defaultWorkspaceActivityPreferences());
 	});
 });
