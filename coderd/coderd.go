@@ -674,6 +674,7 @@ func New(options *Options) *API {
 		ProfileCollector:              defaultProfileCollector{},
 		AISeatTracker:                 aiseats.Noop{},
 		workspaceVolumeCopyKubernetes: options.WorkspaceVolumeCopyKubernetes,
+		workspaceMCPConnections:       newWorkspaceMCPConnectionTracker(options.Database, options.Logger),
 	}
 
 	if api.DeploymentValues.WorkspaceVolumeCopyEnabled.Value() {
@@ -1902,6 +1903,7 @@ func New(options *Options) *API {
 				})
 				r.Get("/timings", api.workspaceTimings)
 				r.Get("/command-activity", api.workspaceCommandActivity)
+				r.Delete("/command-activity", api.deleteWorkspaceCommandActivity)
 				r.Get("/connection-activity", api.workspaceConnectionActivity)
 				r.Get("/volume-copy-operation", api.workspaceActiveVolumeCopyOperation)
 				r.Get("/volume-copy-volumes", api.workspaceVolumeCopyVolumes)
@@ -2351,6 +2353,7 @@ type API struct {
 	workspaceAgentConnWatcher *workspaceconnwatcher.Watcher
 
 	workspaceVolumeCopyKubernetes volcopyk8s.Kubernetes
+	workspaceMCPConnections       *workspaceMCPConnectionTracker
 }
 
 // Close waits for all WebSocket connections to drain before returning.

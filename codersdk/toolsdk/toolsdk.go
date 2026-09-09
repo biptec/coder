@@ -308,6 +308,10 @@ func WithRecover(h GenericHandlerFunc) GenericHandlerFunc {
 // context.
 func WithCleanContext(h GenericHandlerFunc) GenericHandlerFunc {
 	return func(parent context.Context, deps Deps, args json.RawMessage) (ret json.RawMessage, err error) {
+		// Keep the clean-context boundary for arbitrary caller values, while
+		// explicitly carrying the one internal value that execution tools need for
+		// Command Activity attribution.
+		invocationTool := InvocationToolFromContext(parent)
 		child, childCancel := context.WithCancel(context.Background())
 		defer childCancel()
 		// Ensure that the child context has the same deadline as the parent
@@ -316,6 +320,9 @@ func WithCleanContext(h GenericHandlerFunc) GenericHandlerFunc {
 			deadlineCtx, deadlineCancel := context.WithDeadline(child, deadline)
 			defer deadlineCancel()
 			child = deadlineCtx
+		}
+		if invocationTool != "" {
+			child = WithInvocationTool(child, invocationTool)
 		}
 		// Ensure that cancellation propagates from the parent context to the child context.
 		go func() {

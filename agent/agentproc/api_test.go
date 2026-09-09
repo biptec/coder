@@ -1254,6 +1254,7 @@ func TestProcessLifecycle(t *testing.T) {
 		t.Parallel()
 
 		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true}).Leveled(slog.LevelDebug)
+		var reportedSource string
 		var reportedCommand string
 		var reportedArgv []string
 		var reportedWorkDir string
@@ -1267,7 +1268,8 @@ func TestProcessLifecycle(t *testing.T) {
 			nil,
 			nil,
 			nil,
-			agentproc.WithCommandActivityReporter(func(command string, argv []string, workDir, tool string) func(int) {
+			agentproc.WithCommandActivityReporter(func(source, command string, argv []string, workDir, tool string) func(int) {
+				reportedSource = source
 				reportedCommand = command
 				reportedArgv = append([]string(nil), argv...)
 				reportedWorkDir = workDir
@@ -1288,6 +1290,7 @@ func TestProcessLifecycle(t *testing.T) {
 		require.False(t, resp.Running)
 		require.NotNil(t, resp.ExitCode)
 		require.Equal(t, 42, *resp.ExitCode)
+		require.Equal(t, "mcp", reportedSource)
 		require.Equal(t, "exit 42", reportedCommand)
 		require.Empty(t, reportedArgv)
 		require.Equal(t, workDir, reportedWorkDir)
@@ -1299,6 +1302,67 @@ func TestProcessLifecycle(t *testing.T) {
 		case <-time.After(testutil.WaitShort):
 			t.Fatal("timed out waiting for command activity completion")
 		}
+	})
+
+	t.Run("InvalidToolDoesNotSpoofMCPSource", func(t *testing.T) {
+		t.Parallel()
+
+		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true}).Leveled(slog.LevelDebug)
+		var reportedSource string
+		var reportedTool string
+		api := agentproc.NewAPI(
+			logger,
+			agentexec.DefaultExecer,
+			nil,
+			nil,
+			nil,
+			nil,
+			nil,
+			agentproc.WithCommandActivityReporter(func(source, _ string, _ []string, _ string, tool string) func(int) {
+				reportedSource = source
+				reportedTool = tool
+				return func(int) {}
+			}),
+		)
+		t.Cleanup(func() { _ = api.Close() })
+		handler := agentchat.Middleware(api.Routes())
+
+		id := startAndGetID(t, handler, workspacesdk.StartProcessRequest{
+			Command: "true",
+			Tool:    "spoofed-tool",
+		})
+		_ = waitForExit(t, handler, id)
+		require.Equal(t, "agentproc", reportedSource)
+		require.Empty(t, reportedTool)
+	})
+
+	t.Run("ChatContextDeterminesSource", func(t *testing.T) {
+		t.Parallel()
+
+		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true}).Leveled(slog.LevelDebug)
+		var reportedSource string
+		api := agentproc.NewAPI(
+			logger,
+			agentexec.DefaultExecer,
+			nil,
+			nil,
+			nil,
+			nil,
+			nil,
+			agentproc.WithCommandActivityReporter(func(source, _ string, _ []string, _ string, _ string) func(int) {
+				reportedSource = source
+				return func(int) {}
+			}),
+		)
+		t.Cleanup(func() { _ = api.Close() })
+		handler := agentchat.Middleware(api.Routes())
+		chatID := uuid.New()
+		headers := http.Header{}
+		headers.Set(workspacesdk.CoderChatIDHeader, chatID.String())
+
+		id := startAndGetID(t, handler, workspacesdk.StartProcessRequest{Command: "true"}, headers)
+		_ = waitForExit(t, handler, id)
+		require.Equal(t, "chat", reportedSource)
 	})
 
 	t.Run("StartSignalVerifyExit", func(t *testing.T) {

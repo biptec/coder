@@ -16,22 +16,27 @@ import (
 	"cdr.dev/slog/v3"
 	"github.com/coder/coder/v2/agent/agentcontainers"
 	"github.com/coder/coder/v2/agent/agentssh"
+	"github.com/coder/coder/v2/agent/commandactivity"
 	"github.com/coder/coder/v2/agent/usershell"
 	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/codersdk/workspacesdk"
 )
 
-type reportConnectionFunc func(id uuid.UUID, ip string) (disconnected func(code int, reason string))
+type (
+	reportConnectionFunc      func(id uuid.UUID, ip string) (disconnected func(code int, reason string))
+	reportCommandActivityFunc func(command, workDir string) func(exitCode int)
+)
 
 type Server struct {
-	logger           slog.Logger
-	connectionsTotal prometheus.Counter
-	errorsTotal      *prometheus.CounterVec
-	commandCreator   *agentssh.Server
-	reportConnection reportConnectionFunc
-	connCount        atomic.Int64
-	reconnectingPTYs sync.Map
-	timeout          time.Duration
+	logger                slog.Logger
+	connectionsTotal      prometheus.Counter
+	errorsTotal           *prometheus.CounterVec
+	commandCreator        *agentssh.Server
+	reportConnection      reportConnectionFunc
+	reportCommandActivity reportCommandActivityFunc
+	connCount             atomic.Int64
+	reconnectingPTYs      sync.Map
+	timeout               time.Duration
 	// Experimental: allow connecting to running containers via Docker exec.
 	// Note that this is different from the devcontainers feature, which uses
 	// subagents.
@@ -39,6 +44,12 @@ type Server struct {
 }
 
 // NewServer returns a new ReconnectingPTY server
+func WithCommandActivityReporter(reporter reportCommandActivityFunc) func(*Server) {
+	return func(s *Server) {
+		s.reportCommandActivity = reporter
+	}
+}
+
 func NewServer(logger slog.Logger, commandCreator *agentssh.Server, reportConnection reportConnectionFunc,
 	connectionsTotal prometheus.Counter, errorsTotal *prometheus.CounterVec,
 	timeout time.Duration, opts ...func(*Server),
@@ -233,6 +244,18 @@ func (s *Server) handleConn(ctx context.Context, logger slog.Logger, conn net.Co
 			return xerrors.Errorf("create command: %w", err)
 		}
 
+		var shellActivity *commandactivity.InteractiveShellTracker
+		if msg.Command == "" && s.reportCommandActivity != nil {
+			tracker, enabled, prepareErr := commandactivity.PrepareInteractiveShell(connLogger, cmd, func(command, workDir string) func(int) {
+				return s.reportCommandActivity(command, workDir)
+			})
+			if prepareErr != nil {
+				connLogger.Warn(ctx, "prepare interactive shell command activity", slog.Error(prepareErr))
+			} else if enabled {
+				shellActivity = tracker
+			}
+		}
+
 		rpty = New(ctx,
 			logger.With(slog.F("message_id", msg.ID)),
 			s.commandCreator.Execer,
@@ -255,6 +278,9 @@ func (s *Server) handleConn(ctx context.Context, logger slog.Logger, conn net.Co
 
 		go func() {
 			rpty.Wait()
+			if shellActivity != nil {
+				shellActivity.Close()
+			}
 			s.reconnectingPTYs.Delete(msg.ID)
 		}()
 

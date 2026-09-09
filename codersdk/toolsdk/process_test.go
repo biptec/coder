@@ -135,7 +135,7 @@ func TestWorkspaceProcessIntegration(t *testing.T) {
 				return false
 			}
 			for _, item := range activity.Activity {
-				if item.Tool == "process_start" && item.Source == codersdk.WorkspaceCommandActivitySourceAgentProc && item.Status == codersdk.WorkspaceCommandActivityStatusRunning && strings.Contains(item.Command, "process-start-tool-marker") {
+				if item.Tool == "process_start" && item.Source == codersdk.WorkspaceCommandActivitySourceMCP && item.Status == codersdk.WorkspaceCommandActivityStatusRunning && strings.Contains(item.Command, "process-start-tool-marker") {
 					return true
 				}
 			}
@@ -158,6 +158,15 @@ func TestWorkspaceProcessIntegration(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 0, bashResult.ExitCode)
 
+		connectionActivity, err := client.WorkspaceConnectionActivity(t.Context(), workspace.ID)
+		require.NoError(t, err)
+		for _, connection := range connectionActivity.Types {
+			if connection.Type == codersdk.ConnectionTypeSSH {
+				require.Zero(t, connection.ActiveConnections, "MCP bash must not create an SSH connection")
+				require.Nil(t, connection.LastConnectedAt, "MCP bash must not update SSH last connected")
+			}
+		}
+
 		waitMs := 10_000
 		_, err = toolsdk.WorkspaceProcessOutput.Handler(t.Context(), deps, toolsdk.WorkspaceProcessOutputArgs{
 			Workspace:     workspace.Name,
@@ -178,12 +187,12 @@ func TestWorkspaceProcessIntegration(t *testing.T) {
 				}
 				switch item.Tool {
 				case "exec":
-					found["exec"] = item.Source == codersdk.WorkspaceCommandActivitySourceAgentProc && strings.Contains(strings.Join(item.Argv, " "), "exec-tool-marker")
+					found["exec"] = item.Source == codersdk.WorkspaceCommandActivitySourceMCP && strings.Contains(strings.Join(item.Argv, " "), "exec-tool-marker")
 				case "bash":
-					found["bash"] = item.Source == codersdk.WorkspaceCommandActivitySourceSSH && strings.Contains(item.Command, "bash-tool-marker")
+					found["bash"] = item.Source == codersdk.WorkspaceCommandActivitySourceMCP && strings.Contains(item.Command, "bash-tool-marker")
 				case "process_start":
 					if strings.Contains(item.Command, "process-start-tool-marker") {
-						found["process_start"] = item.Source == codersdk.WorkspaceCommandActivitySourceAgentProc
+						found["process_start"] = item.Source == codersdk.WorkspaceCommandActivitySourceMCP
 					}
 				}
 			}

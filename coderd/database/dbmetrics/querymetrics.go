@@ -393,6 +393,14 @@ func (m queryMetricsStore) CountUnreadInboxNotificationsByUserID(ctx context.Con
 	return r0, r1
 }
 
+func (m queryMetricsStore) CountWorkspaceCommandActivity(ctx context.Context, arg database.CountWorkspaceCommandActivityParams) (int64, error) {
+	start := time.Now()
+	r0, r1 := m.s.CountWorkspaceCommandActivity(ctx, arg)
+	m.queryLatencies.WithLabelValues("CountWorkspaceCommandActivity").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "CountWorkspaceCommandActivity").Inc()
+	return r0, r1
+}
+
 func (m queryMetricsStore) CreateUserSecret(ctx context.Context, arg database.CreateUserSecretParams) (database.UserSecret, error) {
 	start := time.Now()
 	r0, r1 := m.s.CreateUserSecret(ctx, arg)
@@ -975,6 +983,22 @@ func (m queryMetricsStore) DeleteWorkspaceAgentPortSharesByTemplate(ctx context.
 	m.queryLatencies.WithLabelValues("DeleteWorkspaceAgentPortSharesByTemplate").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "DeleteWorkspaceAgentPortSharesByTemplate").Inc()
 	return r0
+}
+
+func (m queryMetricsStore) DeleteWorkspaceCommandActivityByFilter(ctx context.Context, arg database.DeleteWorkspaceCommandActivityByFilterParams) (int64, error) {
+	start := time.Now()
+	r0, r1 := m.s.DeleteWorkspaceCommandActivityByFilter(ctx, arg)
+	m.queryLatencies.WithLabelValues("DeleteWorkspaceCommandActivityByFilter").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "DeleteWorkspaceCommandActivityByFilter").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) DeleteWorkspaceCommandActivityByIDs(ctx context.Context, arg database.DeleteWorkspaceCommandActivityByIDsParams) (int64, error) {
+	start := time.Now()
+	r0, r1 := m.s.DeleteWorkspaceCommandActivityByIDs(ctx, arg)
+	m.queryLatencies.WithLabelValues("DeleteWorkspaceCommandActivityByIDs").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "DeleteWorkspaceCommandActivityByIDs").Inc()
+	return r0, r1
 }
 
 func (m queryMetricsStore) DeleteWorkspaceSubAgentByID(ctx context.Context, id uuid.UUID) error {
@@ -3761,14 +3785,6 @@ func (m queryMetricsStore) GetWorkspaceByWorkspaceAppID(ctx context.Context, wor
 	return r0, r1
 }
 
-func (m queryMetricsStore) GetWorkspaceCommandActivityByWorkspaceID(ctx context.Context, arg database.GetWorkspaceCommandActivityByWorkspaceIDParams) ([]database.GetWorkspaceCommandActivityByWorkspaceIDRow, error) {
-	start := time.Now()
-	r0, r1 := m.s.GetWorkspaceCommandActivityByWorkspaceID(ctx, arg)
-	m.queryLatencies.WithLabelValues("GetWorkspaceCommandActivityByWorkspaceID").Observe(time.Since(start).Seconds())
-	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetWorkspaceCommandActivityByWorkspaceID").Inc()
-	return r0, r1
-}
-
 func (m queryMetricsStore) GetWorkspaceConnectionActivityByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) ([]database.GetWorkspaceConnectionActivityByWorkspaceIDRow, error) {
 	start := time.Now()
 	r0, r1 := m.s.GetWorkspaceConnectionActivityByWorkspaceID(ctx, workspaceID)
@@ -4889,6 +4905,14 @@ func (m queryMetricsStore) ListWorkspaceAgentPortShares(ctx context.Context, wor
 	return r0, r1
 }
 
+func (m queryMetricsStore) ListWorkspaceCommandActivity(ctx context.Context, arg database.ListWorkspaceCommandActivityParams) ([]database.WorkspaceCommandActivity, error) {
+	start := time.Now()
+	r0, r1 := m.s.ListWorkspaceCommandActivity(ctx, arg)
+	m.queryLatencies.WithLabelValues("ListWorkspaceCommandActivity").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "ListWorkspaceCommandActivity").Inc()
+	return r0, r1
+}
+
 func (m queryMetricsStore) LockChatAndBumpSnapshotVersion(ctx context.Context, id uuid.UUID) (database.Chat, error) {
 	start := time.Now()
 	r0, r1 := m.s.LockChatAndBumpSnapshotVersion(ctx, id)
@@ -4991,6 +5015,22 @@ func (m queryMetricsStore) PruneWorkspaceCommandActivity(ctx context.Context, ar
 	m.queryLatencies.WithLabelValues("PruneWorkspaceCommandActivity").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "PruneWorkspaceCommandActivity").Inc()
 	return r0, r1
+}
+
+func (m queryMetricsStore) RecordWorkspaceConnectionActivityFinished(ctx context.Context, arg database.RecordWorkspaceConnectionActivityFinishedParams) error {
+	start := time.Now()
+	r0 := m.s.RecordWorkspaceConnectionActivityFinished(ctx, arg)
+	m.queryLatencies.WithLabelValues("RecordWorkspaceConnectionActivityFinished").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "RecordWorkspaceConnectionActivityFinished").Inc()
+	return r0
+}
+
+func (m queryMetricsStore) RecordWorkspaceConnectionActivityStarted(ctx context.Context, arg database.RecordWorkspaceConnectionActivityStartedParams) error {
+	start := time.Now()
+	r0 := m.s.RecordWorkspaceConnectionActivityStarted(ctx, arg)
+	m.queryLatencies.WithLabelValues("RecordWorkspaceConnectionActivityStarted").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "RecordWorkspaceConnectionActivityStarted").Inc()
+	return r0
 }
 
 func (m queryMetricsStore) RecordWorkspaceConnectionFinished(ctx context.Context, arg database.RecordWorkspaceConnectionFinishedParams) error {

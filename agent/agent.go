@@ -440,8 +440,19 @@ func (a *agent) init() {
 		BlockFileTransfer:          a.blockFileTransfer,
 		BlockReversePortForwarding: a.blockReversePortForwarding,
 		BlockLocalPortForwarding:   a.blockLocalPortForwarding,
-		ReportCommandActivity: func(command string, argv []string, workDir, tool string) func(int) {
-			return a.startCommandActivity(proto.CommandActivity_SSH, command, argv, workDir, tool)
+		ReportCommandActivity: func(sessionType agentssh.MagicSessionType, command string, argv []string, workDir, tool string) func(int) {
+			var source proto.CommandActivity_Source
+			switch sessionType {
+			case agentssh.MagicSessionTypeVSCode:
+				source = proto.CommandActivity_VSCODE
+			case agentssh.MagicSessionTypeJetBrains:
+				source = proto.CommandActivity_JETBRAINS
+			case agentssh.MagicSessionTypeSSH, agentssh.MagicSessionTypeUnknown:
+				source = proto.CommandActivity_SSH
+			default:
+				source = proto.CommandActivity_SSH
+			}
+			return a.startCommandActivity(source, command, argv, workDir, tool)
 		},
 		ReportConnection: func(id uuid.UUID, magicType agentssh.MagicSessionType, ip string) func(code int, reason string) {
 			var connectionType proto.Connection_Type
@@ -500,8 +511,15 @@ func (a *agent) init() {
 			return m.Directory
 		}
 		return ""
-	}, agentproc.WithCommandActivityReporter(func(command string, argv []string, workDir, tool string) func(int) {
-		return a.startCommandActivity(proto.CommandActivity_AGENTPROC, command, argv, workDir, tool)
+	}, agentproc.WithCommandActivityReporter(func(source, command string, argv []string, workDir, tool string) func(int) {
+		activitySource := proto.CommandActivity_AGENTPROC
+		switch source {
+		case "mcp":
+			activitySource = proto.CommandActivity_MCP
+		case "chat":
+			activitySource = proto.CommandActivity_CHAT
+		}
+		return a.startCommandActivity(activitySource, command, argv, workDir, tool)
 	}))
 	gitOpts := append([]agentgit.Option{
 		agentgit.WithClock(a.clock),
@@ -571,6 +589,9 @@ func (a *agent) init() {
 		func(s *reconnectingpty.Server) {
 			s.ExperimentalContainers = a.devcontainers
 		},
+		reconnectingpty.WithCommandActivityReporter(func(command, workDir string) func(int) {
+			return a.startCommandActivity(proto.CommandActivity_RECONNECTING_PTY, command, nil, workDir, "")
+		}),
 	)
 
 	a.initSocketServer()

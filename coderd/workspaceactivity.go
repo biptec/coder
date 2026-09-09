@@ -1,9 +1,16 @@
 package coderd
 
 import (
+	"fmt"
+	"math"
 	"net/http"
+	"net/url"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/coder/coder/v2/coderd/database"
 	"github.com/coder/coder/v2/coderd/database/dbauthz"
@@ -11,6 +18,22 @@ import (
 	"github.com/coder/coder/v2/coderd/httpmw"
 	"github.com/coder/coder/v2/codersdk"
 )
+
+const (
+	defaultWorkspaceCommandActivityPageSize = 50
+	maxWorkspaceCommandActivityPageSize     = 500
+)
+
+type workspaceCommandActivityDBFilter struct {
+	statuses      []string
+	tools         []string
+	sources       []string
+	search        string
+	startedAfter  time.Time
+	startedBefore time.Time
+	durationMinMS int64
+	durationMaxMS int64
+}
 
 // @Summary Get workspace command activity
 // @ID get-workspace-command-activity
@@ -23,11 +46,77 @@ import (
 func (api *API) workspaceCommandActivity(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	workspace := httpmw.WorkspaceParam(r)
-	historyLimit := int32(api.DeploymentValues.WorkspaceCommandActivityHistoryLimit.Value()) // #nosec G115 -- deployment config is validated to int32 range.
 
-	rows, err := api.Database.GetWorkspaceCommandActivityByWorkspaceID(ctx, database.GetWorkspaceCommandActivityByWorkspaceIDParams{
-		WorkspaceID:  workspace.ID,
-		HistoryLimit: historyLimit,
+	req, err := parseWorkspaceCommandActivityQuery(r.URL.Query())
+	if err != nil {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: err.Error()})
+		return
+	}
+	filter, err := workspaceCommandActivityFilter(req.WorkspaceCommandActivityFilter)
+	if err != nil {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: err.Error()})
+		return
+	}
+
+	page := req.Page
+	if page <= 0 {
+		page = 1
+	}
+	pageSize := req.PageSize
+	if pageSize <= 0 {
+		pageSize = defaultWorkspaceCommandActivityPageSize
+	}
+	if pageSize > maxWorkspaceCommandActivityPageSize {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: fmt.Sprintf("page_size cannot exceed %d", maxWorkspaceCommandActivityPageSize)})
+		return
+	}
+	offset64 := int64(page-1) * int64(pageSize)
+	if offset64 > math.MaxInt32 {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: "page is too large"})
+		return
+	}
+
+	sortBy := req.SortBy
+	if sortBy == "" {
+		sortBy = codersdk.WorkspaceCommandActivitySortStarted
+	}
+	sortDirection := req.SortDirection
+	if sortDirection == "" {
+		sortDirection = codersdk.WorkspaceCommandActivitySortDescending
+	}
+	if !validWorkspaceCommandActivitySort(sortBy) {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: fmt.Sprintf("unsupported sort_by %q", sortBy)})
+		return
+	}
+	if sortDirection != codersdk.WorkspaceCommandActivitySortAscending && sortDirection != codersdk.WorkspaceCommandActivitySortDescending {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: fmt.Sprintf("unsupported sort_direction %q", sortDirection)})
+		return
+	}
+
+	count, err := api.Database.CountWorkspaceCommandActivity(ctx, filter.countParams(workspace.ID))
+	if dbauthz.IsNotAuthorizedError(err) {
+		httpapi.Forbidden(rw)
+		return
+	}
+	if err != nil {
+		httpapi.InternalServerError(rw, err)
+		return
+	}
+
+	rows, err := api.Database.ListWorkspaceCommandActivity(ctx, database.ListWorkspaceCommandActivityParams{
+		WorkspaceID:   workspace.ID,
+		Statuses:      filter.statuses,
+		Tools:         filter.tools,
+		Sources:       filter.sources,
+		Search:        filter.search,
+		StartedAfter:  filter.startedAfter,
+		StartedBefore: filter.startedBefore,
+		DurationMinMs: filter.durationMinMS,
+		DurationMaxMs: filter.durationMaxMS,
+		SortBy:        string(sortBy),
+		SortDirection: string(sortDirection),
+		PageOffset:    int32(offset64), // #nosec G115 -- bounded above by MaxInt32.
+		PageLimit:     int32(pageSize), // #nosec G115 -- bounded above by 500.
 	})
 	if dbauthz.IsNotAuthorizedError(err) {
 		httpapi.Forbidden(rw)
@@ -40,33 +129,310 @@ func (api *API) workspaceCommandActivity(rw http.ResponseWriter, r *http.Request
 
 	activity := make([]codersdk.WorkspaceCommandActivity, 0, len(rows))
 	for _, row := range rows {
-		item := codersdk.WorkspaceCommandActivity{
-			ID:        row.ID,
-			AgentID:   row.AgentID,
-			SessionID: row.SessionID,
-			Source:    codersdk.WorkspaceCommandActivitySource(row.Source),
-			Tool:      row.Tool,
-			Command:   row.Command,
-			Argv:      append([]string(nil), row.Argv...),
-			WorkDir:   row.WorkDir,
-			Status:    codersdk.WorkspaceCommandActivityStatus(row.Status),
-			StartedAt: row.StartedAt,
-		}
-		if row.FinishedAt.Valid {
-			finishedAt := row.FinishedAt.Time
-			item.FinishedAt = &finishedAt
-		}
-		if row.ExitCode.Valid {
-			exitCode := int(row.ExitCode.Int32)
-			item.ExitCode = &exitCode
-		}
-		activity = append(activity, item)
+		activity = append(activity, workspaceCommandActivityFromDatabase(row))
+	}
+	totalPages := 0
+	if count > 0 {
+		totalPages = int((count + int64(pageSize) - 1) / int64(pageSize))
 	}
 
 	httpapi.Write(ctx, rw, http.StatusOK, codersdk.WorkspaceCommandActivityResponse{
 		Activity:     activity,
-		HistoryLimit: int64(historyLimit),
+		TotalCount:   count,
+		Page:         page,
+		PageSize:     pageSize,
+		TotalPages:   totalPages,
+		HistoryLimit: api.DeploymentValues.WorkspaceCommandActivityHistoryLimit.Value(),
 	})
+}
+
+// @Summary Delete workspace command activity
+// @ID delete-workspace-command-activity
+// @Security CoderSessionToken
+// @Accept json
+// @Produce json
+// @Tags Workspaces
+// @Param workspace path string true "Workspace ID" format(uuid)
+// @Param request body codersdk.DeleteWorkspaceCommandActivityRequest true "Delete command activity"
+// @Success 200 {object} codersdk.DeleteWorkspaceCommandActivityResponse
+// @Router /api/v2/workspaces/{workspace}/command-activity [delete]
+func (api *API) deleteWorkspaceCommandActivity(rw http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	workspace := httpmw.WorkspaceParam(r)
+	var req codersdk.DeleteWorkspaceCommandActivityRequest
+	if !httpapi.Read(ctx, rw, r, &req) {
+		return
+	}
+
+	var deleted int64
+	var err error
+	switch req.Mode {
+	case codersdk.WorkspaceCommandActivityDeleteSelected:
+		if len(req.IDs) == 0 {
+			httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: "selected delete requires at least one id"})
+			return
+		}
+		deleted, err = api.Database.DeleteWorkspaceCommandActivityByIDs(ctx, database.DeleteWorkspaceCommandActivityByIDsParams{
+			WorkspaceID: workspace.ID,
+			IDs:         req.IDs,
+		})
+	case codersdk.WorkspaceCommandActivityDeleteFiltered:
+		filter, filterErr := workspaceCommandActivityFilter(req.Filter)
+		if filterErr != nil {
+			httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: filterErr.Error()})
+			return
+		}
+		deleted, err = api.Database.DeleteWorkspaceCommandActivityByFilter(ctx, database.DeleteWorkspaceCommandActivityByFilterParams{
+			WorkspaceID:   workspace.ID,
+			Statuses:      filter.statuses,
+			Tools:         filter.tools,
+			Sources:       filter.sources,
+			Search:        filter.search,
+			StartedAfter:  filter.startedAfter,
+			StartedBefore: filter.startedBefore,
+			DurationMinMs: filter.durationMinMS,
+			DurationMaxMs: filter.durationMaxMS,
+		})
+	default:
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: "mode must be either filtered or selected"})
+		return
+	}
+	if dbauthz.IsNotAuthorizedError(err) {
+		httpapi.Forbidden(rw)
+		return
+	}
+	if err != nil {
+		httpapi.InternalServerError(rw, err)
+		return
+	}
+	httpapi.Write(ctx, rw, http.StatusOK, codersdk.DeleteWorkspaceCommandActivityResponse{Deleted: deleted})
+}
+
+func parseWorkspaceCommandActivityQuery(values url.Values) (codersdk.WorkspaceCommandActivityRequest, error) {
+	search := strings.TrimSpace(values.Get("search"))
+	if search == "" {
+		// Keep q as a compatibility alias for early clients that used it before
+		// the public request field was standardized on search.
+		search = strings.TrimSpace(values.Get("q"))
+	}
+	req := codersdk.WorkspaceCommandActivityRequest{
+		WorkspaceCommandActivityFilter: codersdk.WorkspaceCommandActivityFilter{
+			Search: search,
+		},
+		SortBy:        codersdk.WorkspaceCommandActivitySort(values.Get("sort_by")),
+		SortDirection: codersdk.WorkspaceCommandActivitySortDirection(values.Get("sort_direction")),
+	}
+	for _, value := range queryList(values, "status") {
+		req.Statuses = append(req.Statuses, codersdk.WorkspaceCommandActivityStatus(value))
+	}
+	for _, value := range queryList(values, "tool") {
+		if value != "" {
+			req.Tools = append(req.Tools, value)
+		}
+	}
+	for _, value := range queryList(values, "source") {
+		req.Sources = append(req.Sources, codersdk.WorkspaceCommandActivitySource(value))
+	}
+
+	var err error
+	if req.StartedAfter, err = queryTime(values, "started_after"); err != nil {
+		return req, err
+	}
+	if req.StartedBefore, err = queryTime(values, "started_before"); err != nil {
+		return req, err
+	}
+	if req.DurationMinMS, err = queryOptionalInt64(values, "duration_min_ms"); err != nil {
+		return req, err
+	}
+	if req.DurationMaxMS, err = queryOptionalInt64(values, "duration_max_ms"); err != nil {
+		return req, err
+	}
+	if req.Page, err = queryPositiveInt(values, "page", 1); err != nil {
+		return req, err
+	}
+	if req.PageSize, err = queryPositiveInt(values, "page_size", defaultWorkspaceCommandActivityPageSize); err != nil {
+		return req, err
+	}
+	return req, nil
+}
+
+func queryList(values url.Values, key string) []string {
+	var result []string
+	for _, raw := range values[key] {
+		for _, value := range strings.Split(raw, ",") {
+			if value = strings.TrimSpace(value); value != "" {
+				result = append(result, value)
+			}
+		}
+	}
+	return result
+}
+
+func queryTime(values url.Values, key string) (*time.Time, error) {
+	raw := strings.TrimSpace(values.Get(key))
+	if raw == "" {
+		return nil, nil
+	}
+	value, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		return nil, fmt.Errorf("%s must be an RFC3339 timestamp: %w", key, err)
+	}
+	return &value, nil
+}
+
+func queryOptionalInt64(values url.Values, key string) (*int64, error) {
+	raw := strings.TrimSpace(values.Get(key))
+	if raw == "" {
+		return nil, nil
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || value < 0 {
+		return nil, fmt.Errorf("%s must be a non-negative integer", key)
+	}
+	return &value, nil
+}
+
+func queryPositiveInt(values url.Values, key string, fallback int) (int, error) {
+	raw := strings.TrimSpace(values.Get(key))
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return 0, fmt.Errorf("%s must be a positive integer", key)
+	}
+	return value, nil
+}
+
+func workspaceCommandActivityFilter(filter codersdk.WorkspaceCommandActivityFilter) (workspaceCommandActivityDBFilter, error) {
+	result := workspaceCommandActivityDBFilter{
+		search:        strings.TrimSpace(filter.Search),
+		durationMinMS: -1,
+		durationMaxMS: -1,
+	}
+	for _, status := range filter.Statuses {
+		if !validWorkspaceCommandActivityStatus(status) {
+			return result, fmt.Errorf("unsupported status %q", status)
+		}
+		result.statuses = append(result.statuses, string(status))
+	}
+	for _, tool := range filter.Tools {
+		if tool = strings.TrimSpace(tool); tool != "" {
+			result.tools = append(result.tools, tool)
+		}
+	}
+	for _, source := range filter.Sources {
+		if !validWorkspaceCommandActivitySource(source) {
+			return result, fmt.Errorf("unsupported source %q", source)
+		}
+		result.sources = append(result.sources, string(source))
+	}
+	if filter.StartedAfter != nil {
+		result.startedAfter = *filter.StartedAfter
+	}
+	if filter.StartedBefore != nil {
+		result.startedBefore = *filter.StartedBefore
+	}
+	if !result.startedAfter.IsZero() && !result.startedBefore.IsZero() && result.startedAfter.After(result.startedBefore) {
+		return result, fmt.Errorf("started_after cannot be after started_before")
+	}
+	if filter.DurationMinMS != nil {
+		if *filter.DurationMinMS < 0 {
+			return result, fmt.Errorf("duration_min_ms must be non-negative")
+		}
+		result.durationMinMS = *filter.DurationMinMS
+	}
+	if filter.DurationMaxMS != nil {
+		if *filter.DurationMaxMS < 0 {
+			return result, fmt.Errorf("duration_max_ms must be non-negative")
+		}
+		result.durationMaxMS = *filter.DurationMaxMS
+	}
+	if result.durationMinMS >= 0 && result.durationMaxMS >= 0 && result.durationMinMS > result.durationMaxMS {
+		return result, fmt.Errorf("duration_min_ms cannot exceed duration_max_ms")
+	}
+	return result, nil
+}
+
+func (f workspaceCommandActivityDBFilter) countParams(workspaceID uuid.UUID) database.CountWorkspaceCommandActivityParams {
+	return database.CountWorkspaceCommandActivityParams{
+		WorkspaceID:   workspaceID,
+		Statuses:      f.statuses,
+		Tools:         f.tools,
+		Sources:       f.sources,
+		Search:        f.search,
+		StartedAfter:  f.startedAfter,
+		StartedBefore: f.startedBefore,
+		DurationMinMs: f.durationMinMS,
+		DurationMaxMs: f.durationMaxMS,
+	}
+}
+
+func validWorkspaceCommandActivityStatus(status codersdk.WorkspaceCommandActivityStatus) bool {
+	switch status {
+	case codersdk.WorkspaceCommandActivityStatusRunning,
+		codersdk.WorkspaceCommandActivityStatusSucceeded,
+		codersdk.WorkspaceCommandActivityStatusFailed,
+		codersdk.WorkspaceCommandActivityStatusInterrupted:
+		return true
+	default:
+		return false
+	}
+}
+
+func validWorkspaceCommandActivitySource(source codersdk.WorkspaceCommandActivitySource) bool {
+	switch source {
+	case codersdk.WorkspaceCommandActivitySourceAgentProc,
+		codersdk.WorkspaceCommandActivitySourceSSH,
+		codersdk.WorkspaceCommandActivitySourceMCP,
+		codersdk.WorkspaceCommandActivitySourceReconnectingPTY,
+		codersdk.WorkspaceCommandActivitySourceVSCode,
+		codersdk.WorkspaceCommandActivitySourceJetBrains,
+		codersdk.WorkspaceCommandActivitySourceChat:
+		return true
+	default:
+		return false
+	}
+}
+
+func validWorkspaceCommandActivitySort(sortBy codersdk.WorkspaceCommandActivitySort) bool {
+	switch sortBy {
+	case codersdk.WorkspaceCommandActivitySortID,
+		codersdk.WorkspaceCommandActivitySortStatus,
+		codersdk.WorkspaceCommandActivitySortStarted,
+		codersdk.WorkspaceCommandActivitySortDuration,
+		codersdk.WorkspaceCommandActivitySortTool,
+		codersdk.WorkspaceCommandActivitySortSource,
+		codersdk.WorkspaceCommandActivitySortCommand,
+		codersdk.WorkspaceCommandActivitySortExit:
+		return true
+	default:
+		return false
+	}
+}
+
+func workspaceCommandActivityFromDatabase(row database.WorkspaceCommandActivity) codersdk.WorkspaceCommandActivity {
+	item := codersdk.WorkspaceCommandActivity{
+		ID:        row.ID,
+		AgentID:   row.AgentID,
+		SessionID: row.SessionID,
+		Source:    codersdk.WorkspaceCommandActivitySource(row.Source),
+		Tool:      row.Tool,
+		Command:   row.Command,
+		Argv:      append([]string(nil), row.Argv...),
+		WorkDir:   row.WorkDir,
+		Status:    codersdk.WorkspaceCommandActivityStatus(row.Status),
+		StartedAt: row.StartedAt,
+	}
+	if row.FinishedAt.Valid {
+		finishedAt := row.FinishedAt.Time
+		item.FinishedAt = &finishedAt
+	}
+	if row.ExitCode.Valid {
+		exitCode := int(row.ExitCode.Int32)
+		item.ExitCode = &exitCode
+	}
+	return item
 }
 
 // @Summary Get workspace connection activity
@@ -97,6 +463,7 @@ func (api *API) workspaceConnectionActivity(rw http.ResponseWriter, r *http.Requ
 		codersdk.ConnectionTypeReconnectingPTY,
 		codersdk.ConnectionTypeVSCode,
 		codersdk.ConnectionTypeJetBrains,
+		codersdk.ConnectionTypeMCP,
 	} {
 		byType[connectionType] = &codersdk.WorkspaceConnectionActivityType{Type: connectionType}
 	}
@@ -106,8 +473,6 @@ func (api *API) workspaceConnectionActivity(rw http.ResponseWriter, r *http.Requ
 		connectionType := codersdk.ConnectionType(row.Type)
 		summary, ok := byType[connectionType]
 		if !ok {
-			// This endpoint describes long-lived agent connections. Web app and
-			// port-forwarding connection logs do not have reliable close events.
 			continue
 		}
 
@@ -121,6 +486,11 @@ func (api *API) workspaceConnectionActivity(rw http.ResponseWriter, r *http.Requ
 		}
 		setLatestTime(&summary.LastActivityAt, row.LastActivityAt)
 		setLatestTime(&response.LastActivityAt, row.LastActivityAt)
+	}
+	if summary := byType[codersdk.ConnectionTypeMCP]; summary != nil {
+		activeMCP := api.workspaceMCPConnections.Active(workspace.ID)
+		summary.ActiveConnections = activeMCP
+		response.ActiveConnections += activeMCP
 	}
 	response.Active = response.ActiveConnections > 0
 
@@ -155,6 +525,8 @@ func connectionActivityTypeOrder(connectionType codersdk.ConnectionType) int {
 		return 2
 	case codersdk.ConnectionTypeJetBrains:
 		return 3
+	case codersdk.ConnectionTypeMCP:
+		return 4
 	default:
 		return 100
 	}

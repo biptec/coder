@@ -357,7 +357,8 @@ CREATE TYPE connection_type AS ENUM (
     'jetbrains',
     'reconnecting_pty',
     'workspace_app',
-    'port_forwarding'
+    'port_forwarding',
+    'mcp'
 );
 
 CREATE TYPE cors_behavior AS ENUM (
@@ -3904,7 +3905,7 @@ CREATE TABLE workspace_command_activity (
     finished_at timestamp with time zone,
     exit_code integer,
     tool text DEFAULT ''::text NOT NULL,
-    CONSTRAINT workspace_command_activity_source_check CHECK ((source = ANY (ARRAY['agentproc'::text, 'ssh'::text]))),
+    CONSTRAINT workspace_command_activity_source_check CHECK ((source = ANY (ARRAY['agentproc'::text, 'mcp'::text, 'ssh'::text, 'reconnecting_pty'::text, 'vscode'::text, 'jetbrains'::text, 'chat'::text]))),
     CONSTRAINT workspace_command_activity_status_check CHECK ((status = ANY (ARRAY['running'::text, 'succeeded'::text, 'failed'::text, 'interrupted'::text])))
 );
 
@@ -4880,7 +4881,13 @@ CREATE INDEX workspace_app_statuses_app_id_idx ON workspace_app_statuses USING b
 
 CREATE INDEX workspace_command_activity_agent_running_idx ON workspace_command_activity USING btree (agent_id, session_id) WHERE (status = 'running'::text);
 
+CREATE INDEX workspace_command_activity_workspace_source_started_idx ON workspace_command_activity USING btree (workspace_id, source, started_at DESC, id DESC);
+
 CREATE INDEX workspace_command_activity_workspace_started_idx ON workspace_command_activity USING btree (workspace_id, started_at DESC, id DESC);
+
+CREATE INDEX workspace_command_activity_workspace_status_started_idx ON workspace_command_activity USING btree (workspace_id, status, started_at DESC, id DESC);
+
+CREATE INDEX workspace_command_activity_workspace_tool_started_idx ON workspace_command_activity USING btree (workspace_id, tool, started_at DESC, id DESC);
 
 CREATE INDEX workspace_modules_created_at_idx ON workspace_modules USING btree (created_at);
 

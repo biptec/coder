@@ -3439,6 +3439,7 @@ export const ConnectionMethods: ConnectionMethod[] = ["derp", "direct", ""];
 // From codersdk/connectionlog.go
 export type ConnectionType =
 	| "jetbrains"
+	| "mcp"
 	| "port_forwarding"
 	| "reconnecting_pty"
 	| "ssh"
@@ -3447,6 +3448,7 @@ export type ConnectionType =
 
 export const ConnectionTypes: ConnectionType[] = [
 	"jetbrains",
+	"mcp",
 	"port_forwarding",
 	"reconnecting_pty",
 	"ssh",
@@ -4283,7 +4285,7 @@ export const DefaultChatDebugRetentionDays = 30;
 export const DefaultChatWorkspaceTTL = 0;
 
 // From codersdk/deployment.go
-export const DefaultWorkspaceCommandActivityHistoryLimit = 1000;
+export const DefaultWorkspaceCommandActivityHistoryLimit = 0;
 
 // From codersdk/externalauth.go
 export interface DeleteExternalAuthByIDResponse {
@@ -4303,6 +4305,18 @@ export interface DeleteWebpushSubscription {
 export interface DeleteWorkspaceAgentPortShareRequest {
 	readonly agent_name: string;
 	readonly port: number;
+}
+
+// From codersdk/workspacecommandactivity.go
+export interface DeleteWorkspaceCommandActivityRequest {
+	readonly mode: WorkspaceCommandActivityDeleteMode;
+	readonly ids?: readonly string[];
+	readonly filter?: WorkspaceCommandActivityFilter;
+}
+
+// From codersdk/workspacecommandactivity.go
+export interface DeleteWorkspaceCommandActivityResponse {
+	readonly deleted: number;
 }
 
 // From codersdk/deployment.go
@@ -10737,16 +10751,90 @@ export interface WorkspaceCommandActivity {
 }
 
 // From codersdk/workspacecommandactivity.go
+export type WorkspaceCommandActivityDeleteMode = "filtered" | "selected";
+
+export const WorkspaceCommandActivityDeleteModes: WorkspaceCommandActivityDeleteMode[] =
+	["filtered", "selected"];
+
+// From codersdk/workspacecommandactivity.go
+export interface WorkspaceCommandActivityFilter {
+	readonly statuses?: readonly WorkspaceCommandActivityStatus[];
+	readonly tools?: readonly string[];
+	readonly sources?: readonly WorkspaceCommandActivitySource[];
+	readonly search?: string;
+	readonly started_after?: string;
+	readonly started_before?: string;
+	readonly duration_min_ms?: number;
+	readonly duration_max_ms?: number;
+}
+
+// From codersdk/workspacecommandactivity.go
+export interface WorkspaceCommandActivityRequest
+	extends WorkspaceCommandActivityFilter {
+	readonly sort_by?: WorkspaceCommandActivitySort;
+	readonly sort_direction?: WorkspaceCommandActivitySortDirection;
+	readonly page?: number;
+	readonly page_size?: number;
+}
+
+// From codersdk/workspacecommandactivity.go
 export interface WorkspaceCommandActivityResponse {
 	readonly activity: readonly WorkspaceCommandActivity[];
+	readonly total_count: number;
+	readonly page: number;
+	readonly page_size: number;
+	readonly total_pages: number;
 	readonly history_limit: number;
 }
 
 // From codersdk/workspacecommandactivity.go
-export type WorkspaceCommandActivitySource = "agentproc" | "ssh";
+export type WorkspaceCommandActivitySort =
+	| "command"
+	| "duration"
+	| "exit"
+	| "id"
+	| "source"
+	| "started"
+	| "status"
+	| "tool";
+
+// From codersdk/workspacecommandactivity.go
+export type WorkspaceCommandActivitySortDirection = "asc" | "desc";
+
+export const WorkspaceCommandActivitySortDirections: WorkspaceCommandActivitySortDirection[] =
+	["asc", "desc"];
+
+export const WorkspaceCommandActivitySorts: WorkspaceCommandActivitySort[] = [
+	"command",
+	"duration",
+	"exit",
+	"id",
+	"source",
+	"started",
+	"status",
+	"tool",
+];
+
+// From codersdk/workspacecommandactivity.go
+export type WorkspaceCommandActivitySource =
+	| "agentproc"
+	| "chat"
+	| "jetbrains"
+	| "mcp"
+	| "reconnecting_pty"
+	| "ssh"
+	| "vscode";
 
 export const WorkspaceCommandActivitySources: WorkspaceCommandActivitySource[] =
-	["agentproc", "ssh"];
+	[
+		"agentproc",
+		"chat",
+		"jetbrains",
+		"mcp",
+		"reconnecting_pty",
+		"ssh",
+		"vscode",
+	];
 
 // From codersdk/workspacecommandactivity.go
 export type WorkspaceCommandActivityStatus =

@@ -110,6 +110,7 @@ type sqlcQuerier interface {
 	// CountPendingNonActivePrebuilds returns the number of pending prebuilds for non-active template versions
 	CountPendingNonActivePrebuilds(ctx context.Context) ([]CountPendingNonActivePrebuildsRow, error)
 	CountUnreadInboxNotificationsByUserID(ctx context.Context, userID uuid.UUID) (int64, error)
+	CountWorkspaceCommandActivity(ctx context.Context, arg CountWorkspaceCommandActivityParams) (int64, error)
 	CreateUserSecret(ctx context.Context, arg CreateUserSecretParams) (UserSecret, error)
 	CustomRoles(ctx context.Context, arg CustomRolesParams) ([]CustomRole, error)
 	DeleteAIGatewayKey(ctx context.Context, id uuid.UUID) (DeleteAIGatewayKeyRow, error)
@@ -240,6 +241,8 @@ type sqlcQuerier interface {
 	DeleteWorkspaceACLsByOrganization(ctx context.Context, arg DeleteWorkspaceACLsByOrganizationParams) error
 	DeleteWorkspaceAgentPortShare(ctx context.Context, arg DeleteWorkspaceAgentPortShareParams) error
 	DeleteWorkspaceAgentPortSharesByTemplate(ctx context.Context, templateID uuid.UUID) error
+	DeleteWorkspaceCommandActivityByFilter(ctx context.Context, arg DeleteWorkspaceCommandActivityByFilterParams) (int64, error)
+	DeleteWorkspaceCommandActivityByIDs(ctx context.Context, arg DeleteWorkspaceCommandActivityByIDsParams) (int64, error)
 	// Soft-deletes a single sub-agent (a child agent such as a devcontainer
 	// agent). Called from the DeleteSubAgent RPC when a sub-agent is torn
 	// down, which can happen mid-build without a full workspace rebuild.
@@ -952,7 +955,6 @@ type sqlcQuerier interface {
 	GetWorkspaceByOwnerIDAndName(ctx context.Context, arg GetWorkspaceByOwnerIDAndNameParams) (Workspace, error)
 	GetWorkspaceByResourceID(ctx context.Context, resourceID uuid.UUID) (Workspace, error)
 	GetWorkspaceByWorkspaceAppID(ctx context.Context, workspaceAppID uuid.UUID) (Workspace, error)
-	GetWorkspaceCommandActivityByWorkspaceID(ctx context.Context, arg GetWorkspaceCommandActivityByWorkspaceIDParams) ([]GetWorkspaceCommandActivityByWorkspaceIDRow, error)
 	GetWorkspaceConnectionActivityByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) ([]GetWorkspaceConnectionActivityByWorkspaceIDRow, error)
 	GetWorkspaceModulesByJobID(ctx context.Context, jobID uuid.UUID) ([]WorkspaceModule, error)
 	GetWorkspaceModulesCreatedAfter(ctx context.Context, createdAt time.Time) ([]WorkspaceModule, error)
@@ -1193,6 +1195,7 @@ type sqlcQuerier interface {
 	ListUserSkillMetadataByUserID(ctx context.Context, userID uuid.UUID) ([]ListUserSkillMetadataByUserIDRow, error)
 	ListWorkspaceAgentContextResources(ctx context.Context, workspaceAgentID uuid.UUID) ([]WorkspaceAgentContextResource, error)
 	ListWorkspaceAgentPortShares(ctx context.Context, workspaceID uuid.UUID) ([]WorkspaceAgentPortShare, error)
+	ListWorkspaceCommandActivity(ctx context.Context, arg ListWorkspaceCommandActivityParams) ([]WorkspaceCommandActivity, error)
 	// Locks the chat row with FOR UPDATE and atomically increments its
 	// snapshot_version, returning the post-bump chat. This is the single
 	// entry point ChatMachine.Update uses to acquire the row lock and
@@ -1226,6 +1229,8 @@ type sqlcQuerier interface {
 	PinChatByID(ctx context.Context, id uuid.UUID) error
 	PopNextQueuedMessage(ctx context.Context, chatID uuid.UUID) (ChatQueuedMessage, error)
 	PruneWorkspaceCommandActivity(ctx context.Context, arg PruneWorkspaceCommandActivityParams) (int64, error)
+	RecordWorkspaceConnectionActivityFinished(ctx context.Context, arg RecordWorkspaceConnectionActivityFinishedParams) error
+	RecordWorkspaceConnectionActivityStarted(ctx context.Context, arg RecordWorkspaceConnectionActivityStartedParams) error
 	RecordWorkspaceConnectionFinished(ctx context.Context, arg RecordWorkspaceConnectionFinishedParams) error
 	RecordWorkspaceConnectionStarted(ctx context.Context, arg RecordWorkspaceConnectionStartedParams) error
 	ReduceWorkspaceAgentShareLevelToAuthenticatedByTemplate(ctx context.Context, templateID uuid.UUID) error

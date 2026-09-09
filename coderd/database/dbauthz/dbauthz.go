@@ -2008,6 +2008,13 @@ func (q *querier) CountUnreadInboxNotificationsByUserID(ctx context.Context, use
 	return q.db.CountUnreadInboxNotificationsByUserID(ctx, userID)
 }
 
+func (q *querier) CountWorkspaceCommandActivity(ctx context.Context, arg database.CountWorkspaceCommandActivityParams) (int64, error) {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionRead); err != nil {
+		return 0, err
+	}
+	return q.db.CountWorkspaceCommandActivity(ctx, arg)
+}
+
 func (q *querier) CreateUserSecret(ctx context.Context, arg database.CreateUserSecretParams) (database.UserSecret, error) {
 	obj := rbac.ResourceUserSecret.WithOwner(arg.UserID.String())
 	if err := q.authorizeContext(ctx, policy.ActionCreate, obj); err != nil {
@@ -2646,6 +2653,20 @@ func (q *querier) DeleteWorkspaceAgentPortSharesByTemplate(ctx context.Context, 
 	}
 
 	return q.db.DeleteWorkspaceAgentPortSharesByTemplate(ctx, templateID)
+}
+
+func (q *querier) DeleteWorkspaceCommandActivityByFilter(ctx context.Context, arg database.DeleteWorkspaceCommandActivityByFilterParams) (int64, error) {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionUpdate); err != nil {
+		return 0, err
+	}
+	return q.db.DeleteWorkspaceCommandActivityByFilter(ctx, arg)
+}
+
+func (q *querier) DeleteWorkspaceCommandActivityByIDs(ctx context.Context, arg database.DeleteWorkspaceCommandActivityByIDsParams) (int64, error) {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionUpdate); err != nil {
+		return 0, err
+	}
+	return q.db.DeleteWorkspaceCommandActivityByIDs(ctx, arg)
 }
 
 func (q *querier) DeleteWorkspaceSubAgentByID(ctx context.Context, id uuid.UUID) error {
@@ -5621,13 +5642,6 @@ func (q *querier) GetWorkspaceByWorkspaceAppID(ctx context.Context, workspaceApp
 	return fetch(q.log, q.auth, q.db.GetWorkspaceByWorkspaceAppID)(ctx, workspaceAppID)
 }
 
-func (q *querier) GetWorkspaceCommandActivityByWorkspaceID(ctx context.Context, arg database.GetWorkspaceCommandActivityByWorkspaceIDParams) ([]database.GetWorkspaceCommandActivityByWorkspaceIDRow, error) {
-	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionRead); err != nil {
-		return nil, err
-	}
-	return q.db.GetWorkspaceCommandActivityByWorkspaceID(ctx, arg)
-}
-
 func (q *querier) GetWorkspaceConnectionActivityByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) ([]database.GetWorkspaceConnectionActivityByWorkspaceIDRow, error) {
 	if err := q.authorizeWorkspaceActivity(ctx, workspaceID, policy.ActionRead); err != nil {
 		return nil, err
@@ -6863,6 +6877,13 @@ func (q *querier) ListWorkspaceAgentPortShares(ctx context.Context, workspaceID 
 	return q.db.ListWorkspaceAgentPortShares(ctx, workspaceID)
 }
 
+func (q *querier) ListWorkspaceCommandActivity(ctx context.Context, arg database.ListWorkspaceCommandActivityParams) ([]database.WorkspaceCommandActivity, error) {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionRead); err != nil {
+		return nil, err
+	}
+	return q.db.ListWorkspaceCommandActivity(ctx, arg)
+}
+
 func (q *querier) LockChatAndBumpSnapshotVersion(ctx context.Context, id uuid.UUID) (database.Chat, error) {
 	chat, err := q.db.GetChatByID(ctx, id)
 	if err != nil {
@@ -6977,6 +6998,20 @@ func (q *querier) PruneWorkspaceCommandActivity(ctx context.Context, arg databas
 		return 0, err
 	}
 	return q.db.PruneWorkspaceCommandActivity(ctx, arg)
+}
+
+func (q *querier) RecordWorkspaceConnectionActivityFinished(ctx context.Context, arg database.RecordWorkspaceConnectionActivityFinishedParams) error {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionUpdate); err != nil {
+		return err
+	}
+	return q.db.RecordWorkspaceConnectionActivityFinished(ctx, arg)
+}
+
+func (q *querier) RecordWorkspaceConnectionActivityStarted(ctx context.Context, arg database.RecordWorkspaceConnectionActivityStartedParams) error {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionUpdate); err != nil {
+		return err
+	}
+	return q.db.RecordWorkspaceConnectionActivityStarted(ctx, arg)
 }
 
 func (q *querier) RecordWorkspaceConnectionFinished(ctx context.Context, arg database.RecordWorkspaceConnectionFinishedParams) error {

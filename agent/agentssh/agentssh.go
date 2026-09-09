@@ -30,6 +30,7 @@ import (
 	"github.com/coder/coder/v2/agent/agentcontainers"
 	"github.com/coder/coder/v2/agent/agentexec"
 	"github.com/coder/coder/v2/agent/agentrsa"
+	"github.com/coder/coder/v2/agent/commandactivity"
 	"github.com/coder/coder/v2/agent/usershell"
 	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/codersdk/workspacesdk"
@@ -90,7 +91,7 @@ var BlockedFileTransferCommands = []string{"nc", "rsync", "scp", "sftp"}
 
 type reportConnectionFunc func(id uuid.UUID, sessionType MagicSessionType, ip string) (disconnected func(code int, reason string))
 
-type reportCommandActivityFunc func(command string, argv []string, workDir, tool string) func(exitCode int)
+type reportCommandActivityFunc func(sessionType MagicSessionType, command string, argv []string, workDir, tool string) func(exitCode int)
 
 // Config sets configuration parameters for the agent SSH server.
 type Config struct {
@@ -200,7 +201,7 @@ func NewServer(ctx context.Context, logger slog.Logger, prometheusRegistry *prom
 		config.ReportConnection = func(uuid.UUID, MagicSessionType, string) func(int, string) { return func(int, string) {} }
 	}
 	if config.ReportCommandActivity == nil {
-		config.ReportCommandActivity = func(string, []string, string, string) func(int) { return func(int) {} }
+		config.ReportCommandActivity = func(MagicSessionType, string, []string, string, string) func(int) { return func(int) {} }
 	}
 
 	forwardHandler := &ssh.ForwardedTCPHandler{}
@@ -787,6 +788,19 @@ func (s *Server) startPTYSession(logger slog.Logger, session ptySession, magicTy
 	cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", sshPty.Term))
 
 	// The pty package sets `SSH_TTY` on supported platforms.
+	var shellActivity *commandactivity.InteractiveShellTracker
+	if session.RawCommand() == "" {
+		tracker, enabled, prepareErr := commandactivity.PrepareInteractiveShell(logger, cmd, func(command, workDir string) func(int) {
+			return s.config.ReportCommandActivity(magicType, command, nil, workDir, "")
+		})
+		if prepareErr != nil {
+			logger.Warn(ctx, "prepare interactive shell command activity", slog.Error(prepareErr))
+		} else if enabled {
+			shellActivity = tracker
+			defer shellActivity.Close()
+		}
+	}
+
 	ptty, process, err := pty.Start(cmd, pty.WithPTYOption(
 		pty.WithSSHRequest(sshPty),
 		pty.WithLogger(slog.Stdlib(ctx, logger, slog.LevelInfo)),
@@ -883,10 +897,10 @@ func (s *Server) startPTYSession(logger slog.Logger, session ptySession, magicTy
 }
 
 func (s *Server) startCommandActivity(command, workDir string, sessionType MagicSessionType, tool string) func(int) {
-	if command == "" || sessionType == MagicSessionTypeVSCode || sessionType == MagicSessionTypeJetBrains {
+	if command == "" {
 		return func(int) {}
 	}
-	return s.config.ReportCommandActivity(command, nil, workDir, tool)
+	return s.config.ReportCommandActivity(sessionType, command, nil, workDir, tool)
 }
 
 func commandActivityExitCode(err error) int {

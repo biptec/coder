@@ -92,6 +92,67 @@ func TestCommandActivity(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("UnlimitedHistoryDoesNotPrune", func(t *testing.T) {
+		t.Parallel()
+
+		mDB := dbmock.NewMockStore(gomock.NewController(t))
+		api := &agentapi.CommandActivityAPI{
+			AgentID:      agentID,
+			WorkspaceID:  workspaceID,
+			Database:     mDB,
+			HistoryLimit: 0,
+			Log:          testutil.Logger(t),
+		}
+
+		mDB.EXPECT().InsertWorkspaceCommandActivity(gomock.Any(), database.InsertWorkspaceCommandActivityParams{
+			ID:          activityID,
+			WorkspaceID: workspaceID,
+			AgentID:     agentID,
+			SessionID:   sessionID,
+			Source:      "mcp",
+			Tool:        "exec",
+			Command:     "echo unlimited",
+			Argv:        []string{},
+			WorkDir:     "/workspace",
+			StartedAt:   activityTime,
+		}).Return(nil)
+
+		_, err := api.ReportCommandActivity(context.Background(), &agentproto.ReportCommandActivityRequest{
+			Activity: &agentproto.CommandActivity{
+				Id:        activityID[:],
+				SessionId: sessionID[:],
+				Action:    agentproto.CommandActivity_STARTED,
+				Source:    agentproto.CommandActivity_MCP,
+				Tool:      "exec",
+				Command:   "echo unlimited",
+				WorkDir:   "/workspace",
+				Timestamp: timestamppb.New(activityTime),
+			},
+		})
+		require.NoError(t, err)
+
+		exitCode := int32(0)
+		mDB.EXPECT().FinishWorkspaceCommandActivity(gomock.Any(), database.FinishWorkspaceCommandActivityParams{
+			ExitCode:    sql.NullInt32{Int32: exitCode, Valid: true},
+			FinishedAt:  sql.NullTime{Time: activityTime, Valid: true},
+			ID:          activityID,
+			WorkspaceID: workspaceID,
+			AgentID:     agentID,
+			SessionID:   sessionID,
+		}).Return(int64(1), nil)
+
+		_, err = api.ReportCommandActivity(context.Background(), &agentproto.ReportCommandActivityRequest{
+			Activity: &agentproto.CommandActivity{
+				Id:        activityID[:],
+				SessionId: sessionID[:],
+				Action:    agentproto.CommandActivity_FINISHED,
+				Timestamp: timestamppb.New(activityTime),
+				ExitCode:  &exitCode,
+			},
+		})
+		require.NoError(t, err)
+	})
+
 	t.Run("NewAgentSessionInterruptsStaleState", func(t *testing.T) {
 		t.Parallel()
 

@@ -89,6 +89,42 @@ ON CONFLICT (workspace_id, agent_id, type) DO UPDATE SET
     last_disconnected_at = GREATEST(workspace_connection_activity.last_disconnected_at, EXCLUDED.last_disconnected_at),
     last_activity_at = GREATEST(workspace_connection_activity.last_activity_at, EXCLUDED.last_activity_at);
 
+-- name: RecordWorkspaceConnectionActivityStarted :exec
+INSERT INTO workspace_connection_activity (
+    workspace_id,
+    agent_id,
+    type,
+    last_connected_at,
+    last_activity_at
+) VALUES (
+    @workspace_id,
+    @agent_id,
+    @type,
+    @connected_at,
+    @connected_at
+)
+ON CONFLICT (workspace_id, agent_id, type) DO UPDATE SET
+    last_connected_at = GREATEST(workspace_connection_activity.last_connected_at, EXCLUDED.last_connected_at),
+    last_activity_at = GREATEST(workspace_connection_activity.last_activity_at, EXCLUDED.last_activity_at);
+
+-- name: RecordWorkspaceConnectionActivityFinished :exec
+INSERT INTO workspace_connection_activity (
+    workspace_id,
+    agent_id,
+    type,
+    last_disconnected_at,
+    last_activity_at
+) VALUES (
+    @workspace_id,
+    @agent_id,
+    @type,
+    @disconnected_at,
+    @disconnected_at
+)
+ON CONFLICT (workspace_id, agent_id, type) DO UPDATE SET
+    last_disconnected_at = GREATEST(workspace_connection_activity.last_disconnected_at, EXCLUDED.last_disconnected_at),
+    last_activity_at = GREATEST(workspace_connection_activity.last_activity_at, EXCLUDED.last_activity_at);
+
 -- name: GetWorkspaceConnectionActivityByWorkspaceID :many
 WITH active AS (
     SELECT
