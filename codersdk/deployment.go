@@ -614,7 +614,7 @@ var AIBudgetPeriods = []string{
 
 const (
 	DefaultWorkspaceActivityNowThreshold        = 5 * time.Minute
-	DefaultWorkspaceCommandActivityHistoryLimit = int64(1000)
+	DefaultWorkspaceCommandActivityHistoryLimit = int64(0)
 )
 
 // DeploymentValues is the central configuration values the coder server.
@@ -3612,15 +3612,15 @@ communicating directly.`,
 		},
 		{
 			Name:        "Workspace Command Activity History Limit",
-			Description: "Maximum completed command activity records retained per workspace. Running commands are retained in addition to this limit.",
+			Description: "Optional maximum completed command activity records retained per workspace. Zero (the default) means unlimited history. Running commands are retained in addition to a positive limit.",
 			Flag:        "workspace-command-activity-history-limit",
 			Env:         "CODER_WORKSPACE_COMMAND_ACTIVITY_HISTORY_LIMIT",
 			YAML:        "workspaceCommandActivityHistoryLimit",
 			Hidden:      true,
 			Default:     fmt.Sprintf("%d", DefaultWorkspaceCommandActivityHistoryLimit),
 			Value: serpent.Validate(&c.WorkspaceCommandActivityHistoryLimit, func(value *serpent.Int64) error {
-				if value.Value() <= 0 {
-					return xerrors.New("workspace command activity history limit must be greater than zero")
+				if value.Value() < 0 {
+					return xerrors.New("workspace command activity history limit must be zero (unlimited) or greater")
 				}
 				if value.Value() > 2147483647 {
 					return xerrors.New("workspace command activity history limit must not exceed 2147483647")

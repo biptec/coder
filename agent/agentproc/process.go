@@ -33,11 +33,24 @@ var (
 
 func normalizeCommandActivityTool(tool string) string {
 	switch tool = strings.TrimSpace(tool); tool {
-	case "exec", "process_start":
+	case "exec", "process_start", "bash":
 		return tool
 	default:
 		return ""
 	}
+}
+
+func normalizeCommandActivitySource(tool, chatID string) string {
+	// Channel attribution is derived from trusted request context rather than a
+	// caller-provided source label. Chat identity is carried by agentchat
+	// middleware; MCP attribution requires one of the allowlisted tool names.
+	if chatID != "" {
+		return "chat"
+	}
+	if tool != "" {
+		return "mcp"
+	}
+	return "agentproc"
 }
 
 // process represents a running or completed process.
@@ -231,6 +244,7 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 
 	now := m.clock.Now().Unix()
 	tool := normalizeCommandActivityTool(req.Tool)
+	source := normalizeCommandActivitySource(tool, chatID)
 	proc := &process{
 		id:          id,
 		command:     req.Command,
@@ -264,7 +278,7 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 
 	finishActivity := func(int) {}
 	if m.reportCommandActivity != nil {
-		finishActivity = m.reportCommandActivity(req.Command, req.Argv, cmd.Dir, tool)
+		finishActivity = m.reportCommandActivity(source, req.Command, req.Argv, cmd.Dir, tool)
 	}
 
 	go func() {

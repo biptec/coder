@@ -68,7 +68,17 @@ func (api *API) mcpHTTPHandler() http.Handler {
 			if !api.Authorize(r, policy.ActionSSH, workspace) {
 				return nil, nil, xerrors.New("unauthorized: you do not have SSH access to this workspace")
 			}
-			return api.agentProvider.AgentConn(ctx, agentID)
+			conn, release, err := api.agentProvider.AgentConn(ctx, agentID)
+			if err != nil {
+				return nil, nil, err
+			}
+			finishMCPActivity := api.workspaceMCPConnections.Start(ctx, workspace.ID, agentID)
+			return conn, func() {
+				finishMCPActivity()
+				if release != nil {
+					release()
+				}
+			}, nil
 		})
 
 		requestedToolset := MCPToolset(r.URL.Query().Get("toolset"))

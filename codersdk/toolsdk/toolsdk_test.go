@@ -2460,6 +2460,28 @@ func TestWithCleanContext(t *testing.T) {
 		_, _ = wrapped(ctx, toolsdk.Deps{}, []byte(`{}`))
 	})
 
+	t.Run("PropagateInvocationToolOnly", func(t *testing.T) {
+		t.Parallel()
+
+		ctxTool := toolsdk.GenericTool{
+			Tool: aisdk.Tool{
+				Name:        "context_tool_invocation",
+				Description: "Checks MCP invocation attribution propagation.",
+			},
+			Handler: func(toolCtx context.Context, tb toolsdk.Deps, args json.RawMessage) (json.RawMessage, error) {
+				require.Equal(t, "exec", toolsdk.InvocationToolFromContext(toolCtx))
+				require.Nil(t, toolCtx.Value(testContextKey{}), "arbitrary context values must remain stripped")
+				return nil, nil
+			},
+		}
+
+		wrapped := toolsdk.WithCleanContext(ctxTool.Handler)
+		parent := context.WithValue(context.Background(), testContextKey{}, "must-not-leak")
+		parent = toolsdk.WithInvocationTool(parent, "exec")
+		_, err := wrapped(parent, toolsdk.Deps{}, []byte(`{}`))
+		require.NoError(t, err)
+	})
+
 	t.Run("PropagateCancel", func(t *testing.T) {
 		t.Parallel()
 

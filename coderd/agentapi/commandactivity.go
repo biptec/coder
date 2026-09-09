@@ -155,6 +155,16 @@ func commandActivitySource(source agentproto.CommandActivity_Source) (string, er
 		return "agentproc", nil
 	case agentproto.CommandActivity_SSH:
 		return "ssh", nil
+	case agentproto.CommandActivity_MCP:
+		return "mcp", nil
+	case agentproto.CommandActivity_RECONNECTING_PTY:
+		return "reconnecting_pty", nil
+	case agentproto.CommandActivity_VSCODE:
+		return "vscode", nil
+	case agentproto.CommandActivity_JETBRAINS:
+		return "jetbrains", nil
+	case agentproto.CommandActivity_CHAT:
+		return "chat", nil
 	default:
 		return "", xerrors.Errorf("unsupported command activity source %q", source.String())
 	}

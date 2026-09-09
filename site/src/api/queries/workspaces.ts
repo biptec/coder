@@ -11,6 +11,7 @@ import { DetailedError, isApiValidationError } from "#/api/errors";
 import type {
 	CreateWorkspaceRequest,
 	CreateWorkspaceVolumeCopyRequest,
+	DeleteWorkspaceCommandActivityRequest,
 	ProvisionerLogLevel,
 	UsageAppName,
 	Workspace,
@@ -23,6 +24,7 @@ import type {
 	WorkspaceAgentLog,
 	WorkspaceBuild,
 	WorkspaceBuildParameter,
+	WorkspaceCommandActivityRequest,
 	WorkspaceCommandActivityResponse,
 	WorkspaceConnectionActivityResponse,
 	WorkspaceRole,
@@ -58,16 +60,29 @@ export const workspaceById = (workspaceId: string) => {
 	};
 };
 
-export const workspaceCommandActivity = (workspaceId?: string) => ({
-	queryKey: ["workspaces", workspaceId, "command-activity"],
+export const workspaceCommandActivity = (
+	workspaceId?: string,
+	request: WorkspaceCommandActivityRequest = {},
+) => ({
+	queryKey: ["workspaces", workspaceId, "command-activity", request],
 	queryFn: (): Promise<WorkspaceCommandActivityResponse> => {
 		if (!workspaceId) {
 			return Promise.reject(new Error("Workspace ID is required"));
 		}
-		return API.getWorkspaceCommandActivity(workspaceId);
+		return API.getWorkspaceCommandActivity(workspaceId, request);
 	},
 	enabled: Boolean(workspaceId),
 	refetchInterval: 1_000,
+});
+
+export const deleteWorkspaceCommandActivity = () => ({
+	mutationFn: ({
+		workspaceId,
+		request,
+	}: {
+		workspaceId: string;
+		request: DeleteWorkspaceCommandActivityRequest;
+	}) => API.deleteWorkspaceCommandActivity(workspaceId, request),
 });
 
 export const workspaceConnectionActivity = (workspaceId?: string) => ({

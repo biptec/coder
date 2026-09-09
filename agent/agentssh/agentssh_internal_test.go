@@ -103,9 +103,11 @@ func Test_startCommandActivity(t *testing.T) {
 	var workDir string
 	var tool string
 	var exitCode int
+	var sessionTypes []MagicSessionType
 	s, err := NewServer(ctx, testutil.Logger(t), prometheus.NewRegistry(), afero.NewMemMapFs(), agentexec.DefaultExecer, &Config{
-		ReportCommandActivity: func(gotCommand string, gotArgv []string, gotWorkDir, gotTool string) func(int) {
+		ReportCommandActivity: func(sessionType MagicSessionType, gotCommand string, gotArgv []string, gotWorkDir, gotTool string) func(int) {
 			calls++
+			sessionTypes = append(sessionTypes, sessionType)
 			command = gotCommand
 			argv = append([]string(nil), gotArgv...)
 			workDir = gotWorkDir
@@ -128,7 +130,8 @@ func Test_startCommandActivity(t *testing.T) {
 	s.startCommandActivity("", "/workspace", MagicSessionTypeSSH, "bash")(0)
 	s.startCommandActivity("code --wait", "/workspace", MagicSessionTypeVSCode, "")(0)
 	s.startCommandActivity("idea", "/workspace", MagicSessionTypeJetBrains, "")(0)
-	require.Equal(t, 1, calls, "interactive/IDE sessions must not be recorded as commands")
+	require.Equal(t, 3, calls, "non-empty commands must be recorded regardless of SSH session channel")
+	require.Equal(t, []MagicSessionType{MagicSessionTypeSSH, MagicSessionTypeVSCode, MagicSessionTypeJetBrains}, sessionTypes)
 }
 
 func TestExtractCommandActivityTool(t *testing.T) {

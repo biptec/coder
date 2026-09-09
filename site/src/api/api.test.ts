@@ -9,7 +9,12 @@ import {
 	MockWorkspaceBuild,
 	MockWorkspaceBuildParameter1,
 } from "#/testHelpers/entities";
-import { API, getURLWithSearchParams, MissingBuildParameters } from "./api";
+import {
+	API,
+	getURLWithSearchParams,
+	getWorkspaceCommandActivityURL,
+	MissingBuildParameters,
+} from "./api";
 import type * as TypesGen from "./typesGenerated";
 
 const axiosInstance = API.getAxiosInstance();
@@ -150,6 +155,52 @@ describe("api.ts", () => {
 			],
 		])("Workspaces - getURLWithSearchParams(%p, %p) returns %p", (basePath, filter, expected) => {
 			expect(getURLWithSearchParams(basePath, filter)).toBe(expected);
+		});
+	});
+
+	describe("getWorkspaceCommandActivityURL", () => {
+		it("serializes command activity filters using the server query parameter names", () => {
+			const raw = getWorkspaceCommandActivityURL("workspace-id", {
+				statuses: ["running", "succeeded"],
+				tools: ["exec", "bash"],
+				sources: ["mcp", "ssh"],
+				search: "needle text",
+				started_after: "2026-09-09T08:00:00.000Z",
+				started_before: "2026-09-09T10:00:00.000Z",
+				duration_min_ms: 250,
+				duration_max_ms: 20_000,
+				sort_by: "duration",
+				sort_direction: "desc",
+				page: 3,
+				page_size: 100,
+			});
+			const url = new URL(raw, "https://coder.test");
+
+			expect(url.pathname).toBe(
+				"/api/v2/workspaces/workspace-id/command-activity",
+			);
+			expect(url.searchParams.getAll("status")).toEqual([
+				"running",
+				"succeeded",
+			]);
+			expect(url.searchParams.getAll("tool")).toEqual(["exec", "bash"]);
+			expect(url.searchParams.getAll("source")).toEqual(["mcp", "ssh"]);
+			expect(url.searchParams.get("search")).toBe("needle text");
+			expect(url.searchParams.get("started_after")).toBe(
+				"2026-09-09T08:00:00.000Z",
+			);
+			expect(url.searchParams.get("started_before")).toBe(
+				"2026-09-09T10:00:00.000Z",
+			);
+			expect(url.searchParams.get("duration_min_ms")).toBe("250");
+			expect(url.searchParams.get("duration_max_ms")).toBe("20000");
+			expect(url.searchParams.get("sort_by")).toBe("duration");
+			expect(url.searchParams.get("sort_direction")).toBe("desc");
+			expect(url.searchParams.get("page")).toBe("3");
+			expect(url.searchParams.get("page_size")).toBe("100");
+			expect(url.searchParams.has("statuses")).toBe(false);
+			expect(url.searchParams.has("tools")).toBe(false);
+			expect(url.searchParams.has("sources")).toBe(false);
 		});
 	});
 

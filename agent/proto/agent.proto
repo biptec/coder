@@ -406,6 +406,11 @@ message CommandActivity {
 		SOURCE_UNSPECIFIED = 0;
 		AGENTPROC = 1;
 		SSH = 2;
+		MCP = 3;
+		RECONNECTING_PTY = 4;
+		VSCODE = 5;
+		JETBRAINS = 6;
+		CHAT = 7;
 	}
 
 	bytes id = 1;

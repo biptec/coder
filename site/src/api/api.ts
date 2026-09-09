@@ -241,6 +241,38 @@ export function watchInboxNotifications(
 	});
 }
 
+export const getWorkspaceCommandActivityURL = (
+	workspaceId: string,
+	request: TypesGen.WorkspaceCommandActivityRequest = {},
+): string => {
+	const searchParams = new URLSearchParams();
+	for (const status of request.statuses ?? [])
+		searchParams.append("status", status);
+	for (const tool of request.tools ?? []) searchParams.append("tool", tool);
+	for (const source of request.sources ?? [])
+		searchParams.append("source", source);
+	if (request.search) searchParams.set("search", request.search);
+	if (request.started_after)
+		searchParams.set("started_after", request.started_after);
+	if (request.started_before)
+		searchParams.set("started_before", request.started_before);
+	if (request.duration_min_ms !== undefined)
+		searchParams.set("duration_min_ms", String(request.duration_min_ms));
+	if (request.duration_max_ms !== undefined)
+		searchParams.set("duration_max_ms", String(request.duration_max_ms));
+	if (request.sort_by) searchParams.set("sort_by", request.sort_by);
+	if (request.sort_direction)
+		searchParams.set("sort_direction", request.sort_direction);
+	if (request.page !== undefined)
+		searchParams.set("page", String(request.page));
+	if (request.page_size !== undefined)
+		searchParams.set("page_size", String(request.page_size));
+
+	const basePath = `/api/v2/workspaces/${workspaceId}/command-activity`;
+	const searchString = searchParams.toString();
+	return searchString ? `${basePath}?${searchString}` : basePath;
+};
+
 export const getURLWithSearchParams = (
 	basePath: string,
 	options?: object,
@@ -1375,10 +1407,22 @@ class ApiMethods {
 
 	getWorkspaceCommandActivity = async (
 		workspaceId: string,
+		request?: TypesGen.WorkspaceCommandActivityRequest,
 	): Promise<TypesGen.WorkspaceCommandActivityResponse> => {
+		const url = getWorkspaceCommandActivityURL(workspaceId, request);
 		const response =
-			await this.axios.get<TypesGen.WorkspaceCommandActivityResponse>(
+			await this.axios.get<TypesGen.WorkspaceCommandActivityResponse>(url);
+		return response.data;
+	};
+
+	deleteWorkspaceCommandActivity = async (
+		workspaceId: string,
+		request: TypesGen.DeleteWorkspaceCommandActivityRequest,
+	): Promise<TypesGen.DeleteWorkspaceCommandActivityResponse> => {
+		const response =
+			await this.axios.delete<TypesGen.DeleteWorkspaceCommandActivityResponse>(
 				`/api/v2/workspaces/${workspaceId}/command-activity`,
+				{ data: request },
 			);
 		return response.data;
 	};
