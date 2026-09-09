@@ -22,6 +22,7 @@ import type {
 	WorkspaceCommandActivitySortDirection,
 	WorkspaceCommandActivitySource,
 	WorkspaceCommandActivityStatus,
+	WorkspaceMCPRequestActivity,
 } from "#/api/typesGenerated";
 import { ErrorAlert } from "#/components/Alert/ErrorAlert";
 import { Badge } from "#/components/Badge/Badge";
@@ -85,7 +86,10 @@ import {
 	activityPageSizeOptions as pageSizeOptions,
 	saveWorkspaceActivityPreferences,
 } from "./activityPreferences";
-import { updateCommandActivityCache } from "./commandActivityCache";
+import {
+	updateCommandActivityCache,
+	updateMCPRequestActivityCache,
+} from "./commandActivityCache";
 
 type ParsedDuration = {
 	value?: number;
@@ -232,17 +236,17 @@ const WorkspaceCommandActivityPage: FC = () => {
 			) as WorkspaceCommandActivityStatus[],
 		[statuses],
 	);
-	const showRealActivity = realStatuses.length > 0;
+	const hasToolSelection = tools === null || tools.length > 0;
+	const hasSourceSelection = sources.length > 0;
+	const showRealActivity =
+		realStatuses.length > 0 && hasToolSelection && hasSourceSelection;
 	const queryStatuses = useMemo<WorkspaceCommandActivityStatus[]>(() => {
 		if (realStatuses.length > 0) return realStatuses;
 		return includeIdle ? [...defaultRealActivityStatuses] : [];
 	}, [realStatuses, includeIdle]);
-	const hasToolSelection = tools === null || tools.length > 0;
-	const hasSourceSelection = sources.length > 0;
 	const queryEnabled =
 		queryStatuses.length > 0 &&
-		hasToolSelection &&
-		hasSourceSelection &&
+		(includeIdle || (hasToolSelection && hasSourceSelection)) &&
 		!filterError;
 
 	const filter = useMemo<WorkspaceCommandActivityFilter>(
@@ -274,12 +278,23 @@ const WorkspaceCommandActivityPage: FC = () => {
 	const commandRequest = useMemo<WorkspaceCommandActivityRequest>(
 		() => ({
 			...filter,
-			sort_by: sortBy,
-			sort_direction: sortDirection,
+			// Idle-only views are timelines even when a stored preference points at
+			// a command-only sort column such as Tool or Exit.
+			sort_by: showRealActivity ? sortBy : "started",
+			sort_direction: showRealActivity ? sortDirection : "desc",
 			page,
 			page_size: pageSize,
+			include_idle: includeIdle,
 		}),
-		[filter, sortBy, sortDirection, page, pageSize],
+		[
+			filter,
+			sortBy,
+			sortDirection,
+			showRealActivity,
+			page,
+			pageSize,
+			includeIdle,
+		],
 	);
 
 	const commandQuery = useQuery({
@@ -334,9 +349,27 @@ const WorkspaceCommandActivityPage: FC = () => {
 	);
 
 	const realActivity = queryEnabled ? (commandQuery.data?.activity ?? []) : [];
+	const mcpRequests = queryEnabled
+		? (commandQuery.data?.mcp_requests ?? [])
+		: [];
 	const displayRows = useMemo(
-		() => buildActivityDisplayRows(realActivity, includeIdle, showRealActivity),
-		[realActivity, includeIdle, showRealActivity],
+		() =>
+			buildActivityDisplayRows(
+				realActivity,
+				mcpRequests,
+				includeIdle,
+				showRealActivity,
+				sortBy,
+				sortDirection,
+			),
+		[
+			realActivity,
+			mcpRequests,
+			includeIdle,
+			showRealActivity,
+			sortBy,
+			sortDirection,
+		],
 	);
 	const selectableActivity = showRealActivity ? realActivity : [];
 	const currentPageIds = useMemo(
@@ -411,6 +444,24 @@ const WorkspaceCommandActivityPage: FC = () => {
 			}
 			if (needsResync) scheduleCommandResync();
 		};
+		const handleMCPRequestUpsert = (
+			requestActivity: WorkspaceMCPRequestActivity,
+		) => {
+			const cached =
+				queryClient.getQueriesData<WorkspaceCommandActivityResponse>({
+					queryKey: commandKey,
+				});
+			for (const [queryKey, data] of cached) {
+				if (!data || !Array.isArray(queryKey)) continue;
+				const request = (queryKey[3] ?? {}) as WorkspaceCommandActivityRequest;
+				const update = updateMCPRequestActivityCache(
+					data,
+					requestActivity,
+					request,
+				);
+				if (update !== data) queryClient.setQueryData(queryKey, update);
+			}
+		};
 		const connect = () => {
 			if (disposed) return;
 			const socket = watchWorkspaceActivity(workspaceId);
@@ -430,6 +481,10 @@ const WorkspaceCommandActivityPage: FC = () => {
 						break;
 					case "command_resync":
 						scheduleCommandResync();
+						break;
+					case "mcp_request_upsert":
+						if (payload.mcp_request)
+							handleMCPRequestUpsert(payload.mcp_request);
 						break;
 				}
 			});
@@ -765,10 +820,10 @@ const ActivityHistoryTable: FC<ActivityHistoryTableProps> = ({
 	onSelectPage,
 	onSelect,
 }) => (
-	<Table aria-label="Activity history">
+	<Table aria-label="Activity history" className="table-fixed">
 		<TableHeader>
 			<TableRow>
-				<TableHead className="w-40 min-w-40 text-content-primary">
+				<TableHead className="w-36 px-2 text-content-primary">
 					<div className="flex items-center gap-2">
 						<Checkbox
 							checked={allCurrentPageSelected}
@@ -793,7 +848,7 @@ const ActivityHistoryTable: FC<ActivityHistoryTableProps> = ({
 						/>
 					</div>
 				</TableHead>
-				<TableHead className="text-content-primary">
+				<TableHead className="w-28 px-2 text-content-primary">
 					<HeaderWithFilter
 						label="Status"
 						column="status"
@@ -815,7 +870,7 @@ const ActivityHistoryTable: FC<ActivityHistoryTableProps> = ({
 						}
 					/>
 				</TableHead>
-				<TableHead className="text-content-primary">
+				<TableHead className="w-44 px-2 text-content-primary">
 					<HeaderWithFilter
 						label="Started"
 						column="started"
@@ -837,7 +892,7 @@ const ActivityHistoryTable: FC<ActivityHistoryTableProps> = ({
 						}
 					/>
 				</TableHead>
-				<TableHead className="text-content-primary">
+				<TableHead className="w-32 px-2 text-content-primary">
 					<HeaderWithFilter
 						label="Duration"
 						column="duration"
@@ -860,7 +915,7 @@ const ActivityHistoryTable: FC<ActivityHistoryTableProps> = ({
 						}
 					/>
 				</TableHead>
-				<TableHead className="text-content-primary">
+				<TableHead className="w-32 px-2 text-content-primary">
 					<HeaderWithFilter
 						label="Tool"
 						column="tool"
@@ -887,7 +942,7 @@ const ActivityHistoryTable: FC<ActivityHistoryTableProps> = ({
 						}
 					/>
 				</TableHead>
-				<TableHead className="text-content-primary">
+				<TableHead className="w-32 px-2 text-content-primary">
 					<HeaderWithFilter
 						label="Source"
 						column="source"
@@ -913,7 +968,7 @@ const ActivityHistoryTable: FC<ActivityHistoryTableProps> = ({
 						}
 					/>
 				</TableHead>
-				<TableHead className="min-w-80 text-content-primary">
+				<TableHead className="px-2 text-content-primary">
 					<HeaderWithFilter
 						label="Input"
 						column="command"
@@ -932,7 +987,7 @@ const ActivityHistoryTable: FC<ActivityHistoryTableProps> = ({
 						}
 					/>
 				</TableHead>
-				<TableHead className="text-content-primary">
+				<TableHead className="w-20 px-2 text-content-primary">
 					<HeaderWithFilter
 						label="Exit"
 						column="exit"
@@ -987,7 +1042,7 @@ const HeaderWithFilter: FC<{
 	onSort: (column: WorkspaceCommandActivitySort) => void;
 	filter: React.ReactNode;
 }> = ({ label, column, sortBy, direction, onSort, filter }) => (
-	<div className="flex items-center gap-1.5">
+	<div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
 		<SortHeader
 			label={label}
 			column={column}
@@ -1008,7 +1063,7 @@ const SortHeader: FC<{
 }> = ({ label, column, sortBy, direction, onSort }) => (
 	<button
 		type="button"
-		className="inline-flex items-center gap-1 border-0 bg-transparent p-0 text-xs font-semibold text-content-primary hover:text-content-link"
+		className="inline-flex shrink-0 items-center gap-1 border-0 bg-transparent p-0 text-xs font-semibold text-content-primary hover:text-content-link"
 		onClick={() => onSort(column)}
 	>
 		{label}
@@ -1024,8 +1079,8 @@ const RealActivityRow: FC<{
 	onCheckedChange: (checked: boolean) => void;
 }> = ({ item, checked, onCheckedChange }) => (
 	<TableRow data-state={checked ? "selected" : undefined}>
-		<TableCell>
-			<div className="flex items-center gap-2">
+		<TableCell className="px-2">
+			<div className="flex min-w-0 items-center gap-2">
 				<Checkbox
 					checked={checked}
 					onCheckedChange={(value) => onCheckedChange(Boolean(value))}
@@ -1040,18 +1095,25 @@ const RealActivityRow: FC<{
 				</CopyableValue>
 			</div>
 		</TableCell>
-		<TableCell>
+		<TableCell className="px-2">
 			<ActivityStatusBadge status={item.status} />
 		</TableCell>
-		<TableCell className="whitespace-nowrap">
+		<TableCell className="whitespace-nowrap px-2 text-xs">
 			{formatTimestamp(item.started_at)}
 		</TableCell>
-		<TableCell className="whitespace-nowrap">
+		<TableCell className="whitespace-nowrap px-2">
 			<ActivityDuration item={item} />
 		</TableCell>
-		<TableCell>{item.tool || "—"}</TableCell>
-		<TableCell>{activitySourceLabel(item.source)}</TableCell>
-		<TableCell className="min-w-80 max-w-[48rem]">
+		<TableCell className="truncate px-2" title={item.tool || undefined}>
+			{item.tool || "—"}
+		</TableCell>
+		<TableCell
+			className="truncate px-2"
+			title={activitySourceLabel(item.source)}
+		>
+			{activitySourceLabel(item.source)}
+		</TableCell>
+		<TableCell className="min-w-0 px-2">
 			<code className="block whitespace-pre-wrap break-words text-xs text-content-primary">
 				{activityInput(item) || "—"}
 			</code>
@@ -1064,7 +1126,7 @@ const RealActivityRow: FC<{
 				</div>
 			)}
 		</TableCell>
-		<TableCell>{item.exit_code ?? ""}</TableCell>
+		<TableCell className="px-2">{item.exit_code ?? ""}</TableCell>
 	</TableRow>
 );
 
@@ -1072,28 +1134,38 @@ const IdleActivityRow: FC<{
 	row: Extract<ActivityDisplayRow, { type: "idle" }>;
 }> = ({ row }) => (
 	<TableRow>
-		<TableCell />
-		<TableCell>
+		<TableCell className="px-2" />
+		<TableCell className="px-2">
 			<ActivityStatusBadge status="idle" />
 		</TableCell>
-		<TableCell className="whitespace-nowrap">
+		<TableCell className="whitespace-nowrap px-2 text-xs">
 			{formatTimestamp(row.startedAt)}
 		</TableCell>
-		<TableCell className="whitespace-nowrap">
-			{formatDurationMilliseconds(
-				Math.max(
-					0,
-					new Date(row.finishedAt).getTime() -
-						new Date(row.startedAt).getTime(),
-				),
-			)}
+		<TableCell className="whitespace-nowrap px-2">
+			<IdleDuration row={row} />
 		</TableCell>
-		<TableCell />
-		<TableCell />
-		<TableCell />
-		<TableCell />
+		<TableCell className="px-2" />
+		<TableCell className="px-2" />
+		<TableCell className="px-2" />
+		<TableCell className="px-2" />
 	</TableRow>
 );
+
+const IdleDuration: FC<{
+	row: Extract<ActivityDisplayRow, { type: "idle" }>;
+}> = ({ row }) => {
+	const live = row.current && !row.finishedAt;
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		if (!live) return;
+		setNow(Date.now());
+		const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+		return () => window.clearInterval(timer);
+	}, [live]);
+	const started = new Date(row.startedAt).getTime();
+	const finished = row.finishedAt ? new Date(row.finishedAt).getTime() : now;
+	return <>{formatDurationMilliseconds(Math.max(0, finished - started))}</>;
+};
 
 const ActivityStatusBadge: FC<{ status: ActivityDisplayStatus }> = ({
 	status,

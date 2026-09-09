@@ -49,6 +49,7 @@ func (api *API) mcpHTTPHandler() http.Handler {
 			api.Pubsub,
 			api.Logger,
 			authenticatedClient,
+			api.ID,
 			api.DeploymentValues.WorkspaceCommandActivityHistoryLimit.Value(),
 		))
 

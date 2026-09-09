@@ -1916,6 +1916,21 @@ func (mr *MockStoreMockRecorder) FinishWorkspaceCommandActivity(ctx, arg any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FinishWorkspaceCommandActivity", reflect.TypeOf((*MockStore)(nil).FinishWorkspaceCommandActivity), ctx, arg)
 }
 
+// FinishWorkspaceMCPRequestActivity mocks base method.
+func (m *MockStore) FinishWorkspaceMCPRequestActivity(ctx context.Context, arg database.FinishWorkspaceMCPRequestActivityParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FinishWorkspaceMCPRequestActivity", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FinishWorkspaceMCPRequestActivity indicates an expected call of FinishWorkspaceMCPRequestActivity.
+func (mr *MockStoreMockRecorder) FinishWorkspaceMCPRequestActivity(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FinishWorkspaceMCPRequestActivity", reflect.TypeOf((*MockStore)(nil).FinishWorkspaceMCPRequestActivity), ctx, arg)
+}
+
 // FinishWorkspaceToolActivity mocks base method.
 func (m *MockStore) FinishWorkspaceToolActivity(ctx context.Context, arg database.FinishWorkspaceToolActivityParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -7121,6 +7136,21 @@ func (mr *MockStoreMockRecorder) GetWorkspaceConnectionActivityByWorkspaceID(ctx
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceConnectionActivityByWorkspaceID", reflect.TypeOf((*MockStore)(nil).GetWorkspaceConnectionActivityByWorkspaceID), ctx, workspaceID)
 }
 
+// GetWorkspaceMCPRequestActivityByID mocks base method.
+func (m *MockStore) GetWorkspaceMCPRequestActivityByID(ctx context.Context, arg database.GetWorkspaceMCPRequestActivityByIDParams) (database.WorkspaceMcpRequestActivity, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkspaceMCPRequestActivityByID", ctx, arg)
+	ret0, _ := ret[0].(database.WorkspaceMcpRequestActivity)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkspaceMCPRequestActivityByID indicates an expected call of GetWorkspaceMCPRequestActivityByID.
+func (mr *MockStoreMockRecorder) GetWorkspaceMCPRequestActivityByID(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceMCPRequestActivityByID", reflect.TypeOf((*MockStore)(nil).GetWorkspaceMCPRequestActivityByID), ctx, arg)
+}
+
 // GetWorkspaceModulesByJobID mocks base method.
 func (m *MockStore) GetWorkspaceModulesByJobID(ctx context.Context, jobID uuid.UUID) ([]database.WorkspaceModule, error) {
 	m.ctrl.T.Helper()
@@ -8707,6 +8737,20 @@ func (mr *MockStoreMockRecorder) InsertWorkspaceCommandActivity(ctx, arg any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertWorkspaceCommandActivity", reflect.TypeOf((*MockStore)(nil).InsertWorkspaceCommandActivity), ctx, arg)
 }
 
+// InsertWorkspaceMCPRequestActivity mocks base method.
+func (m *MockStore) InsertWorkspaceMCPRequestActivity(ctx context.Context, arg database.InsertWorkspaceMCPRequestActivityParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertWorkspaceMCPRequestActivity", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertWorkspaceMCPRequestActivity indicates an expected call of InsertWorkspaceMCPRequestActivity.
+func (mr *MockStoreMockRecorder) InsertWorkspaceMCPRequestActivity(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertWorkspaceMCPRequestActivity", reflect.TypeOf((*MockStore)(nil).InsertWorkspaceMCPRequestActivity), ctx, arg)
+}
+
 // InsertWorkspaceModule mocks base method.
 func (m *MockStore) InsertWorkspaceModule(ctx context.Context, arg database.InsertWorkspaceModuleParams) (database.WorkspaceModule, error) {
 	m.ctrl.T.Helper()
@@ -9305,6 +9349,51 @@ func (mr *MockStoreMockRecorder) ListWorkspaceCommandActivityTools(ctx, workspac
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWorkspaceCommandActivityTools", reflect.TypeOf((*MockStore)(nil).ListWorkspaceCommandActivityTools), ctx, workspaceID)
 }
 
+// ListWorkspaceMCPRequestActivityCandidates mocks base method.
+func (m *MockStore) ListWorkspaceMCPRequestActivityCandidates(ctx context.Context, arg database.ListWorkspaceMCPRequestActivityCandidatesParams) ([]database.WorkspaceMcpRequestActivity, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListWorkspaceMCPRequestActivityCandidates", ctx, arg)
+	ret0, _ := ret[0].([]database.WorkspaceMcpRequestActivity)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListWorkspaceMCPRequestActivityCandidates indicates an expected call of ListWorkspaceMCPRequestActivityCandidates.
+func (mr *MockStoreMockRecorder) ListWorkspaceMCPRequestActivityCandidates(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWorkspaceMCPRequestActivityCandidates", reflect.TypeOf((*MockStore)(nil).ListWorkspaceMCPRequestActivityCandidates), ctx, arg)
+}
+
+// ListWorkspaceMCPRequestActivityCurrent mocks base method.
+func (m *MockStore) ListWorkspaceMCPRequestActivityCurrent(ctx context.Context, workspaceID uuid.UUID) ([]database.WorkspaceMcpRequestActivity, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListWorkspaceMCPRequestActivityCurrent", ctx, workspaceID)
+	ret0, _ := ret[0].([]database.WorkspaceMcpRequestActivity)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListWorkspaceMCPRequestActivityCurrent indicates an expected call of ListWorkspaceMCPRequestActivityCurrent.
+func (mr *MockStoreMockRecorder) ListWorkspaceMCPRequestActivityCurrent(ctx, workspaceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWorkspaceMCPRequestActivityCurrent", reflect.TypeOf((*MockStore)(nil).ListWorkspaceMCPRequestActivityCurrent), ctx, workspaceID)
+}
+
+// ListWorkspaceMCPRequestActivityForRange mocks base method.
+func (m *MockStore) ListWorkspaceMCPRequestActivityForRange(ctx context.Context, arg database.ListWorkspaceMCPRequestActivityForRangeParams) ([]database.WorkspaceMcpRequestActivity, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListWorkspaceMCPRequestActivityForRange", ctx, arg)
+	ret0, _ := ret[0].([]database.WorkspaceMcpRequestActivity)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListWorkspaceMCPRequestActivityForRange indicates an expected call of ListWorkspaceMCPRequestActivityForRange.
+func (mr *MockStoreMockRecorder) ListWorkspaceMCPRequestActivityForRange(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWorkspaceMCPRequestActivityForRange", reflect.TypeOf((*MockStore)(nil).ListWorkspaceMCPRequestActivityForRange), ctx, arg)
+}
+
 // LockChatAndBumpSnapshotVersion mocks base method.
 func (m *MockStore) LockChatAndBumpSnapshotVersion(ctx context.Context, id uuid.UUID) (database.Chat, error) {
 	m.ctrl.T.Helper()
@@ -9526,6 +9615,21 @@ func (m *MockStore) PruneWorkspaceCommandActivity(ctx context.Context, arg datab
 func (mr *MockStoreMockRecorder) PruneWorkspaceCommandActivity(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PruneWorkspaceCommandActivity", reflect.TypeOf((*MockStore)(nil).PruneWorkspaceCommandActivity), ctx, arg)
+}
+
+// PruneWorkspaceMCPRequestActivity mocks base method.
+func (m *MockStore) PruneWorkspaceMCPRequestActivity(ctx context.Context, arg database.PruneWorkspaceMCPRequestActivityParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PruneWorkspaceMCPRequestActivity", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PruneWorkspaceMCPRequestActivity indicates an expected call of PruneWorkspaceMCPRequestActivity.
+func (mr *MockStoreMockRecorder) PruneWorkspaceMCPRequestActivity(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PruneWorkspaceMCPRequestActivity", reflect.TypeOf((*MockStore)(nil).PruneWorkspaceMCPRequestActivity), ctx, arg)
 }
 
 // RecordWorkspaceConnectionActivityFinished mocks base method.

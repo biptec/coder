@@ -2,6 +2,7 @@ import type {
 	WorkspaceCommandActivity,
 	WorkspaceCommandActivityRequest,
 	WorkspaceCommandActivityResponse,
+	WorkspaceMCPRequestActivity,
 } from "#/api/typesGenerated";
 
 /**
@@ -31,6 +32,11 @@ export const updateCommandActivityCache = (
 
 	if (existingIndex >= 0) {
 		if (!matches || !fastPath) return undefined;
+		const previous = dataWithTool.activity[existingIndex];
+		// A running→finished transition can move a pinned row off page one and
+		// requires pulling the next completed row from the server. Resync instead
+		// of pretending the current page has enough information to place it.
+		if (previous.status !== command.status) return undefined;
 		const activity = [...dataWithTool.activity];
 		activity[existingIndex] = command;
 		return { ...dataWithTool, activity };
@@ -51,6 +57,45 @@ export const updateCommandActivityCache = (
 		deletable_count: deletableCount,
 		total_pages: Math.ceil(totalCount / pageSize),
 	};
+};
+
+export const updateMCPRequestActivityCache = (
+	data: WorkspaceCommandActivityResponse,
+	requestActivity: WorkspaceMCPRequestActivity,
+	request: WorkspaceCommandActivityRequest,
+): WorkspaceCommandActivityResponse => {
+	if (!request.include_idle) return data;
+
+	const requests = [...(data.mcp_requests ?? [])];
+	const existingIndex = requests.findIndex(
+		(item) => item.id === requestActivity.id,
+	);
+	if (existingIndex >= 0) requests[existingIndex] = requestActivity;
+	else requests.push(requestActivity);
+	requests.sort(
+		(a, b) =>
+			new Date(a.started_at).getTime() - new Date(b.started_at).getTime() ||
+			a.id.localeCompare(b.id),
+	);
+
+	// Long-lived browser tabs receive a delta for every MCP request. Keep all
+	// active spans plus a bounded recent completed window so live Idle remains
+	// exact without allowing the query cache to grow forever.
+	const active = requests.filter((item) => !item.finished_at);
+	const completed = requests.filter((item) => item.finished_at);
+	const completedLimit = Math.max(
+		64,
+		(request.page_size ?? data.page_size) * 4,
+	);
+	const bounded = [
+		...completed.slice(Math.max(0, completed.length - completedLimit)),
+		...active,
+	].sort(
+		(a, b) =>
+			new Date(a.started_at).getTime() - new Date(b.started_at).getTime() ||
+			a.id.localeCompare(b.id),
+	);
+	return { ...data, mcp_requests: bounded };
 };
 
 const withAvailableTool = (

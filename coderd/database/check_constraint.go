@@ -62,6 +62,7 @@ const (
 	CheckWorkspaceCommandActivityKindCheck             CheckConstraint = "workspace_command_activity_kind_check"                // workspace_command_activity
 	CheckWorkspaceCommandActivitySourceCheck           CheckConstraint = "workspace_command_activity_source_check"              // workspace_command_activity
 	CheckWorkspaceCommandActivityStatusCheck           CheckConstraint = "workspace_command_activity_status_check"              // workspace_command_activity
+	CheckWorkspaceMcpRequestActivityStatusCheck        CheckConstraint = "workspace_mcp_request_activity_status_check"          // workspace_mcp_request_activity
 	CheckWorkspaceVolumeCopyOperationsCheck            CheckConstraint = "workspace_volume_copy_operations_check"               // workspace_volume_copy_operations
 	CheckWorkspaceVolumeCopyOperationsStatusCheck      CheckConstraint = "workspace_volume_copy_operations_status_check"        // workspace_volume_copy_operations
 )

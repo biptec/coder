@@ -6524,6 +6524,18 @@ type WorkspaceLatestBuild struct {
 	JobStatus               ProvisionerJobStatus `db:"job_status" json:"job_status"`
 }
 
+type WorkspaceMcpRequestActivity struct {
+	ID              uuid.UUID    `db:"id" json:"id"`
+	WorkspaceID     uuid.UUID    `db:"workspace_id" json:"workspace_id"`
+	ReplicaID       uuid.UUID    `db:"replica_id" json:"replica_id"`
+	Tool            string       `db:"tool" json:"tool"`
+	Input           string       `db:"input" json:"input"`
+	CorrelationHash string       `db:"correlation_hash" json:"correlation_hash"`
+	Status          string       `db:"status" json:"status"`
+	StartedAt       time.Time    `db:"started_at" json:"started_at"`
+	FinishedAt      sql.NullTime `db:"finished_at" json:"finished_at"`
+}
+
 type WorkspaceModule struct {
 	ID         uuid.UUID           `db:"id" json:"id"`
 	JobID      uuid.UUID           `db:"job_id" json:"job_id"`

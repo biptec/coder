@@ -155,6 +155,9 @@ WHERE workspace_id = sqlc.arg(workspace_id)
     OR exit_code = sqlc.narg(exit_code)::integer
   )
 ORDER BY
+  -- Running work is a live state, not merely another sortable value. Keep it
+  -- pinned above completed history regardless of the user's secondary sort.
+  CASE WHEN status = 'running' THEN 0 ELSE 1 END ASC,
   CASE WHEN sqlc.arg(sort_by)::text = 'id' AND sqlc.arg(sort_direction)::text = 'asc' THEN id END ASC,
   CASE WHEN sqlc.arg(sort_by)::text = 'id' AND sqlc.arg(sort_direction)::text = 'desc' THEN id END DESC,
   CASE WHEN sqlc.arg(sort_by)::text = 'status' AND sqlc.arg(sort_direction)::text = 'asc' THEN status END ASC,

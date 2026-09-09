@@ -290,6 +290,7 @@ type sqlcQuerier interface {
 	// and returns the preset with the most parameters (largest subset).
 	FindMatchingPresetID(ctx context.Context, arg FindMatchingPresetIDParams) (uuid.UUID, error)
 	FinishWorkspaceCommandActivity(ctx context.Context, arg FinishWorkspaceCommandActivityParams) (int64, error)
+	FinishWorkspaceMCPRequestActivity(ctx context.Context, arg FinishWorkspaceMCPRequestActivityParams) (int64, error)
 	FinishWorkspaceToolActivity(ctx context.Context, arg FinishWorkspaceToolActivityParams) (int64, error)
 	GetAIBridgeInterceptionByID(ctx context.Context, id uuid.UUID) (AIBridgeInterception, error)
 	// Look up the parent interception and the root of the thread by finding
@@ -958,6 +959,7 @@ type sqlcQuerier interface {
 	GetWorkspaceByWorkspaceAppID(ctx context.Context, workspaceAppID uuid.UUID) (Workspace, error)
 	GetWorkspaceCommandActivityByID(ctx context.Context, arg GetWorkspaceCommandActivityByIDParams) (WorkspaceCommandActivity, error)
 	GetWorkspaceConnectionActivityByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) ([]GetWorkspaceConnectionActivityByWorkspaceIDRow, error)
+	GetWorkspaceMCPRequestActivityByID(ctx context.Context, arg GetWorkspaceMCPRequestActivityByIDParams) (WorkspaceMcpRequestActivity, error)
 	GetWorkspaceModulesByJobID(ctx context.Context, jobID uuid.UUID) ([]WorkspaceModule, error)
 	GetWorkspaceModulesCreatedAfter(ctx context.Context, createdAt time.Time) ([]WorkspaceModule, error)
 	GetWorkspaceProxies(ctx context.Context) ([]WorkspaceProxy, error)
@@ -1131,6 +1133,7 @@ type sqlcQuerier interface {
 	InsertWorkspaceBuild(ctx context.Context, arg InsertWorkspaceBuildParams) error
 	InsertWorkspaceBuildParameters(ctx context.Context, arg InsertWorkspaceBuildParametersParams) error
 	InsertWorkspaceCommandActivity(ctx context.Context, arg InsertWorkspaceCommandActivityParams) error
+	InsertWorkspaceMCPRequestActivity(ctx context.Context, arg InsertWorkspaceMCPRequestActivityParams) error
 	InsertWorkspaceModule(ctx context.Context, arg InsertWorkspaceModuleParams) (WorkspaceModule, error)
 	InsertWorkspaceProxy(ctx context.Context, arg InsertWorkspaceProxyParams) (WorkspaceProxy, error)
 	InsertWorkspaceResource(ctx context.Context, arg InsertWorkspaceResourceParams) (WorkspaceResource, error)
@@ -1200,6 +1203,9 @@ type sqlcQuerier interface {
 	ListWorkspaceAgentPortShares(ctx context.Context, workspaceID uuid.UUID) ([]WorkspaceAgentPortShare, error)
 	ListWorkspaceCommandActivity(ctx context.Context, arg ListWorkspaceCommandActivityParams) ([]WorkspaceCommandActivity, error)
 	ListWorkspaceCommandActivityTools(ctx context.Context, workspaceID uuid.UUID) ([]string, error)
+	ListWorkspaceMCPRequestActivityCandidates(ctx context.Context, arg ListWorkspaceMCPRequestActivityCandidatesParams) ([]WorkspaceMcpRequestActivity, error)
+	ListWorkspaceMCPRequestActivityCurrent(ctx context.Context, workspaceID uuid.UUID) ([]WorkspaceMcpRequestActivity, error)
+	ListWorkspaceMCPRequestActivityForRange(ctx context.Context, arg ListWorkspaceMCPRequestActivityForRangeParams) ([]WorkspaceMcpRequestActivity, error)
 	// Locks the chat row with FOR UPDATE and atomically increments its
 	// snapshot_version, returning the post-bump chat. This is the single
 	// entry point ChatMachine.Update uses to acquire the row lock and
@@ -1233,6 +1239,7 @@ type sqlcQuerier interface {
 	PinChatByID(ctx context.Context, id uuid.UUID) error
 	PopNextQueuedMessage(ctx context.Context, chatID uuid.UUID) (ChatQueuedMessage, error)
 	PruneWorkspaceCommandActivity(ctx context.Context, arg PruneWorkspaceCommandActivityParams) (int64, error)
+	PruneWorkspaceMCPRequestActivity(ctx context.Context, arg PruneWorkspaceMCPRequestActivityParams) (int64, error)
 	RecordWorkspaceConnectionActivityFinished(ctx context.Context, arg RecordWorkspaceConnectionActivityFinishedParams) error
 	RecordWorkspaceConnectionActivityStarted(ctx context.Context, arg RecordWorkspaceConnectionActivityStartedParams) error
 	RecordWorkspaceConnectionFinished(ctx context.Context, arg RecordWorkspaceConnectionFinishedParams) error

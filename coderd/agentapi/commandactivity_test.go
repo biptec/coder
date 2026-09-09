@@ -15,6 +15,7 @@ import (
 	"github.com/coder/coder/v2/coderd/agentapi"
 	"github.com/coder/coder/v2/coderd/database"
 	"github.com/coder/coder/v2/coderd/database/dbmock"
+	"github.com/coder/coder/v2/codersdk/toolsdk"
 	"github.com/coder/coder/v2/testutil"
 )
 
@@ -104,6 +105,18 @@ func TestCommandActivity(t *testing.T) {
 			Log:         testutil.Logger(t),
 		}
 
+		mDB.EXPECT().ListWorkspaceMCPRequestActivityCandidates(gomock.Any(), database.ListWorkspaceMCPRequestActivityCandidatesParams{
+			WorkspaceID: workspaceID,
+			Tools: []string{
+				"exec", "bash", "process_start",
+				toolsdk.ToolNameWorkspaceExec,
+				toolsdk.ToolNameWorkspaceBash,
+				toolsdk.ToolNameWorkspaceProcessStart,
+				toolsdk.ToolNameWorkspaceProcessStartV2,
+			},
+			CorrelationHash: toolsdk.CommandActivityCorrelation("legacy command", []string{}),
+			ActivityTime:    activityTime,
+		}).Return(nil, nil)
 		mDB.EXPECT().InsertWorkspaceCommandActivity(gomock.Any(), database.InsertWorkspaceCommandActivityParams{
 			ID:          legacyActivityID,
 			WorkspaceID: workspaceID,
@@ -123,6 +136,67 @@ func TestCommandActivity(t *testing.T) {
 				Action:    agentproto.CommandActivity_STARTED,
 				Source:    agentproto.CommandActivity_AGENTPROC,
 				Command:   "legacy command",
+				WorkDir:   "/workspace",
+				Timestamp: timestamppb.New(activityTime),
+			},
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("LegacyAgentProcCorrelatesMCPBash", func(t *testing.T) {
+		t.Parallel()
+
+		legacyActivityID := uuid.New()
+		mDB := dbmock.NewMockStore(gomock.NewController(t))
+		api := &agentapi.CommandActivityAPI{
+			AgentID:     agentID,
+			WorkspaceID: workspaceID,
+			Database:    mDB,
+			Log:         testutil.Logger(t),
+		}
+
+		mDB.EXPECT().ListWorkspaceMCPRequestActivityCandidates(gomock.Any(), database.ListWorkspaceMCPRequestActivityCandidatesParams{
+			WorkspaceID: workspaceID,
+			Tools: []string{
+				"exec", "bash", "process_start",
+				toolsdk.ToolNameWorkspaceExec,
+				toolsdk.ToolNameWorkspaceBash,
+				toolsdk.ToolNameWorkspaceProcessStart,
+				toolsdk.ToolNameWorkspaceProcessStartV2,
+			},
+			CorrelationHash: toolsdk.CommandActivityCorrelation("echo from old agent", []string{}),
+			ActivityTime:    activityTime,
+		}).Return([]database.WorkspaceMcpRequestActivity{
+			{
+				ID:          uuid.New(),
+				WorkspaceID: workspaceID,
+				ReplicaID:   uuid.New(),
+				Tool:        "bash",
+				Input:       `{"workspace":"developer/network-core-route","command":"echo from old agent"}`,
+				Status:      "running",
+				StartedAt:   activityTime.Add(-100 * time.Millisecond),
+			},
+		}, nil)
+		mDB.EXPECT().InsertWorkspaceCommandActivity(gomock.Any(), database.InsertWorkspaceCommandActivityParams{
+			ID:          legacyActivityID,
+			WorkspaceID: workspaceID,
+			AgentID:     agentID,
+			SessionID:   sessionID,
+			Source:      "mcp",
+			Tool:        "bash",
+			Command:     "echo from old agent",
+			Argv:        []string{},
+			WorkDir:     "/workspace",
+			StartedAt:   activityTime,
+		}).Return(nil)
+
+		_, err := api.ReportCommandActivity(context.Background(), &agentproto.ReportCommandActivityRequest{
+			Activity: &agentproto.CommandActivity{
+				Id:        legacyActivityID[:],
+				SessionId: sessionID[:],
+				Action:    agentproto.CommandActivity_STARTED,
+				Source:    agentproto.CommandActivity_AGENTPROC,
+				Command:   "echo from old agent",
 				WorkDir:   "/workspace",
 				Timestamp: timestamppb.New(activityTime),
 			},

@@ -27,6 +27,7 @@ type workspaceMCPToolActivityRecorder struct {
 	publisher    databasepubsub.Publisher
 	logger       slog.Logger
 	client       *codersdk.Client
+	replicaID    uuid.UUID
 	historyLimit int32
 }
 
@@ -35,6 +36,7 @@ func newWorkspaceMCPToolActivityRecorder(
 	publisher databasepubsub.Publisher,
 	logger slog.Logger,
 	client *codersdk.Client,
+	replicaID uuid.UUID,
 	historyLimit int64,
 ) *workspaceMCPToolActivityRecorder {
 	boundedHistoryLimit := historyLimit
@@ -49,6 +51,7 @@ func newWorkspaceMCPToolActivityRecorder(
 		publisher:    publisher,
 		logger:       logger.Named("workspace-mcp-tool-activity"),
 		client:       client,
+		replicaID:    replicaID,
 		historyLimit: int32(boundedHistoryLimit), // #nosec G115 -- clamped to MaxInt32 above.
 	}
 }
@@ -59,7 +62,9 @@ func (r *workspaceMCPToolActivityRecorder) StartToolActivity(
 	toolName string,
 	workspaceInput string,
 	input string,
+	correlationHash string,
 	startedAt time.Time,
+	persistTool bool,
 ) (mcp.PersistentActivityHandle, error) {
 	if r == nil || r.client == nil || strings.TrimSpace(workspaceInput) == "" {
 		return mcp.PersistentActivityHandle{}, nil
@@ -72,18 +77,40 @@ func (r *workspaceMCPToolActivityRecorder) StartToolActivity(
 
 	activityID := uuid.New()
 	activityCtx := dbauthz.AsSystemRestricted(context.WithoutCancel(ctx))
-	if err := r.db.InsertWorkspaceToolActivity(activityCtx, database.InsertWorkspaceToolActivityParams{
-		ID:          activityID,
-		WorkspaceID: workspace.ID,
-		Tool:        toolName,
-		Command:     input,
-		StartedAt:   startedAt,
-	}); err != nil {
-		return mcp.PersistentActivityHandle{}, xerrors.Errorf("insert workspace MCP tool activity: %w", err)
+	if err := r.db.InTx(func(tx database.Store) error {
+		if err := tx.InsertWorkspaceMCPRequestActivity(activityCtx, database.InsertWorkspaceMCPRequestActivityParams{
+			ID:              activityID,
+			WorkspaceID:     workspace.ID,
+			ReplicaID:       r.replicaID,
+			Tool:            toolName,
+			Input:           input,
+			CorrelationHash: correlationHash,
+			StartedAt:       startedAt,
+		}); err != nil {
+			return xerrors.Errorf("insert workspace MCP request activity: %w", err)
+		}
+		if !persistTool {
+			return nil
+		}
+		if err := tx.InsertWorkspaceToolActivity(activityCtx, database.InsertWorkspaceToolActivityParams{
+			ID:          activityID,
+			WorkspaceID: workspace.ID,
+			Tool:        toolName,
+			Command:     input,
+			StartedAt:   startedAt,
+		}); err != nil {
+			return xerrors.Errorf("insert workspace MCP tool activity: %w", err)
+		}
+		return nil
+	}, nil); err != nil {
+		return mcp.PersistentActivityHandle{}, err
 	}
 
-	r.publishChanged(ctx, workspace.ID, activityID)
-	return mcp.PersistentActivityHandle{ID: activityID, WorkspaceID: workspace.ID}, nil
+	r.publishRequestChanged(ctx, workspace.ID, activityID)
+	if persistTool {
+		r.publishChanged(ctx, workspace.ID, activityID)
+	}
+	return mcp.PersistentActivityHandle{ID: activityID, WorkspaceID: workspace.ID, PersistTool: persistTool}, nil
 }
 
 func (r *workspaceMCPToolActivityRecorder) FinishToolActivity(
@@ -97,31 +124,64 @@ func (r *workspaceMCPToolActivityRecorder) FinishToolActivity(
 	}
 
 	activityCtx := dbauthz.AsSystemRestricted(context.WithoutCancel(ctx))
-	updated, err := r.db.FinishWorkspaceToolActivity(activityCtx, database.FinishWorkspaceToolActivityParams{
-		Status:      string(status),
-		FinishedAt:  sql.NullTime{Time: finishedAt, Valid: true},
-		ID:          handle.ID,
-		WorkspaceID: handle.WorkspaceID,
-	})
-	if err != nil {
-		return xerrors.Errorf("finish workspace MCP tool activity: %w", err)
-	}
-	if updated == 0 {
-		return xerrors.Errorf("finish workspace MCP tool activity: row %s is no longer running", handle.ID)
-	}
+	var commandPruned bool
+	if err := r.db.InTx(func(tx database.Store) error {
+		updated, err := tx.FinishWorkspaceMCPRequestActivity(activityCtx, database.FinishWorkspaceMCPRequestActivityParams{
+			Status:      string(status),
+			FinishedAt:  sql.NullTime{Time: finishedAt, Valid: true},
+			ID:          handle.ID,
+			WorkspaceID: handle.WorkspaceID,
+		})
+		if err != nil {
+			return xerrors.Errorf("finish workspace MCP request activity: %w", err)
+		}
+		if updated == 0 {
+			return xerrors.Errorf("finish workspace MCP request activity: row %s is no longer running", handle.ID)
+		}
 
-	r.publishChanged(ctx, handle.WorkspaceID, handle.ID)
-	if r.historyLimit > 0 {
-		pruned, err := r.db.PruneWorkspaceCommandActivity(activityCtx, database.PruneWorkspaceCommandActivityParams{
+		if handle.PersistTool {
+			updated, err := tx.FinishWorkspaceToolActivity(activityCtx, database.FinishWorkspaceToolActivityParams{
+				Status:      string(status),
+				FinishedAt:  sql.NullTime{Time: finishedAt, Valid: true},
+				ID:          handle.ID,
+				WorkspaceID: handle.WorkspaceID,
+			})
+			if err != nil {
+				return xerrors.Errorf("finish workspace MCP tool activity: %w", err)
+			}
+			if updated == 0 {
+				return xerrors.Errorf("finish workspace MCP tool activity: row %s is no longer running", handle.ID)
+			}
+		}
+
+		if r.historyLimit <= 0 {
+			return nil
+		}
+		pruned, err := tx.PruneWorkspaceCommandActivity(activityCtx, database.PruneWorkspaceCommandActivityParams{
 			WorkspaceID:  handle.WorkspaceID,
 			HistoryLimit: r.historyLimit,
 		})
 		if err != nil {
 			return xerrors.Errorf("prune workspace activity: %w", err)
 		}
-		if pruned > 0 {
-			r.publishResync(ctx, handle.WorkspaceID)
+		commandPruned = pruned > 0
+		if _, err := tx.PruneWorkspaceMCPRequestActivity(activityCtx, database.PruneWorkspaceMCPRequestActivityParams{
+			WorkspaceID:  handle.WorkspaceID,
+			HistoryLimit: r.historyLimit,
+		}); err != nil {
+			return xerrors.Errorf("prune workspace MCP request activity: %w", err)
 		}
+		return nil
+	}, nil); err != nil {
+		return err
+	}
+
+	r.publishRequestChanged(ctx, handle.WorkspaceID, handle.ID)
+	if handle.PersistTool {
+		r.publishChanged(ctx, handle.WorkspaceID, handle.ID)
+	}
+	if commandPruned {
+		r.publishResync(ctx, handle.WorkspaceID)
 	}
 	return nil
 }
@@ -168,6 +228,15 @@ func (r *workspaceMCPToolActivityRecorder) resolveWorkspace(ctx context.Context,
 func workspaceActivitySDKNotFound(err error) bool {
 	var sdkErr *codersdk.Error
 	return errors.As(err, &sdkErr) && sdkErr.StatusCode() == http.StatusNotFound
+}
+
+func (r *workspaceMCPToolActivityRecorder) publishRequestChanged(ctx context.Context, workspaceID, requestID uuid.UUID) {
+	if err := coderdpubsub.PublishWorkspaceActivityEvent(r.publisher, workspaceID, coderdpubsub.WorkspaceActivityEvent{
+		Type:      coderdpubsub.WorkspaceActivityEventMCPRequestChanged,
+		RequestID: requestID,
+	}); err != nil {
+		r.logger.Debug(ctx, "publish MCP request activity change", slog.Error(err), slog.F("workspace_id", workspaceID), slog.F("request_id", requestID))
+	}
 }
 
 func (r *workspaceMCPToolActivityRecorder) publishChanged(ctx context.Context, workspaceID, activityID uuid.UUID) {

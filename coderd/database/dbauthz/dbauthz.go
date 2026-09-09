@@ -2797,6 +2797,13 @@ func (q *querier) FinishWorkspaceCommandActivity(ctx context.Context, arg databa
 	return q.db.FinishWorkspaceCommandActivity(ctx, arg)
 }
 
+func (q *querier) FinishWorkspaceMCPRequestActivity(ctx context.Context, arg database.FinishWorkspaceMCPRequestActivityParams) (int64, error) {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionUpdate); err != nil {
+		return 0, err
+	}
+	return q.db.FinishWorkspaceMCPRequestActivity(ctx, arg)
+}
+
 func (q *querier) FinishWorkspaceToolActivity(ctx context.Context, arg database.FinishWorkspaceToolActivityParams) (int64, error) {
 	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionUpdate); err != nil {
 		return 0, err
@@ -5663,6 +5670,13 @@ func (q *querier) GetWorkspaceConnectionActivityByWorkspaceID(ctx context.Contex
 	return q.db.GetWorkspaceConnectionActivityByWorkspaceID(ctx, workspaceID)
 }
 
+func (q *querier) GetWorkspaceMCPRequestActivityByID(ctx context.Context, arg database.GetWorkspaceMCPRequestActivityByIDParams) (database.WorkspaceMcpRequestActivity, error) {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionRead); err != nil {
+		return database.WorkspaceMcpRequestActivity{}, err
+	}
+	return q.db.GetWorkspaceMCPRequestActivityByID(ctx, arg)
+}
+
 func (q *querier) GetWorkspaceModulesByJobID(ctx context.Context, jobID uuid.UUID) ([]database.WorkspaceModule, error) {
 	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceSystem); err != nil {
 		return nil, err
@@ -6635,6 +6649,13 @@ func (q *querier) InsertWorkspaceCommandActivity(ctx context.Context, arg databa
 	return q.db.InsertWorkspaceCommandActivity(ctx, arg)
 }
 
+func (q *querier) InsertWorkspaceMCPRequestActivity(ctx context.Context, arg database.InsertWorkspaceMCPRequestActivityParams) error {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionUpdate); err != nil {
+		return err
+	}
+	return q.db.InsertWorkspaceMCPRequestActivity(ctx, arg)
+}
+
 func (q *querier) InsertWorkspaceModule(ctx context.Context, arg database.InsertWorkspaceModuleParams) (database.WorkspaceModule, error) {
 	if err := q.authorizeContext(ctx, policy.ActionCreate, rbac.ResourceSystem); err != nil {
 		return database.WorkspaceModule{}, err
@@ -6912,6 +6933,27 @@ func (q *querier) ListWorkspaceCommandActivityTools(ctx context.Context, workspa
 	return q.db.ListWorkspaceCommandActivityTools(ctx, workspaceID)
 }
 
+func (q *querier) ListWorkspaceMCPRequestActivityCandidates(ctx context.Context, arg database.ListWorkspaceMCPRequestActivityCandidatesParams) ([]database.WorkspaceMcpRequestActivity, error) {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionRead); err != nil {
+		return nil, err
+	}
+	return q.db.ListWorkspaceMCPRequestActivityCandidates(ctx, arg)
+}
+
+func (q *querier) ListWorkspaceMCPRequestActivityCurrent(ctx context.Context, workspaceID uuid.UUID) ([]database.WorkspaceMcpRequestActivity, error) {
+	if err := q.authorizeWorkspaceActivity(ctx, workspaceID, policy.ActionRead); err != nil {
+		return nil, err
+	}
+	return q.db.ListWorkspaceMCPRequestActivityCurrent(ctx, workspaceID)
+}
+
+func (q *querier) ListWorkspaceMCPRequestActivityForRange(ctx context.Context, arg database.ListWorkspaceMCPRequestActivityForRangeParams) ([]database.WorkspaceMcpRequestActivity, error) {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionRead); err != nil {
+		return nil, err
+	}
+	return q.db.ListWorkspaceMCPRequestActivityForRange(ctx, arg)
+}
+
 func (q *querier) LockChatAndBumpSnapshotVersion(ctx context.Context, id uuid.UUID) (database.Chat, error) {
 	chat, err := q.db.GetChatByID(ctx, id)
 	if err != nil {
@@ -7026,6 +7068,13 @@ func (q *querier) PruneWorkspaceCommandActivity(ctx context.Context, arg databas
 		return 0, err
 	}
 	return q.db.PruneWorkspaceCommandActivity(ctx, arg)
+}
+
+func (q *querier) PruneWorkspaceMCPRequestActivity(ctx context.Context, arg database.PruneWorkspaceMCPRequestActivityParams) (int64, error) {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionUpdate); err != nil {
+		return 0, err
+	}
+	return q.db.PruneWorkspaceMCPRequestActivity(ctx, arg)
 }
 
 func (q *querier) RecordWorkspaceConnectionActivityFinished(ctx context.Context, arg database.RecordWorkspaceConnectionActivityFinishedParams) error {

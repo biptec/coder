@@ -1,0 +1,1 @@
+DROP TABLE workspace_mcp_request_activity;

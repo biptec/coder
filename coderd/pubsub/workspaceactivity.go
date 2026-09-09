@@ -17,11 +17,13 @@ const (
 	WorkspaceActivityEventCommandChanged    WorkspaceActivityEventType = "command_changed"
 	WorkspaceActivityEventCommandResync     WorkspaceActivityEventType = "command_resync"
 	WorkspaceActivityEventConnectionChanged WorkspaceActivityEventType = "connection_changed"
+	WorkspaceActivityEventMCPRequestChanged WorkspaceActivityEventType = "mcp_request_changed"
 )
 
 type WorkspaceActivityEvent struct {
 	Type      WorkspaceActivityEventType `json:"type"`
 	CommandID uuid.UUID                  `json:"command_id,omitempty"`
+	RequestID uuid.UUID                  `json:"request_id,omitempty"`
 }
 
 func WorkspaceActivityEventChannel(workspaceID uuid.UUID) string {

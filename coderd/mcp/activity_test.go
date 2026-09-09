@@ -73,15 +73,19 @@ func TestActivityTrackingPropagatesInvocationTool(t *testing.T) {
 }
 
 type fakePersistentActivityRecorder struct {
-	starts   []string
-	inputs   []string
-	finishes []PersistentActivityStatus
+	starts       []string
+	inputs       []string
+	correlations []string
+	persistTools []bool
+	finishes     []PersistentActivityStatus
 }
 
-func (f *fakePersistentActivityRecorder) StartToolActivity(_ context.Context, _ string, toolName, workspace, input string, _ time.Time) (PersistentActivityHandle, error) {
+func (f *fakePersistentActivityRecorder) StartToolActivity(_ context.Context, _ string, toolName, workspace, input, correlationHash string, _ time.Time, persistTool bool) (PersistentActivityHandle, error) {
 	f.starts = append(f.starts, toolName+"@"+workspace)
 	f.inputs = append(f.inputs, input)
-	return PersistentActivityHandle{ID: uuid.New(), WorkspaceID: uuid.New()}, nil
+	f.correlations = append(f.correlations, correlationHash)
+	f.persistTools = append(f.persistTools, persistTool)
+	return PersistentActivityHandle{ID: uuid.New(), WorkspaceID: uuid.New(), PersistTool: persistTool}, nil
 }
 
 func (f *fakePersistentActivityRecorder) FinishToolActivity(_ context.Context, _ PersistentActivityHandle, status PersistentActivityStatus, _ time.Time) error {
@@ -114,12 +118,19 @@ func TestActivityTrackingPersistsWorkspaceToolCallsWithoutDuplicatingCommands(t 
 	require.Contains(t, recorder.inputs[0], `"stdin":"<redacted 18 bytes>"`)
 	require.NotContains(t, recorder.inputs[0], "never persist this")
 	require.Equal(t, []PersistentActivityStatus{PersistentActivityStatusSucceeded}, recorder.finishes)
+	require.Equal(t, []string{""}, recorder.correlations)
 
+	execRequest := mcpgo.CallToolRequest{Params: mcpgo.CallToolParams{Arguments: map[string]any{
+		"workspace": "owner/workspace",
+		"argv":      []any{"echo", "hello"},
+	}}}
 	execTool := s.withActivityTracking(server.ServerTool{Handler: okHandler}, "exec")
-	_, err = execTool.Handler(context.Background(), request)
+	_, err = execTool.Handler(context.Background(), execRequest)
 	require.NoError(t, err)
-	require.Len(t, recorder.starts, 1, "exec already has a command activity row and must not be duplicated")
-	require.Len(t, recorder.finishes, 1)
+	require.Equal(t, []string{"process_output@owner/workspace", "exec@owner/workspace"}, recorder.starts)
+	require.Equal(t, []bool{true, false}, recorder.persistTools, "command tools need an MCP request span but no duplicate user-facing tool row")
+	require.Equal(t, []string{"", toolsdk.CommandActivityCorrelation("", []string{"echo", "hello"})}, recorder.correlations)
+	require.Len(t, recorder.finishes, 2)
 }
 
 func TestPersistAsToolActivity(t *testing.T) {

@@ -3946,6 +3946,19 @@ CREATE VIEW workspace_latest_builds AS
   WHERE (workspaces.deleted = false)
   ORDER BY workspaces.id;
 
+CREATE TABLE workspace_mcp_request_activity (
+    id uuid NOT NULL,
+    workspace_id uuid NOT NULL,
+    replica_id uuid NOT NULL,
+    tool text NOT NULL,
+    input text DEFAULT ''::text NOT NULL,
+    correlation_hash text DEFAULT ''::text NOT NULL,
+    status text NOT NULL,
+    started_at timestamp with time zone NOT NULL,
+    finished_at timestamp with time zone,
+    CONSTRAINT workspace_mcp_request_activity_status_check CHECK ((status = ANY (ARRAY['running'::text, 'succeeded'::text, 'failed'::text, 'interrupted'::text])))
+);
+
 CREATE TABLE workspace_modules (
     id uuid NOT NULL,
     job_id uuid NOT NULL,
@@ -4559,6 +4572,9 @@ ALTER TABLE ONLY workspace_command_activity
 ALTER TABLE ONLY workspace_connection_activity
     ADD CONSTRAINT workspace_connection_activity_pkey PRIMARY KEY (workspace_id, agent_id, type);
 
+ALTER TABLE ONLY workspace_mcp_request_activity
+    ADD CONSTRAINT workspace_mcp_request_activity_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY workspace_proxies
     ADD CONSTRAINT workspace_proxies_pkey PRIMARY KEY (id);
 
@@ -4890,6 +4906,14 @@ CREATE INDEX workspace_command_activity_workspace_started_idx ON workspace_comma
 CREATE INDEX workspace_command_activity_workspace_status_started_idx ON workspace_command_activity USING btree (workspace_id, status, started_at DESC, id DESC);
 
 CREATE INDEX workspace_command_activity_workspace_tool_started_idx ON workspace_command_activity USING btree (workspace_id, tool, started_at DESC, id DESC);
+
+CREATE INDEX workspace_mcp_request_activity_workspace_correlation_started_id ON workspace_mcp_request_activity USING btree (workspace_id, correlation_hash, started_at DESC) WHERE (correlation_hash <> ''::text);
+
+CREATE INDEX workspace_mcp_request_activity_workspace_running_idx ON workspace_mcp_request_activity USING btree (workspace_id, started_at DESC) WHERE (finished_at IS NULL);
+
+CREATE INDEX workspace_mcp_request_activity_workspace_started_idx ON workspace_mcp_request_activity USING btree (workspace_id, started_at DESC, id DESC);
+
+CREATE INDEX workspace_mcp_request_activity_workspace_tool_started_idx ON workspace_mcp_request_activity USING btree (workspace_id, tool, started_at DESC);
 
 CREATE INDEX workspace_modules_created_at_idx ON workspace_modules USING btree (created_at);
 
@@ -5475,6 +5499,9 @@ ALTER TABLE ONLY workspace_connection_activity
 
 ALTER TABLE ONLY workspace_connection_activity
     ADD CONSTRAINT workspace_connection_activity_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_mcp_request_activity
+    ADD CONSTRAINT workspace_mcp_request_activity_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY workspace_modules
     ADD CONSTRAINT workspace_modules_job_id_fkey FOREIGN KEY (job_id) REFERENCES provisioner_jobs(id) ON DELETE CASCADE;

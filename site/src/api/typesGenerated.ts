@@ -10090,15 +10090,17 @@ export interface WorkspaceActiveVolumeCopyOperation {
 export interface WorkspaceActivityWatchEvent {
 	readonly type: WorkspaceActivityWatchEventType;
 	readonly command?: WorkspaceCommandActivity;
+	readonly mcp_request?: WorkspaceMCPRequestActivity;
 }
 
 // From codersdk/workspacecommandactivity.go
 export type WorkspaceActivityWatchEventType =
 	| "command_resync"
-	| "command_upsert";
+	| "command_upsert"
+	| "mcp_request_upsert";
 
 export const WorkspaceActivityWatchEventTypes: WorkspaceActivityWatchEventType[] =
-	["command_resync", "command_upsert"];
+	["command_resync", "command_upsert", "mcp_request_upsert"];
 
 // From codersdk/workspaceagents.go
 export interface WorkspaceAgent {
@@ -10805,6 +10807,7 @@ export interface WorkspaceCommandActivityRequest
 	readonly sort_direction?: WorkspaceCommandActivitySortDirection;
 	readonly page?: number;
 	readonly page_size?: number;
+	readonly include_idle?: boolean;
 }
 
 // From codersdk/workspacecommandactivity.go
@@ -10817,6 +10820,7 @@ export interface WorkspaceCommandActivityResponse {
 	readonly page_size: number;
 	readonly total_pages: number;
 	readonly history_limit: number;
+	readonly mcp_requests?: readonly WorkspaceMCPRequestActivity[];
 }
 
 // From codersdk/workspacecommandactivity.go
@@ -10934,6 +10938,19 @@ export interface WorkspaceGroup extends Group {
 export interface WorkspaceHealth {
 	readonly healthy: boolean; // Healthy is true if the workspace is healthy.
 	readonly failing_agents: readonly string[]; // FailingAgents lists the IDs of the agents that are failing, if any.
+}
+
+// From codersdk/workspacecommandactivity.go
+/**
+ * WorkspaceMCPRequestActivity is the minimal MCP request lifecycle exposed to
+ * Activity History when Idle rows are enabled. Tool input stays server-side;
+ * the browser only needs timing/status to derive busy and idle intervals.
+ */
+export interface WorkspaceMCPRequestActivity {
+	readonly id: string;
+	readonly status: WorkspaceCommandActivityStatus;
+	readonly started_at: string;
+	readonly finished_at?: string;
 }
 
 // From codersdk/workspaces.go
