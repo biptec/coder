@@ -15,6 +15,8 @@ import (
 	"github.com/coder/coder/v2/coderd/database"
 	"github.com/coder/coder/v2/coderd/database/db2sdk"
 	"github.com/coder/coder/v2/coderd/database/dbauthz"
+	databasepubsub "github.com/coder/coder/v2/coderd/database/pubsub"
+	coderdpubsub "github.com/coder/coder/v2/coderd/pubsub"
 )
 
 type ConnLogAPI struct {
@@ -23,6 +25,7 @@ type ConnLogAPI struct {
 	ConnectionLogger *atomic.Pointer[connectionlog.ConnectionLogger]
 	Workspace        *CachedWorkspaceFields
 	Database         database.Store
+	Pubsub           databasepubsub.Publisher
 	Log              slog.Logger
 }
 
@@ -96,6 +99,11 @@ func (a *ConnLogAPI) ReportConnection(ctx context.Context, req *agentproto.Repor
 	}
 	if err != nil {
 		return nil, xerrors.Errorf("record workspace connection activity: %w", err)
+	}
+	if err := coderdpubsub.PublishWorkspaceActivityEvent(a.Pubsub, ws.ID, coderdpubsub.WorkspaceActivityEvent{
+		Type: coderdpubsub.WorkspaceActivityEventConnectionChanged,
+	}); err != nil {
+		a.Log.Warn(ctx, "publish workspace connection activity", slog.Error(err), slog.F("workspace_id", ws.ID))
 	}
 
 	reason := req.GetConnection().GetReason()

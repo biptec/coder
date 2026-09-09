@@ -1,6 +1,7 @@
 package coderd
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"net/http"
@@ -12,10 +13,13 @@ import (
 
 	"github.com/google/uuid"
 
+	"cdr.dev/slog/v3"
 	"github.com/coder/coder/v2/coderd/database"
 	"github.com/coder/coder/v2/coderd/database/dbauthz"
 	"github.com/coder/coder/v2/coderd/httpapi"
 	"github.com/coder/coder/v2/coderd/httpmw"
+	"github.com/coder/coder/v2/coderd/mcp"
+	coderdpubsub "github.com/coder/coder/v2/coderd/pubsub"
 	"github.com/coder/coder/v2/codersdk"
 )
 
@@ -93,7 +97,7 @@ func (api *API) workspaceCommandActivity(rw http.ResponseWriter, r *http.Request
 		return
 	}
 
-	count, err := api.Database.CountWorkspaceCommandActivity(ctx, filter.countParams(workspace.ID))
+	deletableCount, err := api.Database.CountWorkspaceCommandActivity(ctx, filter.countParams(workspace.ID))
 	if dbauthz.IsNotAuthorizedError(err) {
 		httpapi.Forbidden(rw)
 		return
@@ -103,21 +107,66 @@ func (api *API) workspaceCommandActivity(rw http.ResponseWriter, r *http.Request
 		return
 	}
 
-	rows, err := api.Database.ListWorkspaceCommandActivity(ctx, database.ListWorkspaceCommandActivityParams{
-		WorkspaceID:   workspace.ID,
-		Statuses:      filter.statuses,
-		Tools:         filter.tools,
-		Sources:       filter.sources,
-		Search:        filter.search,
-		StartedAfter:  filter.startedAfter,
-		StartedBefore: filter.startedBefore,
-		DurationMinMs: filter.durationMinMS,
-		DurationMaxMs: filter.durationMaxMS,
-		SortBy:        string(sortBy),
-		SortDirection: string(sortDirection),
-		PageOffset:    int32(offset64), // #nosec G115 -- bounded above by MaxInt32.
-		PageLimit:     int32(pageSize), // #nosec G115 -- bounded above by 500.
-	})
+	totalCount := deletableCount
+	activity := make([]codersdk.WorkspaceCommandActivity, 0, pageSize)
+	if filter.includesIdle() {
+		totalCount, err = api.Database.CountWorkspaceCommandActivityTimeline(ctx, database.CountWorkspaceCommandActivityTimelineParams{
+			WorkspaceID:   workspace.ID,
+			Statuses:      filter.statuses,
+			Tools:         filter.tools,
+			Sources:       filter.sources,
+			Search:        filter.search,
+			StartedAfter:  filter.startedAfter,
+			StartedBefore: filter.startedBefore,
+			DurationMinMs: filter.durationMinMS,
+			DurationMaxMs: filter.durationMaxMS,
+		})
+		if err == nil {
+			var rows []database.ListWorkspaceCommandActivityTimelineRow
+			rows, err = api.Database.ListWorkspaceCommandActivityTimeline(ctx, database.ListWorkspaceCommandActivityTimelineParams{
+				WorkspaceID:   workspace.ID,
+				Statuses:      filter.statuses,
+				Tools:         filter.tools,
+				Sources:       filter.sources,
+				Search:        filter.search,
+				StartedAfter:  filter.startedAfter,
+				StartedBefore: filter.startedBefore,
+				DurationMinMs: filter.durationMinMS,
+				DurationMaxMs: filter.durationMaxMS,
+				SortBy:        string(sortBy),
+				SortDirection: string(sortDirection),
+				PageOffset:    int32(offset64), // #nosec G115 -- bounded above by MaxInt32.
+				PageLimit:     int32(pageSize), // #nosec G115 -- bounded above by 500.
+			})
+			if err == nil {
+				for _, row := range rows {
+					activity = append(activity, workspaceCommandActivityFromTimelineRow(row))
+				}
+			}
+		}
+	} else {
+		var rows []database.WorkspaceCommandActivity
+		rows, err = api.Database.ListWorkspaceCommandActivity(ctx, database.ListWorkspaceCommandActivityParams{
+			WorkspaceID:   workspace.ID,
+			Statuses:      filter.statuses,
+			Tools:         filter.tools,
+			Sources:       filter.sources,
+			Search:        filter.search,
+			StartedAfter:  filter.startedAfter,
+			StartedBefore: filter.startedBefore,
+			DurationMinMs: filter.durationMinMS,
+			DurationMaxMs: filter.durationMaxMS,
+			SortBy:        string(sortBy),
+			SortDirection: string(sortDirection),
+			PageOffset:    int32(offset64), // #nosec G115 -- bounded above by MaxInt32.
+			PageLimit:     int32(pageSize), // #nosec G115 -- bounded above by 500.
+		})
+		if err == nil {
+			for _, row := range rows {
+				activity = append(activity, workspaceCommandActivityFromDatabase(row))
+			}
+		}
+	}
 	if dbauthz.IsNotAuthorizedError(err) {
 		httpapi.Forbidden(rw)
 		return
@@ -127,22 +176,30 @@ func (api *API) workspaceCommandActivity(rw http.ResponseWriter, r *http.Request
 		return
 	}
 
-	activity := make([]codersdk.WorkspaceCommandActivity, 0, len(rows))
-	for _, row := range rows {
-		activity = append(activity, workspaceCommandActivityFromDatabase(row))
+	availableTools, err := api.workspaceActivityToolNames(ctx, r, workspace.ID)
+	if dbauthz.IsNotAuthorizedError(err) {
+		httpapi.Forbidden(rw)
+		return
 	}
+	if err != nil {
+		httpapi.InternalServerError(rw, err)
+		return
+	}
+
 	totalPages := 0
-	if count > 0 {
-		totalPages = int((count + int64(pageSize) - 1) / int64(pageSize))
+	if totalCount > 0 {
+		totalPages = int((totalCount + int64(pageSize) - 1) / int64(pageSize))
 	}
 
 	httpapi.Write(ctx, rw, http.StatusOK, codersdk.WorkspaceCommandActivityResponse{
-		Activity:     activity,
-		TotalCount:   count,
-		Page:         page,
-		PageSize:     pageSize,
-		TotalPages:   totalPages,
-		HistoryLimit: api.DeploymentValues.WorkspaceCommandActivityHistoryLimit.Value(),
+		Activity:       activity,
+		TotalCount:     totalCount,
+		DeletableCount: deletableCount,
+		AvailableTools: availableTools,
+		Page:           page,
+		PageSize:       pageSize,
+		TotalPages:     totalPages,
+		HistoryLimit:   api.DeploymentValues.WorkspaceCommandActivityHistoryLimit.Value(),
 	})
 }
 
@@ -204,6 +261,13 @@ func (api *API) deleteWorkspaceCommandActivity(rw http.ResponseWriter, r *http.R
 	if err != nil {
 		httpapi.InternalServerError(rw, err)
 		return
+	}
+	if deleted > 0 {
+		if err := coderdpubsub.PublishWorkspaceActivityEvent(api.Pubsub, workspace.ID, coderdpubsub.WorkspaceActivityEvent{
+			Type: coderdpubsub.WorkspaceActivityEventCommandResync,
+		}); err != nil {
+			api.Logger.Warn(ctx, "publish command activity resync", slog.Error(err), slog.F("workspace_id", workspace.ID))
+		}
 	}
 	httpapi.Write(ctx, rw, http.StatusOK, codersdk.DeleteWorkspaceCommandActivityResponse{Deleted: deleted})
 }
@@ -354,6 +418,15 @@ func workspaceCommandActivityFilter(filter codersdk.WorkspaceCommandActivityFilt
 	return result, nil
 }
 
+func (f workspaceCommandActivityDBFilter) includesIdle() bool {
+	for _, status := range f.statuses {
+		if status == string(codersdk.WorkspaceCommandActivityStatusIdle) {
+			return true
+		}
+	}
+	return false
+}
+
 func (f workspaceCommandActivityDBFilter) countParams(workspaceID uuid.UUID) database.CountWorkspaceCommandActivityParams {
 	return database.CountWorkspaceCommandActivityParams{
 		WorkspaceID:   workspaceID,
@@ -373,7 +446,8 @@ func validWorkspaceCommandActivityStatus(status codersdk.WorkspaceCommandActivit
 	case codersdk.WorkspaceCommandActivityStatusRunning,
 		codersdk.WorkspaceCommandActivityStatusSucceeded,
 		codersdk.WorkspaceCommandActivityStatusFailed,
-		codersdk.WorkspaceCommandActivityStatusInterrupted:
+		codersdk.WorkspaceCommandActivityStatusInterrupted,
+		codersdk.WorkspaceCommandActivityStatusIdle:
 		return true
 	default:
 		return false
@@ -411,12 +485,78 @@ func validWorkspaceCommandActivitySort(sortBy codersdk.WorkspaceCommandActivityS
 	}
 }
 
+func workspaceCommandActivityFromTimelineRow(row database.ListWorkspaceCommandActivityTimelineRow) codersdk.WorkspaceCommandActivity {
+	item := codersdk.WorkspaceCommandActivity{
+		ID:        row.ID,
+		AgentID:   row.AgentID,
+		SessionID: row.SessionID,
+		Source:    codersdk.WorkspaceCommandActivitySource(row.Source),
+		Kind:      codersdk.WorkspaceCommandActivityKind(row.Kind),
+		Tool:      row.Tool,
+		Command:   row.Command,
+		Argv:      append([]string(nil), row.Argv...),
+		WorkDir:   row.WorkDir,
+		Status:    codersdk.WorkspaceCommandActivityStatus(row.Status),
+		StartedAt: row.StartedAt,
+	}
+	if row.FinishedAt.Valid {
+		finishedAt := row.FinishedAt.Time
+		item.FinishedAt = &finishedAt
+	}
+	if row.ExitCode.Valid {
+		exitCode := int(row.ExitCode.Int32)
+		item.ExitCode = &exitCode
+	}
+	return item
+}
+
+func (api *API) workspaceActivityToolNames(ctx context.Context, r *http.Request, workspaceID uuid.UUID) ([]string, error) {
+	historical, err := api.Database.ListWorkspaceCommandActivityTools(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+
+	toolset := codersdk.MCPToolsetDeveloper
+	assigned, toolsetErr := api.Database.GetUserMCPToolset(ctx, httpmw.APIKey(r).UserID)
+	if toolsetErr == nil {
+		if candidate := codersdk.MCPToolset(assigned); candidate.Valid() {
+			toolset = candidate
+		}
+	} else {
+		// Toolset metadata is only used to enrich the filter catalog. History
+		// itself must remain readable even if this optional lookup fails.
+		api.Logger.Debug(ctx, "get MCP toolset for workspace activity catalog",
+			slog.Error(toolsetErr),
+			slog.F("user_id", httpmw.APIKey(r).UserID),
+		)
+	}
+
+	unique := make(map[string]struct{}, len(historical)+32)
+	for _, name := range mcp.ActivityToolNames(toolset) {
+		if name != "" {
+			unique[name] = struct{}{}
+		}
+	}
+	for _, name := range historical {
+		if name != "" {
+			unique[name] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(unique))
+	for name := range unique {
+		result = append(result, name)
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
 func workspaceCommandActivityFromDatabase(row database.WorkspaceCommandActivity) codersdk.WorkspaceCommandActivity {
 	item := codersdk.WorkspaceCommandActivity{
 		ID:        row.ID,
 		AgentID:   row.AgentID,
 		SessionID: row.SessionID,
 		Source:    codersdk.WorkspaceCommandActivitySource(row.Source),
+		Kind:      codersdk.WorkspaceCommandActivityKind(row.Kind),
 		Tool:      row.Tool,
 		Command:   row.Command,
 		Argv:      append([]string(nil), row.Argv...),
@@ -447,7 +587,7 @@ func (api *API) workspaceConnectionActivity(rw http.ResponseWriter, r *http.Requ
 	ctx := r.Context()
 	workspace := httpmw.WorkspaceParam(r)
 
-	rows, err := api.Database.GetWorkspaceConnectionActivityByWorkspaceID(ctx, workspace.ID)
+	response, err := api.workspaceConnectionActivityResponse(ctx, workspace.ID)
 	if dbauthz.IsNotAuthorizedError(err) {
 		httpapi.Forbidden(rw)
 		return
@@ -455,6 +595,14 @@ func (api *API) workspaceConnectionActivity(rw http.ResponseWriter, r *http.Requ
 	if err != nil {
 		httpapi.InternalServerError(rw, err)
 		return
+	}
+	httpapi.Write(ctx, rw, http.StatusOK, response)
+}
+
+func (api *API) workspaceConnectionActivityResponse(ctx context.Context, workspaceID uuid.UUID) (codersdk.WorkspaceConnectionActivityResponse, error) {
+	rows, err := api.Database.GetWorkspaceConnectionActivityByWorkspaceID(ctx, workspaceID)
+	if err != nil {
+		return codersdk.WorkspaceConnectionActivityResponse{}, err
 	}
 
 	byType := map[codersdk.ConnectionType]*codersdk.WorkspaceConnectionActivityType{}
@@ -488,7 +636,8 @@ func (api *API) workspaceConnectionActivity(rw http.ResponseWriter, r *http.Requ
 		setLatestTime(&response.LastActivityAt, row.LastActivityAt)
 	}
 	if summary := byType[codersdk.ConnectionTypeMCP]; summary != nil {
-		activeMCP := api.workspaceMCPConnections.Active(workspace.ID)
+		activeMCP := api.workspaceMCPConnections.Active(workspaceID)
+		response.ActiveConnections -= summary.ActiveConnections
 		summary.ActiveConnections = activeMCP
 		response.ActiveConnections += activeMCP
 	}
@@ -501,8 +650,147 @@ func (api *API) workspaceConnectionActivity(rw http.ResponseWriter, r *http.Requ
 	sort.Slice(response.Types, func(i, j int) bool {
 		return connectionActivityTypeOrder(response.Types[i].Type) < connectionActivityTypeOrder(response.Types[j].Type)
 	})
+	return response, nil
+}
 
-	httpapi.Write(ctx, rw, http.StatusOK, response)
+// @Summary Watch workspace command and connection activity via WebSockets
+// @ID watch-workspace-activity-via-websockets
+// @Security CoderSessionToken
+// @Produce json
+// @Tags Workspaces
+// @Param workspace path string true "Workspace ID" format(uuid)
+// @Success 200 {object} codersdk.ServerSentEvent
+// @Router /api/v2/workspaces/{workspace}/activity/watch [get]
+func (api *API) watchWorkspaceActivityWS(rw http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	workspace := httpmw.WorkspaceParam(r)
+
+	// Authorize before upgrading the connection. The subscription channel is
+	// workspace-scoped, so an unauthorized client must never be able to observe
+	// even event timing or command IDs.
+	_, err := api.Database.CountWorkspaceCommandActivity(ctx, database.CountWorkspaceCommandActivityParams{
+		WorkspaceID:   workspace.ID,
+		DurationMinMs: -1,
+		DurationMaxMs: -1,
+	})
+	if dbauthz.IsNotAuthorizedError(err) {
+		httpapi.Forbidden(rw)
+		return
+	}
+	if err != nil {
+		httpapi.InternalServerError(rw, err)
+		return
+	}
+
+	sendEvent, senderClosed, err := httpapi.OneWayWebSocketEventSender(api.Logger, api.wsWatcher)(rw, r)
+	if err != nil {
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
+			Message: "Internal error setting up workspace activity WebSocket.",
+			Detail:  err.Error(),
+		})
+		return
+	}
+	defer func() { <-senderClosed }()
+
+	sendData := func(event codersdk.WorkspaceActivityWatchEvent) {
+		_ = sendEvent(codersdk.ServerSentEvent{Type: codersdk.ServerSentEventTypeData, Data: event})
+	}
+	sendConnection := func() {
+		response, err := api.workspaceConnectionActivityResponse(ctx, workspace.ID)
+		if err != nil {
+			_ = sendEvent(codersdk.ServerSentEvent{Type: codersdk.ServerSentEventTypeError, Data: codersdk.Response{
+				Message: "Failed to refresh workspace connection activity.",
+				Detail:  err.Error(),
+			}})
+			return
+		}
+		sendData(codersdk.WorkspaceActivityWatchEvent{
+			Type:       codersdk.WorkspaceActivityWatchEventConnectionUpdate,
+			Connection: &response,
+		})
+	}
+
+	// PubSub callbacks must stay non-blocking: a slow browser or a DB read must
+	// never stall the shared Postgres notification listener. The handler drains
+	// this bounded queue and performs all database/WebSocket work itself.
+	eventC := make(chan coderdpubsub.WorkspaceActivityEvent, 64)
+	resyncC := make(chan struct{}, 1)
+	signalResync := func() {
+		select {
+		case resyncC <- struct{}{}:
+		default:
+		}
+	}
+	cancel, err := api.Pubsub.SubscribeWithErr(
+		coderdpubsub.WorkspaceActivityEventChannel(workspace.ID),
+		coderdpubsub.HandleWorkspaceActivityEvent(func(_ context.Context, event coderdpubsub.WorkspaceActivityEvent, eventErr error) {
+			if eventErr != nil {
+				signalResync()
+				return
+			}
+			select {
+			case eventC <- event:
+			default:
+				// If a burst exceeds the bounded delta queue, one durable REST
+				// resync is safer than blocking PubSub or growing memory without bound.
+				signalResync()
+			}
+		}),
+	)
+	if err != nil {
+		_ = sendEvent(codersdk.ServerSentEvent{Type: codersdk.ServerSentEventTypeError, Data: codersdk.Response{
+			Message: "Failed to subscribe to workspace activity.",
+			Detail:  err.Error(),
+		}})
+		return
+	}
+	defer cancel()
+
+	// Signal that subscription is installed. The browser performs its initial
+	// paginated REST fetch separately and only uses this socket for deltas.
+	_ = sendEvent(codersdk.ServerSentEvent{Type: codersdk.ServerSentEventTypePing})
+
+	handleActivityEvent := func(event coderdpubsub.WorkspaceActivityEvent) {
+		switch event.Type {
+		case coderdpubsub.WorkspaceActivityEventCommandChanged:
+			row, err := api.Database.GetWorkspaceCommandActivityByID(ctx, database.GetWorkspaceCommandActivityByIDParams{
+				WorkspaceID: workspace.ID,
+				ID:          event.CommandID,
+			})
+			if err != nil {
+				// The row may have been removed by a simultaneous clear/prune. A
+				// resync is cheaper and safer than trying to distinguish every race.
+				sendData(codersdk.WorkspaceActivityWatchEvent{Type: codersdk.WorkspaceActivityWatchEventCommandResync})
+				return
+			}
+			command := workspaceCommandActivityFromDatabase(row)
+			sendData(codersdk.WorkspaceActivityWatchEvent{
+				Type:    codersdk.WorkspaceActivityWatchEventCommandUpsert,
+				Command: &command,
+			})
+		case coderdpubsub.WorkspaceActivityEventCommandResync:
+			sendData(codersdk.WorkspaceActivityWatchEvent{Type: codersdk.WorkspaceActivityWatchEventCommandResync})
+		case coderdpubsub.WorkspaceActivityEventConnectionChanged:
+			sendConnection()
+		}
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-senderClosed:
+			return
+		case <-resyncC:
+			// PubSub can explicitly report dropped notifications, and the local
+			// queue can intentionally collapse bursts. In both cases restore the
+			// durable command snapshot and current connection aggregate once.
+			sendData(codersdk.WorkspaceActivityWatchEvent{Type: codersdk.WorkspaceActivityWatchEventCommandResync})
+			sendConnection()
+		case event := <-eventC:
+			handleActivityEvent(event)
+		}
+	}
 }
 
 func setLatestTime(dst **time.Time, candidate time.Time) {

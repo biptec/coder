@@ -11,6 +11,8 @@ import (
 	"cdr.dev/slog/v3"
 	"github.com/coder/coder/v2/coderd/database"
 	"github.com/coder/coder/v2/coderd/database/dbauthz"
+	databasepubsub "github.com/coder/coder/v2/coderd/database/pubsub"
+	coderdpubsub "github.com/coder/coder/v2/coderd/pubsub"
 )
 
 type workspaceMCPConnectionKey struct {
@@ -22,13 +24,15 @@ type workspaceMCPConnectionTracker struct {
 	mu     sync.Mutex
 	active map[workspaceMCPConnectionKey]int32
 	db     database.Store
+	pubsub databasepubsub.Publisher
 	logger slog.Logger
 }
 
-func newWorkspaceMCPConnectionTracker(db database.Store, logger slog.Logger) *workspaceMCPConnectionTracker {
+func newWorkspaceMCPConnectionTracker(db database.Store, publisher databasepubsub.Publisher, logger slog.Logger) *workspaceMCPConnectionTracker {
 	return &workspaceMCPConnectionTracker{
 		active: make(map[workspaceMCPConnectionKey]int32),
 		db:     db,
+		pubsub: publisher,
 		logger: logger.Named("workspace-mcp-activity"),
 	}
 }
@@ -53,6 +57,7 @@ func (t *workspaceMCPConnectionTracker) Start(ctx context.Context, workspaceID, 
 	}); err != nil {
 		t.logger.Warn(ctx, "record MCP connection start", slog.Error(err), slog.F("workspace_id", workspaceID), slog.F("agent_id", agentID))
 	}
+	t.publishConnectionChanged(ctx, workspaceID)
 
 	var once sync.Once
 	return func() {
@@ -75,7 +80,16 @@ func (t *workspaceMCPConnectionTracker) Start(ctx context.Context, workspaceID, 
 			}); err != nil {
 				t.logger.Warn(context.Background(), "record MCP connection finish", slog.Error(err), slog.F("workspace_id", workspaceID), slog.F("agent_id", agentID))
 			}
+			t.publishConnectionChanged(context.Background(), workspaceID)
 		})
+	}
+}
+
+func (t *workspaceMCPConnectionTracker) publishConnectionChanged(ctx context.Context, workspaceID uuid.UUID) {
+	if err := coderdpubsub.PublishWorkspaceActivityEvent(t.pubsub, workspaceID, coderdpubsub.WorkspaceActivityEvent{
+		Type: coderdpubsub.WorkspaceActivityEventConnectionChanged,
+	}); err != nil {
+		t.logger.Warn(ctx, "publish MCP connection activity", slog.Error(err), slog.F("workspace_id", workspaceID))
 	}
 }
 

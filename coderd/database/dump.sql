@@ -3905,6 +3905,8 @@ CREATE TABLE workspace_command_activity (
     finished_at timestamp with time zone,
     exit_code integer,
     tool text DEFAULT ''::text NOT NULL,
+    kind text DEFAULT 'command'::text NOT NULL,
+    CONSTRAINT workspace_command_activity_kind_check CHECK ((kind = ANY (ARRAY['command'::text, 'tool'::text]))),
     CONSTRAINT workspace_command_activity_source_check CHECK ((source = ANY (ARRAY['agentproc'::text, 'mcp'::text, 'ssh'::text, 'reconnecting_pty'::text, 'vscode'::text, 'jetbrains'::text, 'chat'::text]))),
     CONSTRAINT workspace_command_activity_status_check CHECK ((status = ANY (ARRAY['running'::text, 'succeeded'::text, 'failed'::text, 'interrupted'::text])))
 );

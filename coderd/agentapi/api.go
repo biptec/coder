@@ -219,6 +219,7 @@ func New(opts Options, workspace database.Workspace, agent database.WorkspaceAge
 		AgentName:        agent.Name,
 		ConnectionLogger: opts.ConnectionLogger,
 		Database:         opts.Database,
+		Pubsub:           opts.Pubsub,
 		Workspace:        api.cachedWorkspaceFields,
 		Log:              opts.Log,
 	}
@@ -227,6 +228,7 @@ func New(opts Options, workspace database.Workspace, agent database.WorkspaceAge
 		AgentID:      agent.ID,
 		WorkspaceID:  opts.WorkspaceID,
 		Database:     opts.Database,
+		Pubsub:       opts.Pubsub,
 		HistoryLimit: opts.WorkspaceCommandActivityHistoryLimit,
 		Log:          opts.Log,
 	}

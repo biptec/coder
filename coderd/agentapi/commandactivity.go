@@ -12,12 +12,15 @@ import (
 	agentproto "github.com/coder/coder/v2/agent/proto"
 	"github.com/coder/coder/v2/coderd/database"
 	"github.com/coder/coder/v2/coderd/database/dbauthz"
+	databasepubsub "github.com/coder/coder/v2/coderd/database/pubsub"
+	coderdpubsub "github.com/coder/coder/v2/coderd/pubsub"
 )
 
 type CommandActivityAPI struct {
 	AgentID      uuid.UUID
 	WorkspaceID  uuid.UUID
 	Database     database.Store
+	Pubsub       databasepubsub.Publisher
 	HistoryLimit int32
 	Log          slog.Logger
 }
@@ -65,6 +68,7 @@ func (a *CommandActivityAPI) ReportCommandActivity(ctx context.Context, req *age
 		if err := a.prune(activityCtx); err != nil {
 			return nil, err
 		}
+		a.publishActivityEvent(ctx, coderdpubsub.WorkspaceActivityEvent{Type: coderdpubsub.WorkspaceActivityEventCommandResync})
 
 	case agentproto.CommandActivity_STARTED:
 		activityID, err := commandActivityID(activity)
@@ -94,6 +98,10 @@ func (a *CommandActivityAPI) ReportCommandActivity(ctx context.Context, req *age
 		}); err != nil {
 			return nil, xerrors.Errorf("insert workspace command activity: %w", err)
 		}
+		a.publishActivityEvent(ctx, coderdpubsub.WorkspaceActivityEvent{
+			Type:      coderdpubsub.WorkspaceActivityEventCommandChanged,
+			CommandID: activityID,
+		})
 
 	case agentproto.CommandActivity_FINISHED:
 		activityID, err := commandActivityID(activity)
@@ -103,7 +111,7 @@ func (a *CommandActivityAPI) ReportCommandActivity(ctx context.Context, req *age
 		if activity.ExitCode == nil {
 			return nil, xerrors.New("finished command activity exit code is required")
 		}
-		_, err = a.Database.FinishWorkspaceCommandActivity(activityCtx, database.FinishWorkspaceCommandActivityParams{
+		updated, err := a.Database.FinishWorkspaceCommandActivity(activityCtx, database.FinishWorkspaceCommandActivityParams{
 			ExitCode:    sql.NullInt32{Int32: activity.GetExitCode(), Valid: true},
 			FinishedAt:  sql.NullTime{Time: activityTime, Valid: true},
 			ID:          activityID,
@@ -114,8 +122,17 @@ func (a *CommandActivityAPI) ReportCommandActivity(ctx context.Context, req *age
 		if err != nil {
 			return nil, xerrors.Errorf("finish workspace command activity: %w", err)
 		}
+		if updated > 0 {
+			a.publishActivityEvent(ctx, coderdpubsub.WorkspaceActivityEvent{
+				Type:      coderdpubsub.WorkspaceActivityEventCommandChanged,
+				CommandID: activityID,
+			})
+		}
 		if err := a.prune(activityCtx); err != nil {
 			return nil, err
+		}
+		if a.HistoryLimit > 0 {
+			a.publishActivityEvent(ctx, coderdpubsub.WorkspaceActivityEvent{Type: coderdpubsub.WorkspaceActivityEventCommandResync})
 		}
 
 	default:
@@ -123,6 +140,12 @@ func (a *CommandActivityAPI) ReportCommandActivity(ctx context.Context, req *age
 	}
 
 	return &emptypb.Empty{}, nil
+}
+
+func (a *CommandActivityAPI) publishActivityEvent(ctx context.Context, event coderdpubsub.WorkspaceActivityEvent) {
+	if err := coderdpubsub.PublishWorkspaceActivityEvent(a.Pubsub, a.WorkspaceID, event); err != nil {
+		a.Log.Warn(ctx, "publish workspace activity event", slog.Error(err), slog.F("workspace_id", a.WorkspaceID), slog.F("event_type", event.Type))
+	}
 }
 
 func (a *CommandActivityAPI) prune(ctx context.Context) error {

@@ -67,6 +67,20 @@ func TestParseWorkspaceCommandActivityQueryLegacyQAlias(t *testing.T) {
 	require.Equal(t, "canonical", req.Search)
 }
 
+func TestWorkspaceCommandActivityFilterIdle(t *testing.T) {
+	t.Parallel()
+
+	req, err := parseWorkspaceCommandActivityQuery(url.Values{
+		"status": {"running,succeeded,failed,interrupted,idle"},
+	})
+	require.NoError(t, err)
+	require.Contains(t, req.Statuses, codersdk.WorkspaceCommandActivityStatusIdle)
+
+	filter, err := workspaceCommandActivityFilter(req.WorkspaceCommandActivityFilter)
+	require.NoError(t, err)
+	require.True(t, filter.includesIdle())
+}
+
 func TestWorkspaceCommandActivityFilterValidation(t *testing.T) {
 	t.Parallel()
 

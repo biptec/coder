@@ -144,6 +144,14 @@ export const watchWorkspace = (
 	});
 };
 
+export const watchWorkspaceActivity = (
+	workspaceId: string,
+): OneWayWebSocket<TypesGen.ServerSentEvent> => {
+	return new OneWayWebSocket({
+		apiRoute: `/api/v2/workspaces/${workspaceId}/activity/watch`,
+	});
+};
+
 export const watchChat = (
 	chatId: string,
 	afterMessageId?: number,

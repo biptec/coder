@@ -24,6 +24,13 @@ const (
 	WorkspaceCommandActivitySourceChat            WorkspaceCommandActivitySource = "chat"
 )
 
+type WorkspaceCommandActivityKind string
+
+const (
+	WorkspaceCommandActivityKindCommand WorkspaceCommandActivityKind = "command"
+	WorkspaceCommandActivityKindTool    WorkspaceCommandActivityKind = "tool"
+)
+
 type WorkspaceCommandActivityStatus string
 
 const (
@@ -31,6 +38,10 @@ const (
 	WorkspaceCommandActivityStatusSucceeded   WorkspaceCommandActivityStatus = "succeeded"
 	WorkspaceCommandActivityStatusFailed      WorkspaceCommandActivityStatus = "failed"
 	WorkspaceCommandActivityStatusInterrupted WorkspaceCommandActivityStatus = "interrupted"
+	// WorkspaceCommandActivityStatusIdle is a synthetic timeline row representing
+	// a period where no command was running in the workspace. Idle rows are not
+	// persisted and therefore cannot be selected or deleted.
+	WorkspaceCommandActivityStatusIdle WorkspaceCommandActivityStatus = "idle"
 )
 
 type WorkspaceCommandActivitySort string
@@ -58,6 +69,7 @@ type WorkspaceCommandActivity struct {
 	AgentID    uuid.UUID                      `json:"agent_id" format:"uuid"`
 	SessionID  uuid.UUID                      `json:"session_id" format:"uuid"`
 	Source     WorkspaceCommandActivitySource `json:"source"`
+	Kind       WorkspaceCommandActivityKind   `json:"kind,omitempty"`
 	Tool       string                         `json:"tool,omitempty"`
 	Command    string                         `json:"command,omitempty"`
 	Argv       []string                       `json:"argv,omitempty"`
@@ -88,12 +100,32 @@ type WorkspaceCommandActivityRequest struct {
 }
 
 type WorkspaceCommandActivityResponse struct {
-	Activity     []WorkspaceCommandActivity `json:"activity"`
-	TotalCount   int64                      `json:"total_count"`
-	Page         int                        `json:"page"`
-	PageSize     int                        `json:"page_size"`
-	TotalPages   int                        `json:"total_pages"`
-	HistoryLimit int64                      `json:"history_limit"`
+	Activity       []WorkspaceCommandActivity `json:"activity"`
+	TotalCount     int64                      `json:"total_count"`
+	DeletableCount int64                      `json:"deletable_count"`
+	AvailableTools []string                   `json:"available_tools"`
+	Page           int                        `json:"page"`
+	PageSize       int                        `json:"page_size"`
+	TotalPages     int                        `json:"total_pages"`
+	HistoryLimit   int64                      `json:"history_limit"`
+}
+
+type WorkspaceActivityWatchEventType string
+
+const (
+	WorkspaceActivityWatchEventCommandUpsert    WorkspaceActivityWatchEventType = "command_upsert"
+	WorkspaceActivityWatchEventCommandResync    WorkspaceActivityWatchEventType = "command_resync"
+	WorkspaceActivityWatchEventConnectionUpdate WorkspaceActivityWatchEventType = "connection_update"
+)
+
+// WorkspaceActivityWatchEvent is emitted by the one-way workspace activity
+// WebSocket. Command events contain one changed row. Connection events contain
+// the small aggregated connection snapshot. Resync is reserved for bulk
+// mutations where emitting every changed row would be more expensive.
+type WorkspaceActivityWatchEvent struct {
+	Type       WorkspaceActivityWatchEventType      `json:"type"`
+	Command    *WorkspaceCommandActivity            `json:"command,omitempty"`
+	Connection *WorkspaceConnectionActivityResponse `json:"connection,omitempty"`
 }
 
 type WorkspaceCommandActivityDeleteMode string

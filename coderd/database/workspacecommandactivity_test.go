@@ -160,4 +160,105 @@ func TestWorkspaceCommandActivityHistoryQueries(t *testing.T) {
 	count, err = db.CountWorkspaceCommandActivity(t.Context(), baseFilter)
 	require.NoError(t, err)
 	require.EqualValues(t, 3, count)
+
+	// Idle rows describe workspace-level gaps, not gaps between individual
+	// commands. Overlapping commands must be merged into one busy interval.
+	idleWorkspace := dbgen.Workspace(t, db, database.WorkspaceTable{
+		OwnerID:        owner.ID,
+		OrganizationID: organization.ID,
+		TemplateID:     template.ID,
+	})
+	idleBase := base.Add(time.Hour)
+	insertFinished := func(start, finish time.Time) {
+		id := uuid.New()
+		err := db.InsertWorkspaceCommandActivity(t.Context(), database.InsertWorkspaceCommandActivityParams{
+			ID:          id,
+			WorkspaceID: idleWorkspace.ID,
+			AgentID:     agentID,
+			SessionID:   sessionID,
+			Source:      "mcp",
+			Tool:        "exec",
+			Argv:        []string{"true"},
+			WorkDir:     "/workspace",
+			StartedAt:   start,
+		})
+		require.NoError(t, err)
+		_, err = db.FinishWorkspaceCommandActivity(t.Context(), database.FinishWorkspaceCommandActivityParams{
+			ExitCode:    sql.NullInt32{Int32: 0, Valid: true},
+			FinishedAt:  sql.NullTime{Time: finish, Valid: true},
+			ID:          id,
+			WorkspaceID: idleWorkspace.ID,
+			AgentID:     agentID,
+			SessionID:   sessionID,
+		})
+		require.NoError(t, err)
+	}
+	insertFinished(idleBase, idleBase.Add(10*time.Second))
+	insertFinished(idleBase.Add(5*time.Second), idleBase.Add(15*time.Second))
+	insertFinished(idleBase.Add(20*time.Second), idleBase.Add(21*time.Second))
+
+	// A tool-only MCP call is visible in the same timeline, but it must not
+	// split workspace Idle because Idle describes command execution only.
+	toolActivityID := uuid.New()
+	err = db.InsertWorkspaceToolActivity(t.Context(), database.InsertWorkspaceToolActivityParams{
+		ID:          toolActivityID,
+		WorkspaceID: idleWorkspace.ID,
+		Tool:        "process_output",
+		StartedAt:   idleBase.Add(17 * time.Second),
+	})
+	require.NoError(t, err)
+	updated, err := db.FinishWorkspaceToolActivity(t.Context(), database.FinishWorkspaceToolActivityParams{
+		Status:      "succeeded",
+		FinishedAt:  sql.NullTime{Time: idleBase.Add(17*time.Second + 100*time.Millisecond), Valid: true},
+		ID:          toolActivityID,
+		WorkspaceID: idleWorkspace.ID,
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, updated)
+
+	toolRows, err := db.ListWorkspaceCommandActivityTimeline(t.Context(), database.ListWorkspaceCommandActivityTimelineParams{
+		WorkspaceID:   idleWorkspace.ID,
+		Statuses:      []string{"succeeded"},
+		Tools:         []string{"process_output"},
+		DurationMinMs: -1,
+		DurationMaxMs: -1,
+		SortBy:        "started",
+		SortDirection: "asc",
+		PageLimit:     10,
+	})
+	require.NoError(t, err)
+	require.Len(t, toolRows, 1)
+	require.Equal(t, toolActivityID, toolRows[0].ID)
+	require.Equal(t, "tool", toolRows[0].Kind)
+	require.Equal(t, "process_output", toolRows[0].Tool)
+
+	availableTools, err := db.ListWorkspaceCommandActivityTools(t.Context(), idleWorkspace.ID)
+	require.NoError(t, err)
+	require.Contains(t, availableTools, "process_output")
+
+	idleRows, err := db.ListWorkspaceCommandActivityTimeline(t.Context(), database.ListWorkspaceCommandActivityTimelineParams{
+		WorkspaceID:   idleWorkspace.ID,
+		Statuses:      []string{"idle"},
+		DurationMinMs: -1,
+		DurationMaxMs: -1,
+		SortBy:        "started",
+		SortDirection: "asc",
+		PageLimit:     10,
+	})
+	require.NoError(t, err)
+	require.Len(t, idleRows, 2)
+	require.True(t, idleBase.Add(15*time.Second).Equal(idleRows[0].StartedAt))
+	require.True(t, idleRows[0].FinishedAt.Valid)
+	require.True(t, idleBase.Add(20*time.Second).Equal(idleRows[0].FinishedAt.Time))
+	require.True(t, idleBase.Add(21*time.Second).Equal(idleRows[1].StartedAt))
+	require.False(t, idleRows[1].FinishedAt.Valid, "latest idle interval should remain live")
+
+	timelineCount, err := db.CountWorkspaceCommandActivityTimeline(t.Context(), database.CountWorkspaceCommandActivityTimelineParams{
+		WorkspaceID:   idleWorkspace.ID,
+		Statuses:      []string{"running", "succeeded", "failed", "interrupted", "idle"},
+		DurationMinMs: -1,
+		DurationMaxMs: -1,
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 6, timelineCount, "three commands, one tool call, and two workspace idle intervals")
 }

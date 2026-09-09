@@ -6501,6 +6501,7 @@ type WorkspaceCommandActivity struct {
 	FinishedAt  sql.NullTime  `db:"finished_at" json:"finished_at"`
 	ExitCode    sql.NullInt32 `db:"exit_code" json:"exit_code"`
 	Tool        string        `db:"tool" json:"tool"`
+	Kind        string        `db:"kind" json:"kind"`
 }
 
 type WorkspaceConnectionActivity struct {

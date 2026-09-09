@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"time"
@@ -12,10 +13,29 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 	"golang.org/x/xerrors"
 
+	"cdr.dev/slog/v3"
 	"github.com/coder/coder/v2/codersdk/toolsdk"
 )
 
 const defaultActivityLimit = 20
+
+type PersistentActivityStatus string
+
+const (
+	PersistentActivityStatusSucceeded   PersistentActivityStatus = "succeeded"
+	PersistentActivityStatusFailed      PersistentActivityStatus = "failed"
+	PersistentActivityStatusInterrupted PersistentActivityStatus = "interrupted"
+)
+
+type PersistentActivityHandle struct {
+	ID          uuid.UUID
+	WorkspaceID uuid.UUID
+}
+
+type PersistentActivityRecorder interface {
+	StartToolActivity(ctx context.Context, userID, toolName, workspace string, startedAt time.Time) (PersistentActivityHandle, error)
+	FinishToolActivity(ctx context.Context, handle PersistentActivityHandle, status PersistentActivityStatus, finishedAt time.Time) error
+}
 
 type ActivityRecord struct {
 	ID         string `json:"id"`
@@ -192,22 +212,68 @@ func activityWorkspace(request mcp.CallToolRequest) string {
 }
 
 func (s *Server) withActivityTracking(tool server.ServerTool, toolName string) server.ServerTool {
-	if s.activityStore == nil || s.activityUserID == "" {
+	if s.activityStore == nil && s.activityRecorder == nil {
 		return tool
 	}
 	original := tool.Handler
 	tool.Handler = func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		id := s.activityStore.Start(s.activityUserID, toolName, activityWorkspace(request))
+		workspace := activityWorkspace(request)
+		startedAt := time.Now().UTC()
+
+		activityID := ""
+		if s.activityStore != nil && s.activityUserID != "" {
+			activityID = s.activityStore.Start(s.activityUserID, toolName, workspace)
+		}
+
+		var persistent PersistentActivityHandle
+		if s.activityRecorder != nil && s.activityUserID != "" && workspace != "" && persistAsToolActivity(toolName) {
+			var err error
+			persistent, err = s.activityRecorder.StartToolActivity(ctx, s.activityUserID, toolName, workspace, startedAt)
+			if err != nil {
+				s.Logger.Debug(ctx, "start persistent MCP tool activity", slog.Error(err), slog.F("tool", toolName), slog.F("workspace", workspace))
+			}
+		}
+
 		ctx = toolsdk.WithInvocationTool(ctx, toolName)
 		result, err := original(ctx, request)
-		status := "success"
-		if err != nil || (result != nil && result.IsError) {
-			status = "error"
+
+		memoryStatus := "success"
+		persistentStatus := PersistentActivityStatusSucceeded
+		switch {
+		case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded), ctx.Err() != nil:
+			memoryStatus = "error"
+			persistentStatus = PersistentActivityStatusInterrupted
+		case err != nil || (result != nil && result.IsError):
+			memoryStatus = "error"
+			persistentStatus = PersistentActivityStatusFailed
 		}
-		s.activityStore.Finish(s.activityUserID, id, status, result)
+		if s.activityStore != nil && s.activityUserID != "" {
+			s.activityStore.Finish(s.activityUserID, activityID, memoryStatus, result)
+		}
+		if s.activityRecorder != nil && persistent.ID != uuid.Nil {
+			finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+			finishErr := s.activityRecorder.FinishToolActivity(finishCtx, persistent, persistentStatus, time.Now().UTC())
+			cancel()
+			if finishErr != nil {
+				s.Logger.Debug(context.Background(), "finish persistent MCP tool activity", slog.Error(finishErr), slog.F("tool", toolName), slog.F("workspace_id", persistent.WorkspaceID))
+			}
+		}
 		return result, err
 	}
 	return tool
+}
+
+func persistAsToolActivity(toolName string) bool {
+	switch toolName {
+	case "exec", "bash", "process_start",
+		toolsdk.ToolNameWorkspaceExec,
+		toolsdk.ToolNameWorkspaceBash,
+		toolsdk.ToolNameWorkspaceProcessStart,
+		toolsdk.ToolNameWorkspaceProcessStartV2:
+		return false
+	default:
+		return true
+	}
 }
 
 func (s *Server) registerRecentActivityTool() {
@@ -263,5 +329,6 @@ func (s *Server) registerRecentActivityTool() {
 		}
 		return mcp.NewToolResultText(string(data)), nil
 	}
+	tool = s.withActivityTracking(tool, "recent_activity")
 	s.mcpServer.AddTools(tool)
 }

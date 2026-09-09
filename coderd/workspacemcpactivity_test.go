@@ -38,7 +38,7 @@ func TestWorkspaceMCPConnectionTracker(t *testing.T) {
 		},
 	)
 
-	tracker := newWorkspaceMCPConnectionTracker(mDB, testutil.Logger(t))
+	tracker := newWorkspaceMCPConnectionTracker(mDB, nil, testutil.Logger(t))
 	finish := tracker.Start(t.Context(), workspaceID, agentID)
 	require.EqualValues(t, 1, tracker.Active(workspaceID))
 	require.Zero(t, tracker.Active(uuid.New()))

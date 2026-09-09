@@ -674,7 +674,7 @@ func New(options *Options) *API {
 		ProfileCollector:              defaultProfileCollector{},
 		AISeatTracker:                 aiseats.Noop{},
 		workspaceVolumeCopyKubernetes: options.WorkspaceVolumeCopyKubernetes,
-		workspaceMCPConnections:       newWorkspaceMCPConnectionTracker(options.Database, options.Logger),
+		workspaceMCPConnections:       newWorkspaceMCPConnectionTracker(options.Database, options.Pubsub, options.Logger),
 	}
 
 	if api.DeploymentValues.WorkspaceVolumeCopyEnabled.Value() {
@@ -1905,6 +1905,7 @@ func New(options *Options) *API {
 				r.Get("/command-activity", api.workspaceCommandActivity)
 				r.Delete("/command-activity", api.deleteWorkspaceCommandActivity)
 				r.Get("/connection-activity", api.workspaceConnectionActivity)
+				r.Get("/activity/watch", api.watchWorkspaceActivityWS)
 				r.Get("/volume-copy-operation", api.workspaceActiveVolumeCopyOperation)
 				r.Get("/volume-copy-volumes", api.workspaceVolumeCopyVolumes)
 				r.Post("/volume-copy-operations", api.postWorkspaceVolumeCopyOperation)

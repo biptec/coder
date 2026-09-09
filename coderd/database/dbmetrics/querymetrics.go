@@ -401,6 +401,14 @@ func (m queryMetricsStore) CountWorkspaceCommandActivity(ctx context.Context, ar
 	return r0, r1
 }
 
+func (m queryMetricsStore) CountWorkspaceCommandActivityTimeline(ctx context.Context, arg database.CountWorkspaceCommandActivityTimelineParams) (int64, error) {
+	start := time.Now()
+	r0, r1 := m.s.CountWorkspaceCommandActivityTimeline(ctx, arg)
+	m.queryLatencies.WithLabelValues("CountWorkspaceCommandActivityTimeline").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "CountWorkspaceCommandActivityTimeline").Inc()
+	return r0, r1
+}
+
 func (m queryMetricsStore) CreateUserSecret(ctx context.Context, arg database.CreateUserSecretParams) (database.UserSecret, error) {
 	start := time.Now()
 	r0, r1 := m.s.CreateUserSecret(ctx, arg)
@@ -1110,6 +1118,14 @@ func (m queryMetricsStore) FinishWorkspaceCommandActivity(ctx context.Context, a
 	r0, r1 := m.s.FinishWorkspaceCommandActivity(ctx, arg)
 	m.queryLatencies.WithLabelValues("FinishWorkspaceCommandActivity").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "FinishWorkspaceCommandActivity").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) FinishWorkspaceToolActivity(ctx context.Context, arg database.FinishWorkspaceToolActivityParams) (int64, error) {
+	start := time.Now()
+	r0, r1 := m.s.FinishWorkspaceToolActivity(ctx, arg)
+	m.queryLatencies.WithLabelValues("FinishWorkspaceToolActivity").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "FinishWorkspaceToolActivity").Inc()
 	return r0, r1
 }
 
@@ -3785,6 +3801,14 @@ func (m queryMetricsStore) GetWorkspaceByWorkspaceAppID(ctx context.Context, wor
 	return r0, r1
 }
 
+func (m queryMetricsStore) GetWorkspaceCommandActivityByID(ctx context.Context, arg database.GetWorkspaceCommandActivityByIDParams) (database.WorkspaceCommandActivity, error) {
+	start := time.Now()
+	r0, r1 := m.s.GetWorkspaceCommandActivityByID(ctx, arg)
+	m.queryLatencies.WithLabelValues("GetWorkspaceCommandActivityByID").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetWorkspaceCommandActivityByID").Inc()
+	return r0, r1
+}
+
 func (m queryMetricsStore) GetWorkspaceConnectionActivityByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) ([]database.GetWorkspaceConnectionActivityByWorkspaceIDRow, error) {
 	start := time.Now()
 	r0, r1 := m.s.GetWorkspaceConnectionActivityByWorkspaceID(ctx, workspaceID)
@@ -4673,6 +4697,14 @@ func (m queryMetricsStore) InsertWorkspaceResourceMetadata(ctx context.Context, 
 	return r0, r1
 }
 
+func (m queryMetricsStore) InsertWorkspaceToolActivity(ctx context.Context, arg database.InsertWorkspaceToolActivityParams) error {
+	start := time.Now()
+	r0 := m.s.InsertWorkspaceToolActivity(ctx, arg)
+	m.queryLatencies.WithLabelValues("InsertWorkspaceToolActivity").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "InsertWorkspaceToolActivity").Inc()
+	return r0
+}
+
 func (m queryMetricsStore) InsertWorkspaceVolumeCopyLock(ctx context.Context, arg database.InsertWorkspaceVolumeCopyLockParams) error {
 	start := time.Now()
 	r0 := m.s.InsertWorkspaceVolumeCopyLock(ctx, arg)
@@ -4910,6 +4942,22 @@ func (m queryMetricsStore) ListWorkspaceCommandActivity(ctx context.Context, arg
 	r0, r1 := m.s.ListWorkspaceCommandActivity(ctx, arg)
 	m.queryLatencies.WithLabelValues("ListWorkspaceCommandActivity").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "ListWorkspaceCommandActivity").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) ListWorkspaceCommandActivityTimeline(ctx context.Context, arg database.ListWorkspaceCommandActivityTimelineParams) ([]database.ListWorkspaceCommandActivityTimelineRow, error) {
+	start := time.Now()
+	r0, r1 := m.s.ListWorkspaceCommandActivityTimeline(ctx, arg)
+	m.queryLatencies.WithLabelValues("ListWorkspaceCommandActivityTimeline").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "ListWorkspaceCommandActivityTimeline").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) ListWorkspaceCommandActivityTools(ctx context.Context, workspaceID uuid.UUID) ([]string, error) {
+	start := time.Now()
+	r0, r1 := m.s.ListWorkspaceCommandActivityTools(ctx, workspaceID)
+	m.queryLatencies.WithLabelValues("ListWorkspaceCommandActivityTools").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "ListWorkspaceCommandActivityTools").Inc()
 	return r0, r1
 }
 
