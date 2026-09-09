@@ -2015,6 +2015,10 @@ func (q *querier) CountWorkspaceCommandActivity(ctx context.Context, arg databas
 	return q.db.CountWorkspaceCommandActivity(ctx, arg)
 }
 
+func (q *querier) CountWorkspaceCommandActivityTimeline(ctx context.Context, arg database.CountWorkspaceCommandActivityTimelineParams) (int64, error) {
+	panic("not implemented")
+}
+
 func (q *querier) CreateUserSecret(ctx context.Context, arg database.CreateUserSecretParams) (database.UserSecret, error) {
 	obj := rbac.ResourceUserSecret.WithOwner(arg.UserID.String())
 	if err := q.authorizeContext(ctx, policy.ActionCreate, obj); err != nil {
@@ -2795,6 +2799,10 @@ func (q *querier) FinishWorkspaceCommandActivity(ctx context.Context, arg databa
 		return 0, err
 	}
 	return q.db.FinishWorkspaceCommandActivity(ctx, arg)
+}
+
+func (q *querier) FinishWorkspaceToolActivity(ctx context.Context, arg database.FinishWorkspaceToolActivityParams) (int64, error) {
+	panic("not implemented")
 }
 
 func (q *querier) GetAIBridgeInterceptionByID(ctx context.Context, id uuid.UUID) (database.AIBridgeInterception, error) {
@@ -5642,6 +5650,10 @@ func (q *querier) GetWorkspaceByWorkspaceAppID(ctx context.Context, workspaceApp
 	return fetch(q.log, q.auth, q.db.GetWorkspaceByWorkspaceAppID)(ctx, workspaceAppID)
 }
 
+func (q *querier) GetWorkspaceCommandActivityByID(ctx context.Context, arg database.GetWorkspaceCommandActivityByIDParams) (database.WorkspaceCommandActivity, error) {
+	panic("not implemented")
+}
+
 func (q *querier) GetWorkspaceConnectionActivityByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) ([]database.GetWorkspaceConnectionActivityByWorkspaceIDRow, error) {
 	if err := q.authorizeWorkspaceActivity(ctx, workspaceID, policy.ActionRead); err != nil {
 		return nil, err
@@ -6646,6 +6658,10 @@ func (q *querier) InsertWorkspaceResourceMetadata(ctx context.Context, arg datab
 	return q.db.InsertWorkspaceResourceMetadata(ctx, arg)
 }
 
+func (q *querier) InsertWorkspaceToolActivity(ctx context.Context, arg database.InsertWorkspaceToolActivityParams) error {
+	panic("not implemented")
+}
+
 func (q *querier) InsertWorkspaceVolumeCopyLock(ctx context.Context, arg database.InsertWorkspaceVolumeCopyLockParams) error {
 	if err := q.authorizeContext(ctx, policy.ActionCreate, rbac.ResourceWorkspaceVolumeCopy); err != nil {
 		return err
@@ -6882,6 +6898,14 @@ func (q *querier) ListWorkspaceCommandActivity(ctx context.Context, arg database
 		return nil, err
 	}
 	return q.db.ListWorkspaceCommandActivity(ctx, arg)
+}
+
+func (q *querier) ListWorkspaceCommandActivityTimeline(ctx context.Context, arg database.ListWorkspaceCommandActivityTimelineParams) ([]database.ListWorkspaceCommandActivityTimelineRow, error) {
+	panic("not implemented")
+}
+
+func (q *querier) ListWorkspaceCommandActivityTools(ctx context.Context, workspaceID uuid.UUID) ([]string, error) {
+	panic("not implemented")
 }
 
 func (q *querier) LockChatAndBumpSnapshotVersion(ctx context.Context, id uuid.UUID) (database.Chat, error) {

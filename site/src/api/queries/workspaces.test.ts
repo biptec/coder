@@ -8,6 +8,8 @@ import {
 	createWorkspace,
 	invalidateWorkspaceListQueries,
 	invalidateWorkspaceMutationQueries,
+	workspaceCommandActivity,
+	workspaceConnectionActivity,
 	workspacesKey,
 	workspacesQueryKeyPrefix,
 	workspaceUsage,
@@ -83,6 +85,20 @@ const seedWorkspaceFamilyQueries = (queryClient: QueryClient) => {
 		],
 	};
 };
+
+describe("workspace activity queries", () => {
+	it("do not poll command or connection activity", () => {
+		const command = workspaceCommandActivity("workspace-1", {
+			statuses: ["running", "succeeded", "failed", "interrupted"],
+			page: 1,
+			page_size: 50,
+		});
+		const connection = workspaceConnectionActivity("workspace-1");
+
+		expect(command).not.toHaveProperty("refetchInterval");
+		expect(connection).not.toHaveProperty("refetchInterval");
+	});
+});
 
 describe("invalidateWorkspaceListQueries", () => {
 	it("invalidates workspace list queries without touching side-effecting workspace-family queries", async () => {

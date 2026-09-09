@@ -41,8 +41,9 @@ type Server struct {
 	// streamableServer handles HTTP transport
 	streamableServer *server.StreamableHTTPServer
 
-	activityStore  *ActivityStore
-	activityUserID string
+	activityStore    *ActivityStore
+	activityUserID   string
+	activityRecorder PersistentActivityRecorder
 }
 
 // NewServer creates a new MCP HTTP server
@@ -83,6 +84,12 @@ func (s *Server) SetActivityStore(store *ActivityStore, userID string) {
 	s.activityUserID = userID
 }
 
+// SetPersistentActivityRecorder enables durable workspace-scoped MCP tool
+// activity. Recording is best-effort and never changes a tool's result.
+func (s *Server) SetPersistentActivityRecorder(recorder PersistentActivityRecorder) {
+	s.activityRecorder = recorder
+}
+
 // Register all available MCP tools with the server excluding:
 // - ReportTask - which requires dependencies not available in the remote MCP context
 // - ChatGPT search and fetch tools, which are redundant with the standard tools.
@@ -105,8 +112,11 @@ func (s *Server) RegisterTools(client *codersdk.Client, opts ...func(*toolsdk.De
 			continue
 		}
 
-		s.mcpServer.AddTools(mcpFromSDK(tool, toolDeps))
+		serverTool := mcpFromSDK(tool, toolDeps)
+		serverTool = s.withActivityTracking(serverTool, tool.Name)
+		s.mcpServer.AddTools(serverTool)
 	}
+	s.registerRecentActivityTool()
 	return nil
 }
 
@@ -155,6 +165,41 @@ var readonlyToolAliases = []toolAlias{
 	{SDKName: toolsdk.ToolNameWorkspaceProcessOutput, MCPName: "process_output"},
 	{SDKName: toolsdk.ToolNameWorkspaceProcessList, MCPName: "process_list"},
 	{SDKName: toolsdk.ToolNameWorkspaceListApps, MCPName: "list_apps"},
+}
+
+// ActivityToolNames returns the assistant-facing tool names exposed by the
+// selected Remote MCP toolset. The list is used by the workspace activity UI
+// and is intentionally independent of historical rows, so newly added tools
+// appear automatically while the frontend is in its default "all tools" mode.
+func ActivityToolNames(toolset codersdk.MCPToolset) []string {
+	toolNames := map[string]struct{}{"recent_activity": {}}
+	addAliases := func(aliases []toolAlias) {
+		for _, alias := range aliases {
+			toolNames[alias.MCPName] = struct{}{}
+		}
+	}
+
+	switch toolset {
+	case codersdk.MCPToolsetReadonly:
+		addAliases(readonlyToolAliases)
+	case codersdk.MCPToolsetAdmin:
+		for _, tool := range toolsdk.All {
+			if tool.Name == toolsdk.ToolNameReportTask ||
+				tool.Name == toolsdk.ToolNameChatGPTSearch || tool.Name == toolsdk.ToolNameChatGPTFetch {
+				continue
+			}
+			toolNames[tool.Name] = struct{}{}
+		}
+	default:
+		addAliases(developerToolAliases)
+	}
+
+	result := make([]string, 0, len(toolNames))
+	for name := range toolNames {
+		result = append(result, name)
+	}
+	sort.Strings(result)
+	return result
 }
 
 // RegisterDeveloperTools exposes the curated, assistant-facing Remote MCP toolset.

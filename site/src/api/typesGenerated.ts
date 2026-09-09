@@ -10081,6 +10081,28 @@ export interface WorkspaceActiveVolumeCopyOperation {
 	readonly operation?: WorkspaceVolumeCopyOperation;
 }
 
+// From codersdk/workspacecommandactivity.go
+/**
+ * WorkspaceActivityWatchEvent is emitted by the one-way workspace activity
+ * WebSocket. Command events contain one changed row. Connection events contain
+ * the small aggregated connection snapshot. Resync is reserved for bulk
+ * mutations where emitting every changed row would be more expensive.
+ */
+export interface WorkspaceActivityWatchEvent {
+	readonly type: WorkspaceActivityWatchEventType;
+	readonly command?: WorkspaceCommandActivity;
+	readonly connection?: WorkspaceConnectionActivityResponse;
+}
+
+// From codersdk/workspacecommandactivity.go
+export type WorkspaceActivityWatchEventType =
+	| "command_resync"
+	| "command_upsert"
+	| "connection_update";
+
+export const WorkspaceActivityWatchEventTypes: WorkspaceActivityWatchEventType[] =
+	["command_resync", "command_upsert", "connection_update"];
+
 // From codersdk/workspaceagents.go
 export interface WorkspaceAgent {
 	readonly id: string;
@@ -10740,6 +10762,7 @@ export interface WorkspaceCommandActivity {
 	readonly agent_id: string;
 	readonly session_id: string;
 	readonly source: WorkspaceCommandActivitySource;
+	readonly kind?: WorkspaceCommandActivityKind;
 	readonly tool?: string;
 	readonly command?: string;
 	readonly argv?: readonly string[];
@@ -10769,6 +10792,14 @@ export interface WorkspaceCommandActivityFilter {
 }
 
 // From codersdk/workspacecommandactivity.go
+export type WorkspaceCommandActivityKind = "command" | "tool";
+
+export const WorkspaceCommandActivityKinds: WorkspaceCommandActivityKind[] = [
+	"command",
+	"tool",
+];
+
+// From codersdk/workspacecommandactivity.go
 export interface WorkspaceCommandActivityRequest
 	extends WorkspaceCommandActivityFilter {
 	readonly sort_by?: WorkspaceCommandActivitySort;
@@ -10781,6 +10812,8 @@ export interface WorkspaceCommandActivityRequest
 export interface WorkspaceCommandActivityResponse {
 	readonly activity: readonly WorkspaceCommandActivity[];
 	readonly total_count: number;
+	readonly deletable_count: number;
+	readonly available_tools: readonly string[];
 	readonly page: number;
 	readonly page_size: number;
 	readonly total_pages: number;
@@ -10839,12 +10872,13 @@ export const WorkspaceCommandActivitySources: WorkspaceCommandActivitySource[] =
 // From codersdk/workspacecommandactivity.go
 export type WorkspaceCommandActivityStatus =
 	| "failed"
+	| "idle"
 	| "interrupted"
 	| "running"
 	| "succeeded";
 
 export const WorkspaceCommandActivityStatuses: WorkspaceCommandActivityStatus[] =
-	["failed", "interrupted", "running", "succeeded"];
+	["failed", "idle", "interrupted", "running", "succeeded"];
 
 // From codersdk/workspaceconnectionactivity.go
 export interface WorkspaceConnectionActivityResponse {

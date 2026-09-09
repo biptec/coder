@@ -632,6 +632,21 @@ func (mr *MockStoreMockRecorder) CountWorkspaceCommandActivity(ctx, arg any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountWorkspaceCommandActivity", reflect.TypeOf((*MockStore)(nil).CountWorkspaceCommandActivity), ctx, arg)
 }
 
+// CountWorkspaceCommandActivityTimeline mocks base method.
+func (m *MockStore) CountWorkspaceCommandActivityTimeline(ctx context.Context, arg database.CountWorkspaceCommandActivityTimelineParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountWorkspaceCommandActivityTimeline", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountWorkspaceCommandActivityTimeline indicates an expected call of CountWorkspaceCommandActivityTimeline.
+func (mr *MockStoreMockRecorder) CountWorkspaceCommandActivityTimeline(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountWorkspaceCommandActivityTimeline", reflect.TypeOf((*MockStore)(nil).CountWorkspaceCommandActivityTimeline), ctx, arg)
+}
+
 // CreateUserSecret mocks base method.
 func (m *MockStore) CreateUserSecret(ctx context.Context, arg database.CreateUserSecretParams) (database.UserSecret, error) {
 	m.ctrl.T.Helper()
@@ -1914,6 +1929,21 @@ func (m *MockStore) FinishWorkspaceCommandActivity(ctx context.Context, arg data
 func (mr *MockStoreMockRecorder) FinishWorkspaceCommandActivity(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FinishWorkspaceCommandActivity", reflect.TypeOf((*MockStore)(nil).FinishWorkspaceCommandActivity), ctx, arg)
+}
+
+// FinishWorkspaceToolActivity mocks base method.
+func (m *MockStore) FinishWorkspaceToolActivity(ctx context.Context, arg database.FinishWorkspaceToolActivityParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FinishWorkspaceToolActivity", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FinishWorkspaceToolActivity indicates an expected call of FinishWorkspaceToolActivity.
+func (mr *MockStoreMockRecorder) FinishWorkspaceToolActivity(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FinishWorkspaceToolActivity", reflect.TypeOf((*MockStore)(nil).FinishWorkspaceToolActivity), ctx, arg)
 }
 
 // GetAIBridgeInterceptionByID mocks base method.
@@ -7076,6 +7106,21 @@ func (mr *MockStoreMockRecorder) GetWorkspaceByWorkspaceAppID(ctx, workspaceAppI
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceByWorkspaceAppID", reflect.TypeOf((*MockStore)(nil).GetWorkspaceByWorkspaceAppID), ctx, workspaceAppID)
 }
 
+// GetWorkspaceCommandActivityByID mocks base method.
+func (m *MockStore) GetWorkspaceCommandActivityByID(ctx context.Context, arg database.GetWorkspaceCommandActivityByIDParams) (database.WorkspaceCommandActivity, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkspaceCommandActivityByID", ctx, arg)
+	ret0, _ := ret[0].(database.WorkspaceCommandActivity)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkspaceCommandActivityByID indicates an expected call of GetWorkspaceCommandActivityByID.
+func (mr *MockStoreMockRecorder) GetWorkspaceCommandActivityByID(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceCommandActivityByID", reflect.TypeOf((*MockStore)(nil).GetWorkspaceCommandActivityByID), ctx, arg)
+}
+
 // GetWorkspaceConnectionActivityByWorkspaceID mocks base method.
 func (m *MockStore) GetWorkspaceConnectionActivityByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) ([]database.GetWorkspaceConnectionActivityByWorkspaceIDRow, error) {
 	m.ctrl.T.Helper()
@@ -8737,6 +8782,20 @@ func (mr *MockStoreMockRecorder) InsertWorkspaceResourceMetadata(ctx, arg any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertWorkspaceResourceMetadata", reflect.TypeOf((*MockStore)(nil).InsertWorkspaceResourceMetadata), ctx, arg)
 }
 
+// InsertWorkspaceToolActivity mocks base method.
+func (m *MockStore) InsertWorkspaceToolActivity(ctx context.Context, arg database.InsertWorkspaceToolActivityParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertWorkspaceToolActivity", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertWorkspaceToolActivity indicates an expected call of InsertWorkspaceToolActivity.
+func (mr *MockStoreMockRecorder) InsertWorkspaceToolActivity(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertWorkspaceToolActivity", reflect.TypeOf((*MockStore)(nil).InsertWorkspaceToolActivity), ctx, arg)
+}
+
 // InsertWorkspaceVolumeCopyLock mocks base method.
 func (m *MockStore) InsertWorkspaceVolumeCopyLock(ctx context.Context, arg database.InsertWorkspaceVolumeCopyLockParams) error {
 	m.ctrl.T.Helper()
@@ -9244,6 +9303,36 @@ func (m *MockStore) ListWorkspaceCommandActivity(ctx context.Context, arg databa
 func (mr *MockStoreMockRecorder) ListWorkspaceCommandActivity(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWorkspaceCommandActivity", reflect.TypeOf((*MockStore)(nil).ListWorkspaceCommandActivity), ctx, arg)
+}
+
+// ListWorkspaceCommandActivityTimeline mocks base method.
+func (m *MockStore) ListWorkspaceCommandActivityTimeline(ctx context.Context, arg database.ListWorkspaceCommandActivityTimelineParams) ([]database.ListWorkspaceCommandActivityTimelineRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListWorkspaceCommandActivityTimeline", ctx, arg)
+	ret0, _ := ret[0].([]database.ListWorkspaceCommandActivityTimelineRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListWorkspaceCommandActivityTimeline indicates an expected call of ListWorkspaceCommandActivityTimeline.
+func (mr *MockStoreMockRecorder) ListWorkspaceCommandActivityTimeline(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWorkspaceCommandActivityTimeline", reflect.TypeOf((*MockStore)(nil).ListWorkspaceCommandActivityTimeline), ctx, arg)
+}
+
+// ListWorkspaceCommandActivityTools mocks base method.
+func (m *MockStore) ListWorkspaceCommandActivityTools(ctx context.Context, workspaceID uuid.UUID) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListWorkspaceCommandActivityTools", ctx, workspaceID)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListWorkspaceCommandActivityTools indicates an expected call of ListWorkspaceCommandActivityTools.
+func (mr *MockStoreMockRecorder) ListWorkspaceCommandActivityTools(ctx, workspaceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWorkspaceCommandActivityTools", reflect.TypeOf((*MockStore)(nil).ListWorkspaceCommandActivityTools), ctx, workspaceID)
 }
 
 // LockChatAndBumpSnapshotVersion mocks base method.

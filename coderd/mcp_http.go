@@ -44,6 +44,13 @@ func (api *API) mcpHTTPHandler() http.Handler {
 		authenticatedClient := codersdk.New(api.AccessURL,
 			codersdk.WithSessionToken(httpmw.APITokenFromRequest(r)))
 		mcpServer.SetActivityStore(activityStore, httpmw.APIKey(r).UserID.String())
+		mcpServer.SetPersistentActivityRecorder(newWorkspaceMCPToolActivityRecorder(
+			api.Database,
+			api.Pubsub,
+			api.Logger,
+			authenticatedClient,
+			api.DeploymentValues.WorkspaceCommandActivityHistoryLimit.Value(),
+		))
 
 		// Wrap the agent connection function to enforce ActionSSH
 		// on the workspace. Without this check, a user who can read

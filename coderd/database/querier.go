@@ -111,6 +111,7 @@ type sqlcQuerier interface {
 	CountPendingNonActivePrebuilds(ctx context.Context) ([]CountPendingNonActivePrebuildsRow, error)
 	CountUnreadInboxNotificationsByUserID(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountWorkspaceCommandActivity(ctx context.Context, arg CountWorkspaceCommandActivityParams) (int64, error)
+	CountWorkspaceCommandActivityTimeline(ctx context.Context, arg CountWorkspaceCommandActivityTimelineParams) (int64, error)
 	CreateUserSecret(ctx context.Context, arg CreateUserSecretParams) (UserSecret, error)
 	CustomRoles(ctx context.Context, arg CustomRolesParams) ([]CustomRole, error)
 	DeleteAIGatewayKey(ctx context.Context, id uuid.UUID) (DeleteAIGatewayKeyRow, error)
@@ -290,6 +291,7 @@ type sqlcQuerier interface {
 	// and returns the preset with the most parameters (largest subset).
 	FindMatchingPresetID(ctx context.Context, arg FindMatchingPresetIDParams) (uuid.UUID, error)
 	FinishWorkspaceCommandActivity(ctx context.Context, arg FinishWorkspaceCommandActivityParams) (int64, error)
+	FinishWorkspaceToolActivity(ctx context.Context, arg FinishWorkspaceToolActivityParams) (int64, error)
 	GetAIBridgeInterceptionByID(ctx context.Context, id uuid.UUID) (AIBridgeInterception, error)
 	// Look up the parent interception and the root of the thread by finding
 	// which interception recorded a tool usage with the given tool call ID.
@@ -955,6 +957,7 @@ type sqlcQuerier interface {
 	GetWorkspaceByOwnerIDAndName(ctx context.Context, arg GetWorkspaceByOwnerIDAndNameParams) (Workspace, error)
 	GetWorkspaceByResourceID(ctx context.Context, resourceID uuid.UUID) (Workspace, error)
 	GetWorkspaceByWorkspaceAppID(ctx context.Context, workspaceAppID uuid.UUID) (Workspace, error)
+	GetWorkspaceCommandActivityByID(ctx context.Context, arg GetWorkspaceCommandActivityByIDParams) (WorkspaceCommandActivity, error)
 	GetWorkspaceConnectionActivityByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) ([]GetWorkspaceConnectionActivityByWorkspaceIDRow, error)
 	GetWorkspaceModulesByJobID(ctx context.Context, jobID uuid.UUID) ([]WorkspaceModule, error)
 	GetWorkspaceModulesCreatedAfter(ctx context.Context, createdAt time.Time) ([]WorkspaceModule, error)
@@ -1133,6 +1136,7 @@ type sqlcQuerier interface {
 	InsertWorkspaceProxy(ctx context.Context, arg InsertWorkspaceProxyParams) (WorkspaceProxy, error)
 	InsertWorkspaceResource(ctx context.Context, arg InsertWorkspaceResourceParams) (WorkspaceResource, error)
 	InsertWorkspaceResourceMetadata(ctx context.Context, arg InsertWorkspaceResourceMetadataParams) ([]WorkspaceResourceMetadatum, error)
+	InsertWorkspaceToolActivity(ctx context.Context, arg InsertWorkspaceToolActivityParams) error
 	InsertWorkspaceVolumeCopyLock(ctx context.Context, arg InsertWorkspaceVolumeCopyLockParams) error
 	InsertWorkspaceVolumeCopyOperation(ctx context.Context, arg InsertWorkspaceVolumeCopyOperationParams) (WorkspaceVolumeCopyOperation, error)
 	InterruptWorkspaceCommandActivityByAgentSession(ctx context.Context, arg InterruptWorkspaceCommandActivityByAgentSessionParams) (int64, error)
@@ -1196,6 +1200,8 @@ type sqlcQuerier interface {
 	ListWorkspaceAgentContextResources(ctx context.Context, workspaceAgentID uuid.UUID) ([]WorkspaceAgentContextResource, error)
 	ListWorkspaceAgentPortShares(ctx context.Context, workspaceID uuid.UUID) ([]WorkspaceAgentPortShare, error)
 	ListWorkspaceCommandActivity(ctx context.Context, arg ListWorkspaceCommandActivityParams) ([]WorkspaceCommandActivity, error)
+	ListWorkspaceCommandActivityTimeline(ctx context.Context, arg ListWorkspaceCommandActivityTimelineParams) ([]ListWorkspaceCommandActivityTimelineRow, error)
+	ListWorkspaceCommandActivityTools(ctx context.Context, workspaceID uuid.UUID) ([]string, error)
 	// Locks the chat row with FOR UPDATE and atomically increments its
 	// snapshot_version, returning the post-bump chat. This is the single
 	// entry point ChatMachine.Update uses to acquire the row lock and

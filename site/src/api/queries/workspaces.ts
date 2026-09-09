@@ -72,7 +72,6 @@ export const workspaceCommandActivity = (
 		return API.getWorkspaceCommandActivity(workspaceId, request);
 	},
 	enabled: Boolean(workspaceId),
-	refetchInterval: 1_000,
 });
 
 export const deleteWorkspaceCommandActivity = () => ({
@@ -94,7 +93,6 @@ export const workspaceConnectionActivity = (workspaceId?: string) => ({
 		return API.getWorkspaceConnectionActivity(workspaceId);
 	},
 	enabled: Boolean(workspaceId),
-	refetchInterval: 1_000,
 });
 
 export const workspaceActiveVolumeCopyOperation = (workspaceId?: string) => ({

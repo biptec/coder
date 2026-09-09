@@ -3,12 +3,16 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"sort"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/require"
 
+	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/codersdk/toolsdk"
 )
 
@@ -66,6 +70,89 @@ func TestActivityTrackingPropagatesInvocationTool(t *testing.T) {
 	_, err := wrapped.Handler(context.Background(), mcpgo.CallToolRequest{})
 	require.NoError(t, err)
 	require.Equal(t, "exec", gotTool)
+}
+
+type fakePersistentActivityRecorder struct {
+	starts   []string
+	finishes []PersistentActivityStatus
+}
+
+func (f *fakePersistentActivityRecorder) StartToolActivity(_ context.Context, _ string, toolName, workspace string, _ time.Time) (PersistentActivityHandle, error) {
+	f.starts = append(f.starts, toolName+"@"+workspace)
+	return PersistentActivityHandle{ID: uuid.New(), WorkspaceID: uuid.New()}, nil
+}
+
+func (f *fakePersistentActivityRecorder) FinishToolActivity(_ context.Context, _ PersistentActivityHandle, status PersistentActivityStatus, _ time.Time) error {
+	f.finishes = append(f.finishes, status)
+	return nil
+}
+
+func TestActivityTrackingPersistsWorkspaceToolCallsWithoutDuplicatingCommands(t *testing.T) {
+	t.Parallel()
+
+	recorder := &fakePersistentActivityRecorder{}
+	s := &Server{activityUserID: "user-a", activityRecorder: recorder}
+	request := mcpgo.CallToolRequest{Params: mcpgo.CallToolParams{Arguments: map[string]any{
+		"workspace": "owner/workspace",
+	}}}
+	okHandler := func(context.Context, mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+		return mcpgo.NewToolResultText("ok"), nil
+	}
+
+	processOutput := s.withActivityTracking(server.ServerTool{Handler: okHandler}, "process_output")
+	_, err := processOutput.Handler(context.Background(), request)
+	require.NoError(t, err)
+	require.Equal(t, []string{"process_output@owner/workspace"}, recorder.starts)
+	require.Equal(t, []PersistentActivityStatus{PersistentActivityStatusSucceeded}, recorder.finishes)
+
+	execTool := s.withActivityTracking(server.ServerTool{Handler: okHandler}, "exec")
+	_, err = execTool.Handler(context.Background(), request)
+	require.NoError(t, err)
+	require.Len(t, recorder.starts, 1, "exec already has a command activity row and must not be duplicated")
+	require.Len(t, recorder.finishes, 1)
+}
+
+func TestPersistAsToolActivity(t *testing.T) {
+	t.Parallel()
+
+	for _, toolName := range []string{
+		"exec",
+		"bash",
+		"process_start",
+		toolsdk.ToolNameWorkspaceExec,
+		toolsdk.ToolNameWorkspaceBash,
+		toolsdk.ToolNameWorkspaceProcessStart,
+		toolsdk.ToolNameWorkspaceProcessStartV2,
+	} {
+		require.False(t, persistAsToolActivity(toolName), toolName)
+	}
+	for _, toolName := range []string{
+		"process_output",
+		"process_list",
+		"read_file",
+		"search_results",
+		toolsdk.ToolNameWorkspaceProcessOutput,
+	} {
+		require.True(t, persistAsToolActivity(toolName), toolName)
+	}
+}
+
+func TestActivityToolNames(t *testing.T) {
+	t.Parallel()
+
+	developer := ActivityToolNames(codersdk.MCPToolsetDeveloper)
+	require.True(t, sort.StringsAreSorted(developer))
+	for _, toolName := range []string{"exec", "process_output", "read_file", "recent_activity"} {
+		require.Contains(t, developer, toolName)
+	}
+
+	readonly := ActivityToolNames(codersdk.MCPToolsetReadonly)
+	require.Contains(t, readonly, "process_output")
+	require.Contains(t, readonly, "read_file")
+	require.Contains(t, readonly, "recent_activity")
+	require.NotContains(t, readonly, "exec")
+	require.NotContains(t, readonly, "write_file")
+	require.NotContains(t, readonly, "process_signal")
 }
 
 func TestActivityStoreWorkspaceFilter(t *testing.T) {

@@ -3,6 +3,7 @@ import { type FC, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "react-query";
 import { useParams } from "react-router";
 import { toast } from "sonner";
+import { watchWorkspaceActivity } from "#/api/api";
 import { getErrorMessage } from "#/api/errors";
 import {
 	deleteWorkspaceCommandActivity,
@@ -12,13 +13,17 @@ import {
 } from "#/api/queries/workspaces";
 import type {
 	ConnectionType,
+	ServerSentEvent,
+	WorkspaceActivityWatchEvent,
 	WorkspaceCommandActivity,
 	WorkspaceCommandActivityFilter,
 	WorkspaceCommandActivityRequest,
+	WorkspaceCommandActivityResponse,
 	WorkspaceCommandActivitySort,
 	WorkspaceCommandActivitySortDirection,
 	WorkspaceCommandActivitySource,
 	WorkspaceCommandActivityStatus,
+	WorkspaceConnectionActivityResponse,
 	WorkspaceConnectionActivityType,
 } from "#/api/typesGenerated";
 import { ErrorAlert } from "#/components/Alert/ErrorAlert";
@@ -36,6 +41,11 @@ import {
 	PageHeaderTitle,
 } from "#/components/PageHeader/PageHeader";
 import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "#/components/Popover/Popover";
+import {
 	Select,
 	SelectContent,
 	SelectItem,
@@ -51,6 +61,16 @@ import {
 	TableRow,
 } from "#/components/Table/Table";
 import { pageTitle } from "#/utils/page";
+import {
+	defaultActivityStatuses as defaultStatusOptions,
+	defaultWorkspaceActivityPreferences,
+	loadWorkspaceActivityPreferences,
+	activityPageSizeOptions as pageSizeOptions,
+	saveWorkspaceActivityPreferences,
+	activitySourceOptions as sourceOptions,
+	activityStatusOptions as statusOptions,
+} from "./activityPreferences";
+import { updateCommandActivityCache } from "./commandActivityCache";
 
 const connectionTypeLabels: Record<string, string> = {
 	ssh: "SSH",
@@ -70,24 +90,8 @@ const commandSourceLabels: Record<WorkspaceCommandActivitySource, string> = {
 	chat: "Coder Chat",
 };
 
-const sourceOptions: readonly WorkspaceCommandActivitySource[] = [
-	"mcp",
-	"ssh",
-	"reconnecting_pty",
-	"vscode",
-	"jetbrains",
-	"chat",
-	"agentproc",
-];
-
-const statusOptions: readonly WorkspaceCommandActivityStatus[] = [
-	"running",
-	"succeeded",
-	"failed",
-	"interrupted",
-];
-
-const pageSizeOptions = [25, 50, 100, 250, 500] as const;
+const statusLabel = (status: WorkspaceCommandActivityStatus): string =>
+	status.charAt(0).toUpperCase() + status.slice(1);
 
 type DeleteMode = "filtered" | "selected" | null;
 
@@ -105,20 +109,37 @@ const WorkspaceCommandActivityPage: FC = () => {
 	);
 	const workspaceId = workspaceQuery.data?.id;
 
-	const [search, setSearch] = useState("");
-	const [debouncedSearch, setDebouncedSearch] = useState("");
-	const [status, setStatus] = useState<string>("all");
-	const [source, setSource] = useState<string>("all");
-	const [tool, setTool] = useState("");
-	const [startedAfter, setStartedAfter] = useState("");
-	const [startedBefore, setStartedBefore] = useState("");
-	const [durationMin, setDurationMin] = useState("");
-	const [durationMax, setDurationMax] = useState("");
-	const [sortBy, setSortBy] = useState<WorkspaceCommandActivitySort>("started");
+	const [initialPreferences] = useState(loadWorkspaceActivityPreferences);
+	const [search, setSearch] = useState(initialPreferences.search);
+	const [debouncedSearch, setDebouncedSearch] = useState(
+		initialPreferences.search.trim(),
+	);
+	const [statuses, setStatuses] = useState<WorkspaceCommandActivityStatus[]>(
+		initialPreferences.statuses,
+	);
+	const [source, setSource] = useState<string>(initialPreferences.source);
+	const [tools, setTools] = useState<string[] | null>(initialPreferences.tools);
+	const [startedAfter, setStartedAfter] = useState(
+		initialPreferences.startedAfter,
+	);
+	const [startedBefore, setStartedBefore] = useState(
+		initialPreferences.startedBefore,
+	);
+	const [durationMin, setDurationMin] = useState(
+		initialPreferences.durationMin,
+	);
+	const [durationMax, setDurationMax] = useState(
+		initialPreferences.durationMax,
+	);
+	const [sortBy, setSortBy] = useState<WorkspaceCommandActivitySort>(
+		initialPreferences.sortBy,
+	);
 	const [sortDirection, setSortDirection] =
-		useState<WorkspaceCommandActivitySortDirection>("desc");
+		useState<WorkspaceCommandActivitySortDirection>(
+			initialPreferences.sortDirection,
+		);
 	const [page, setPage] = useState(1);
-	const [pageSize, setPageSize] = useState(50);
+	const [pageSize, setPageSize] = useState(initialPreferences.pageSize);
 	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 	const [deleteMode, setDeleteMode] = useState<DeleteMode>(null);
 
@@ -129,6 +150,34 @@ const WorkspaceCommandActivityPage: FC = () => {
 		);
 		return () => window.clearTimeout(timer);
 	}, [search]);
+
+	useEffect(() => {
+		saveWorkspaceActivityPreferences({
+			search,
+			statuses,
+			tools,
+			source: source as "all" | WorkspaceCommandActivitySource,
+			startedAfter,
+			startedBefore,
+			durationMin,
+			durationMax,
+			sortBy,
+			sortDirection,
+			pageSize,
+		});
+	}, [
+		search,
+		statuses,
+		tools,
+		source,
+		startedAfter,
+		startedBefore,
+		durationMin,
+		durationMax,
+		sortBy,
+		sortDirection,
+		pageSize,
+	]);
 
 	const parsedMinDuration = useMemo(
 		() => parseDurationFilter(durationMin, "Minimum duration"),
@@ -158,11 +207,8 @@ const WorkspaceCommandActivityPage: FC = () => {
 
 	const filter = useMemo<WorkspaceCommandActivityFilter>(
 		() => ({
-			statuses:
-				status === "all"
-					? undefined
-					: [status as WorkspaceCommandActivityStatus],
-			tools: tool.trim() ? [tool.trim()] : undefined,
+			statuses,
+			tools: tools ?? undefined,
 			sources:
 				source === "all"
 					? undefined
@@ -174,8 +220,8 @@ const WorkspaceCommandActivityPage: FC = () => {
 			duration_max_ms: parsedMaxDuration.value,
 		}),
 		[
-			status,
-			tool,
+			statuses,
+			tools,
 			source,
 			debouncedSearch,
 			startedAfter,
@@ -196,9 +242,27 @@ const WorkspaceCommandActivityPage: FC = () => {
 		[filter, sortBy, sortDirection, page, pageSize],
 	);
 
+	const hasToolSelection = tools === null || tools.length > 0;
 	const commandQuery = useQuery({
 		...workspaceCommandActivity(workspaceId, commandRequest),
-		enabled: Boolean(workspaceId) && !filterError,
+		enabled:
+			Boolean(workspaceId) &&
+			!filterError &&
+			statuses.length > 0 &&
+			hasToolSelection,
+	});
+	const toolCatalogQuery = useQuery({
+		...workspaceCommandActivity(workspaceId, {
+			statuses: [...defaultStatusOptions],
+			sort_by: "started",
+			sort_direction: "desc",
+			page: 1,
+			page_size: 1,
+		}),
+		enabled:
+			Boolean(workspaceId) &&
+			!filterError &&
+			(statuses.length === 0 || !hasToolSelection),
 	});
 	const connectionQuery = useQuery(workspaceConnectionActivity(workspaceId));
 	const queryClient = useQueryClient();
@@ -206,7 +270,7 @@ const WorkspaceCommandActivityPage: FC = () => {
 		...deleteWorkspaceCommandActivity(),
 		onSuccess: (response) => {
 			toast.success(
-				`Cleared ${response.deleted} command history ${response.deleted === 1 ? "record" : "records"}.`,
+				`Cleared ${response.deleted} activity history ${response.deleted === 1 ? "record" : "records"}.`,
 			);
 			setSelectedIds(new Set());
 			setDeleteMode(null);
@@ -216,23 +280,51 @@ const WorkspaceCommandActivityPage: FC = () => {
 			});
 		},
 		onError: (error: unknown) => {
-			toast.error(getErrorMessage(error, "Failed to clear command history."));
+			toast.error(getErrorMessage(error, "Failed to clear activity history."));
 		},
 	});
 
-	const activity = commandQuery.data?.activity ?? [];
-	const currentPageIds = useMemo(
-		() => new Set(activity.map((item) => item.id)),
+	const hasActivitySelection = statuses.length > 0 && hasToolSelection;
+	const availableTools = useMemo(() => {
+		const names = new Set([
+			...(commandQuery.data?.available_tools ?? []),
+			...(toolCatalogQuery.data?.available_tools ?? []),
+		]);
+		for (const name of tools ?? []) names.add(name);
+		return Array.from(names).sort();
+	}, [
+		commandQuery.data?.available_tools,
+		toolCatalogQuery.data?.available_tools,
+		tools,
+	]);
+	const activity = hasActivitySelection
+		? (commandQuery.data?.activity ?? [])
+		: [];
+	const selectableActivity = useMemo(
+		() => activity.filter((item) => item.status !== "idle"),
 		[activity],
 	);
+	const currentPageIds = useMemo(
+		() => new Set(selectableActivity.map((item) => item.id)),
+		[selectableActivity],
+	);
 	const allCurrentPageSelected =
-		activity.length > 0 && activity.every((item) => selectedIds.has(item.id));
-	const totalCount = commandQuery.data?.total_count ?? 0;
-	const totalPages = Math.max(1, commandQuery.data?.total_pages ?? 0);
+		selectableActivity.length > 0 &&
+		selectableActivity.every((item) => selectedIds.has(item.id));
+	const totalCount = hasActivitySelection
+		? (commandQuery.data?.total_count ?? 0)
+		: 0;
+	const deletableCount = hasActivitySelection
+		? (commandQuery.data?.deletable_count ?? 0)
+		: 0;
+	const totalPages = Math.max(
+		1,
+		hasActivitySelection ? (commandQuery.data?.total_pages ?? 0) : 0,
+	);
 	const hasActiveFilter = Boolean(
-		status !== "all" ||
+		!hasDefaultStatuses(statuses) ||
+			tools !== null ||
 			source !== "all" ||
-			tool.trim() ||
 			search.trim() ||
 			startedAfter ||
 			startedBefore ||
@@ -245,6 +337,106 @@ const WorkspaceCommandActivityPage: FC = () => {
 			setPage(totalPages);
 		}
 	}, [page, totalPages]);
+
+	useEffect(() => {
+		if (!workspaceId) return;
+
+		let disposed = false;
+		let reconnectTimer: number | undefined;
+		let resyncTimer: number | undefined;
+		let activeSocket: ReturnType<typeof watchWorkspaceActivity> | undefined;
+
+		const commandKey = ["workspaces", workspaceId, "command-activity"] as const;
+		const connectionKey = [
+			"workspaces",
+			workspaceId,
+			"connection-activity",
+		] as const;
+		const scheduleCommandResync = () => {
+			if (resyncTimer !== undefined) window.clearTimeout(resyncTimer);
+			resyncTimer = window.setTimeout(() => {
+				void queryClient.invalidateQueries({ queryKey: commandKey });
+			}, 150);
+		};
+
+		const handleCommandUpsert = (command: WorkspaceCommandActivity) => {
+			let needsResync = false;
+			const cached =
+				queryClient.getQueriesData<WorkspaceCommandActivityResponse>({
+					queryKey: commandKey,
+				});
+			for (const [queryKey, data] of cached) {
+				if (!data || !Array.isArray(queryKey)) continue;
+				const request = (queryKey[3] ?? {}) as WorkspaceCommandActivityRequest;
+				const update = updateCommandActivityCache(data, command, request);
+				if (update === undefined) {
+					needsResync = true;
+					continue;
+				}
+				if (update !== data) queryClient.setQueryData(queryKey, update);
+			}
+			if (needsResync) scheduleCommandResync();
+		};
+
+		const connect = () => {
+			if (disposed) return;
+			const socket = watchWorkspaceActivity(workspaceId);
+			activeSocket = socket;
+			socket.addEventListener("message", (event) => {
+				if (event.parseError || !event.parsedMessage) return;
+				const envelope = event.parsedMessage as ServerSentEvent;
+				if (envelope.type === "ping") {
+					// The server sends ping only after the PubSub subscription is
+					// installed. Resync once at this barrier so there is no race
+					// between the initial REST snapshot and the realtime stream. The
+					// same barrier restores any deltas missed during reconnect.
+					void queryClient.invalidateQueries({ queryKey: commandKey });
+					void queryClient.invalidateQueries({ queryKey: connectionKey });
+					return;
+				}
+				if (envelope.type !== "data") return;
+				const payload = envelope.data as WorkspaceActivityWatchEvent;
+				switch (payload.type) {
+					case "command_upsert":
+						if (payload.command) handleCommandUpsert(payload.command);
+						break;
+					case "command_resync":
+						scheduleCommandResync();
+						break;
+					case "connection_update":
+						if (payload.connection) {
+							queryClient.setQueryData<WorkspaceConnectionActivityResponse>(
+								connectionKey,
+								payload.connection,
+							);
+						}
+						break;
+				}
+			});
+			const reconnect = () => {
+				if (disposed || reconnectTimer !== undefined) return;
+				reconnectTimer = window.setTimeout(() => {
+					reconnectTimer = undefined;
+					connect();
+				}, 1_000);
+			};
+			socket.addEventListener("close", reconnect);
+			socket.addEventListener("error", () => {
+				// Do not leave an errored socket alive while the retry timer creates
+				// another one. close() may also emit close; reconnect() is guarded.
+				socket.close();
+				reconnect();
+			});
+		};
+
+		connect();
+		return () => {
+			disposed = true;
+			if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
+			if (resyncTimer !== undefined) window.clearTimeout(resyncTimer);
+			activeSocket?.close();
+		};
+	}, [workspaceId, queryClient]);
 
 	if (workspaceQuery.isLoading) {
 		return <Loader />;
@@ -259,15 +451,16 @@ const WorkspaceCommandActivityPage: FC = () => {
 	}
 
 	const resetFilters = () => {
-		setSearch("");
-		setDebouncedSearch("");
-		setStatus("all");
-		setSource("all");
-		setTool("");
-		setStartedAfter("");
-		setStartedBefore("");
-		setDurationMin("");
-		setDurationMax("");
+		const defaults = defaultWorkspaceActivityPreferences();
+		setSearch(defaults.search);
+		setDebouncedSearch(defaults.search);
+		setStatuses(defaults.statuses);
+		setTools(defaults.tools);
+		setSource(defaults.source);
+		setStartedAfter(defaults.startedAfter);
+		setStartedBefore(defaults.startedBefore);
+		setDurationMin(defaults.durationMin);
+		setDurationMax(defaults.durationMax);
 		setPage(1);
 	};
 
@@ -306,12 +499,12 @@ const WorkspaceCommandActivityPage: FC = () => {
 
 	return (
 		<>
-			<title>{pageTitle(`Command activity · ${workspaceName}`)}</title>
+			<title>{pageTitle(`Workspace activity · ${workspaceName}`)}</title>
 			<Margins className="pb-12">
 				<PageHeader>
-					<PageHeaderTitle>Command activity</PageHeaderTitle>
+					<PageHeaderTitle>Workspace activity</PageHeaderTitle>
 					<PageHeaderSubtitle>
-						Live commands and workspace connections for @{username}/
+						Live commands, MCP tools, and workspace connections for @{username}/
 						{workspaceName}.
 					</PageHeaderSubtitle>
 				</PageHeader>
@@ -354,11 +547,12 @@ const WorkspaceCommandActivityPage: FC = () => {
 						<div className="flex flex-wrap items-end justify-between gap-4">
 							<div>
 								<h2 className="m-0 text-base font-semibold text-content-primary">
-									Commands
+									Activity history
 								</h2>
 								<p className="m-0 mt-1 text-sm text-content-secondary">
-									Live command history. Filters, sorting, pagination, and
-									clearing are applied to the full server-side history.
+									Live command and MCP tool history. Filters, sorting,
+									pagination, and clearing are applied to the full server-side
+									history.
 								</p>
 							</div>
 							<div className="flex flex-wrap items-center gap-2">
@@ -385,7 +579,7 @@ const WorkspaceCommandActivityPage: FC = () => {
 									size="sm"
 									variant="destructive"
 									disabled={
-										totalCount === 0 ||
+										deletableCount === 0 ||
 										deleteMutation.isPending ||
 										Boolean(filterError)
 									}
@@ -398,9 +592,7 @@ const WorkspaceCommandActivityPage: FC = () => {
 
 						<CommandActivityFilters
 							search={search}
-							status={status}
 							source={source}
-							tool={tool}
 							startedAfter={startedAfter}
 							startedBefore={startedBefore}
 							durationMin={durationMin}
@@ -410,16 +602,8 @@ const WorkspaceCommandActivityPage: FC = () => {
 								setSearch(value);
 								setPage(1);
 							}}
-							onStatus={(value) => {
-								setStatus(value);
-								setPage(1);
-							}}
 							onSource={(value) => {
 								setSource(value);
-								setPage(1);
-							}}
-							onTool={(value) => {
-								setTool(value);
 								setPage(1);
 							}}
 							onStartedAfter={(value) => {
@@ -452,11 +636,24 @@ const WorkspaceCommandActivityPage: FC = () => {
 						) : (
 							<CommandActivityTable
 								activity={activity}
+								statuses={statuses}
+								tools={tools}
+								availableTools={availableTools}
 								selectedIds={selectedIds}
 								allCurrentPageSelected={allCurrentPageSelected}
 								sortBy={sortBy}
 								sortDirection={sortDirection}
 								onSort={updateSort}
+								onStatuses={(value) => {
+									setStatuses(value);
+									setSelectedIds(new Set());
+									setPage(1);
+								}}
+								onTools={(value) => {
+									setTools(value);
+									setSelectedIds(new Set());
+									setPage(1);
+								}}
 								onSelectPage={(checked) => {
 									setSelectedIds((current) => {
 										const next = new Set(current);
@@ -502,13 +699,13 @@ const WorkspaceCommandActivityPage: FC = () => {
 				title={
 					deleteMode === "selected"
 						? `Clear ${selectedIds.size} selected history records?`
-						: `Clear ${totalCount} matching history records?`
+						: `Clear ${deletableCount} matching history records?`
 				}
 				confirmText="Clear history"
 				description={
 					<>
 						<p>
-							This permanently removes the matching Command Activity records
+							This permanently removes the matching workspace activity records
 							from the database.
 						</p>
 						<p>
@@ -524,18 +721,14 @@ const WorkspaceCommandActivityPage: FC = () => {
 
 type CommandActivityFiltersProps = {
 	search: string;
-	status: string;
 	source: string;
-	tool: string;
 	startedAfter: string;
 	startedBefore: string;
 	durationMin: string;
 	durationMax: string;
 	error?: string;
 	onSearch: (value: string) => void;
-	onStatus: (value: string) => void;
 	onSource: (value: string) => void;
-	onTool: (value: string) => void;
 	onStartedAfter: (value: string) => void;
 	onStartedBefore: (value: string) => void;
 	onDurationMin: (value: string) => void;
@@ -545,18 +738,14 @@ type CommandActivityFiltersProps = {
 
 const CommandActivityFilters: FC<CommandActivityFiltersProps> = ({
 	search,
-	status,
 	source,
-	tool,
 	startedAfter,
 	startedBefore,
 	durationMin,
 	durationMax,
 	error,
 	onSearch,
-	onStatus,
 	onSource,
-	onTool,
 	onStartedAfter,
 	onStartedBefore,
 	onDurationMin,
@@ -570,28 +759,6 @@ const CommandActivityFilters: FC<CommandActivityFiltersProps> = ({
 					value={search}
 					onChange={(event) => onSearch(event.currentTarget.value)}
 					placeholder="Live search command or arguments"
-				/>
-			</FilterField>
-			<FilterField label="Status">
-				<Select value={status} onValueChange={onStatus}>
-					<SelectTrigger>
-						<SelectValue />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="all">All statuses</SelectItem>
-						{statusOptions.map((value) => (
-							<SelectItem key={value} value={value}>
-								{value}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
-			</FilterField>
-			<FilterField label="Tool">
-				<Input
-					value={tool}
-					onChange={(event) => onTool(event.currentTarget.value)}
-					placeholder="Exact tool, e.g. exec"
 				/>
 			</FilterField>
 			<FilterField label="Source">
@@ -646,7 +813,8 @@ const CommandActivityFilters: FC<CommandActivityFiltersProps> = ({
 
 		<div className="flex items-center justify-between gap-4">
 			<div className="text-xs text-content-secondary">
-				Search is debounced by 250 ms. History refreshes live every second.
+				Search is debounced by 250 ms. Live updates stream over WebSocket; there
+				is no periodic history polling.
 			</div>
 			<Button size="sm" variant="subtle" onClick={onReset}>
 				Reset filters
@@ -654,6 +822,164 @@ const CommandActivityFilters: FC<CommandActivityFiltersProps> = ({
 		</div>
 	</div>
 );
+
+const StatusMultiSelect: FC<{
+	statuses: readonly WorkspaceCommandActivityStatus[];
+	onChange: (statuses: WorkspaceCommandActivityStatus[]) => void;
+	compact?: boolean;
+}> = ({ statuses, onChange, compact = false }) => {
+	const triggerLabel = compact
+		? `${statuses.length}/${statusOptions.length}`
+		: statuses.length === 0
+			? "No statuses"
+			: statuses.length === statusOptions.length
+				? "All statuses"
+				: statuses.length === 1
+					? statusLabel(statuses[0])
+					: `${statuses.length} statuses`;
+
+	const toggle = (status: WorkspaceCommandActivityStatus, checked: boolean) => {
+		const next = new Set(statuses);
+		if (checked) next.add(status);
+		else next.delete(status);
+		onChange(statusOptions.filter((candidate) => next.has(candidate)));
+	};
+
+	return (
+		<Popover>
+			<PopoverTrigger asChild>
+				<Button
+					variant={compact ? "subtle" : "outline"}
+					size={compact ? "xs" : undefined}
+					className={
+						compact
+							? "min-w-0 px-1 font-normal"
+							: "w-full justify-between font-normal"
+					}
+					aria-label="Filter activity statuses"
+				>
+					<span>{triggerLabel}</span>
+					<span aria-hidden="true" className="text-content-secondary">
+						▾
+					</span>
+				</Button>
+			</PopoverTrigger>
+			<PopoverContent align="start" className="w-64 p-2">
+				<div className="space-y-1" role="group" aria-label="Command statuses">
+					{statusOptions.map((status) => {
+						const checked = statuses.includes(status);
+						const id = `command-status-${status}`;
+						return (
+							<div
+								key={status}
+								className="flex items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-surface-secondary"
+							>
+								<Checkbox
+									id={id}
+									checked={checked}
+									onCheckedChange={(value) => toggle(status, Boolean(value))}
+								/>
+								<label htmlFor={id} className="flex-1 cursor-pointer">
+									{statusLabel(status)}
+								</label>
+							</div>
+						);
+					})}
+				</div>
+			</PopoverContent>
+		</Popover>
+	);
+};
+
+const ToolMultiSelect: FC<{
+	tools: readonly string[] | null;
+	availableTools: readonly string[];
+	onChange: (tools: string[] | null) => void;
+	compact?: boolean;
+}> = ({ tools, availableTools, onChange, compact = false }) => {
+	const triggerLabel = compact
+		? tools === null
+			? "All"
+			: availableTools.length > 0
+				? `${tools.length}/${availableTools.length}`
+				: String(tools.length)
+		: tools === null
+			? "All tools"
+			: tools.length === 0
+				? "No tools"
+				: tools.length === 1
+					? tools[0]
+					: `${tools.length} tools`;
+
+	const toggle = (tool: string, checked: boolean) => {
+		const next = new Set(tools ?? availableTools);
+		if (checked) next.add(tool);
+		else next.delete(tool);
+		const ordered = availableTools.filter((candidate) => next.has(candidate));
+		const allSelected =
+			availableTools.length > 0 && ordered.length === availableTools.length;
+		onChange(allSelected ? null : ordered);
+	};
+
+	return (
+		<Popover>
+			<PopoverTrigger asChild>
+				<Button
+					variant={compact ? "subtle" : "outline"}
+					size={compact ? "xs" : undefined}
+					className={
+						compact
+							? "min-w-0 px-1 font-normal"
+							: "w-full justify-between font-normal"
+					}
+					aria-label="Filter activity tools"
+				>
+					<span className="truncate">{triggerLabel}</span>
+					<span aria-hidden="true" className="text-content-secondary">
+						▾
+					</span>
+				</Button>
+			</PopoverTrigger>
+			<PopoverContent align="start" className="w-72 p-2">
+				<div
+					className="max-h-80 space-y-1 overflow-y-auto"
+					role="group"
+					aria-label="MCP tools"
+				>
+					{availableTools.length === 0 ? (
+						<div className="px-2 py-2 text-sm text-content-secondary">
+							No tools available yet.
+						</div>
+					) : (
+						availableTools.map((tool) => {
+							const checked = tools === null || tools.includes(tool);
+							const id = `activity-tool-${tool}`;
+							return (
+								<div
+									key={tool}
+									className="flex items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-surface-secondary"
+								>
+									<Checkbox
+										id={id}
+										checked={checked}
+										onCheckedChange={(value) => toggle(tool, Boolean(value))}
+									/>
+									<label
+										htmlFor={id}
+										className="min-w-0 flex-1 cursor-pointer truncate"
+										title={tool}
+									>
+										{tool}
+									</label>
+								</div>
+							);
+						})
+					)}
+				</div>
+			</PopoverContent>
+		</Popover>
+	);
+};
 
 const FilterField: FC<{ label: string; children: React.ReactNode }> = ({
 	label,
@@ -719,42 +1045,47 @@ const ConnectionActivityRow: FC<{ item: WorkspaceConnectionActivityType }> = ({
 
 type CommandActivityTableProps = {
 	activity: readonly WorkspaceCommandActivity[];
+	statuses: readonly WorkspaceCommandActivityStatus[];
+	tools: readonly string[] | null;
+	availableTools: readonly string[];
 	selectedIds: ReadonlySet<string>;
 	allCurrentPageSelected: boolean;
 	sortBy: WorkspaceCommandActivitySort;
 	sortDirection: WorkspaceCommandActivitySortDirection;
 	onSort: (column: WorkspaceCommandActivitySort) => void;
+	onStatuses: (statuses: WorkspaceCommandActivityStatus[]) => void;
+	onTools: (tools: string[] | null) => void;
 	onSelectPage: (checked: boolean) => void;
 	onSelect: (id: string, checked: boolean) => void;
 };
 
 const CommandActivityTable: FC<CommandActivityTableProps> = ({
 	activity,
+	statuses,
+	tools,
+	availableTools,
 	selectedIds,
 	allCurrentPageSelected,
 	sortBy,
 	sortDirection,
 	onSort,
+	onStatuses,
+	onTools,
 	onSelectPage,
 	onSelect,
 }) => {
-	if (activity.length === 0) {
-		return (
-			<EmptyState message="No command activity matches the current filters." />
-		);
-	}
-
 	return (
 		<div className="overflow-x-auto">
-			<Table aria-label="Workspace command activity">
+			<Table aria-label="Workspace activity history">
 				<TableHeader>
 					<TableRow>
 						<TableHead className="min-w-52">
 							<div className="flex items-center gap-3">
 								<Checkbox
 									checked={allCurrentPageSelected}
+									disabled={!activity.some((item) => item.status !== "idle")}
 									onCheckedChange={(checked) => onSelectPage(Boolean(checked))}
-									aria-label="Select all commands on this page"
+									aria-label="Select all activity on this page"
 								/>
 								<SortHeader
 									label="ID"
@@ -765,11 +1096,22 @@ const CommandActivityTable: FC<CommandActivityTableProps> = ({
 								/>
 							</div>
 						</TableHead>
-						<SortableHead
-							label="Status"
-							column="status"
-							{...{ sortBy, sortDirection, onSort }}
-						/>
+						<TableHead>
+							<div className="flex items-center gap-1">
+								<SortHeader
+									label="Status"
+									column="status"
+									sortBy={sortBy}
+									direction={sortDirection}
+									onSort={onSort}
+								/>
+								<StatusMultiSelect
+									statuses={statuses}
+									onChange={onStatuses}
+									compact
+								/>
+							</div>
+						</TableHead>
 						<SortableHead
 							label="Started"
 							column="started"
@@ -780,11 +1122,23 @@ const CommandActivityTable: FC<CommandActivityTableProps> = ({
 							column="duration"
 							{...{ sortBy, sortDirection, onSort }}
 						/>
-						<SortableHead
-							label="Tool"
-							column="tool"
-							{...{ sortBy, sortDirection, onSort }}
-						/>
+						<TableHead>
+							<div className="flex items-center gap-1">
+								<SortHeader
+									label="Tool"
+									column="tool"
+									sortBy={sortBy}
+									direction={sortDirection}
+									onSort={onSort}
+								/>
+								<ToolMultiSelect
+									tools={tools}
+									availableTools={availableTools}
+									onChange={onTools}
+									compact
+								/>
+							</div>
+						</TableHead>
 						<SortableHead
 							label="Source"
 							column="source"
@@ -803,14 +1157,22 @@ const CommandActivityTable: FC<CommandActivityTableProps> = ({
 					</TableRow>
 				</TableHeader>
 				<TableBody>
-					{activity.map((item) => (
-						<CommandActivityRow
-							key={item.id}
-							item={item}
-							checked={selectedIds.has(item.id)}
-							onCheckedChange={(checked) => onSelect(item.id, checked)}
-						/>
-					))}
+					{activity.length === 0 ? (
+						<TableRow>
+							<TableCell colSpan={8}>
+								<EmptyState message="No workspace activity matches the current filters." />
+							</TableCell>
+						</TableRow>
+					) : (
+						activity.map((item) => (
+							<CommandActivityRow
+								key={item.id}
+								item={item}
+								checked={selectedIds.has(item.id)}
+								onCheckedChange={(checked) => onSelect(item.id, checked)}
+							/>
+						))
+					)}
 				</TableBody>
 			</Table>
 		</div>
@@ -867,19 +1229,22 @@ const CommandActivityRow: FC<{
 	checked: boolean;
 	onCheckedChange: (checked: boolean) => void;
 }> = ({ item, checked, onCheckedChange }) => {
+	const idle = item.status === "idle";
 	return (
 		<TableRow>
 			<TableCell>
-				<div className="flex items-center gap-3">
-					<Checkbox
-						checked={checked}
-						onCheckedChange={(value) => onCheckedChange(Boolean(value))}
-						aria-label={`Select command ${item.id}`}
-					/>
-					<code className="text-2xs text-content-secondary" title={item.id}>
-						{item.id}
-					</code>
-				</div>
+				{!idle && (
+					<div className="flex items-center gap-3">
+						<Checkbox
+							checked={checked}
+							onCheckedChange={(value) => onCheckedChange(Boolean(value))}
+							aria-label={`Select activity ${item.id}`}
+						/>
+						<code className="text-2xs text-content-secondary" title={item.id}>
+							{item.id}
+						</code>
+					</div>
+				)}
 			</TableCell>
 			<TableCell>
 				<CommandStatusBadge status={item.status} />
@@ -888,24 +1253,30 @@ const CommandActivityRow: FC<{
 				{formatTimestamp(item.started_at)}
 			</TableCell>
 			<TableCell className="whitespace-nowrap">
-				{formatDuration(item)}
+				<CommandDuration item={item} />
 			</TableCell>
-			<TableCell>{item.tool || "—"}</TableCell>
-			<TableCell>{commandSourceLabels[item.source] ?? item.source}</TableCell>
+			<TableCell>{idle ? "" : item.tool || "—"}</TableCell>
+			<TableCell>
+				{idle ? "" : (commandSourceLabels[item.source] ?? item.source)}
+			</TableCell>
 			<TableCell className="min-w-72 max-w-[48rem]">
-				<code className="block whitespace-pre-wrap break-words text-xs text-content-primary">
-					{displayCommand(item)}
-				</code>
-				{item.work_dir && (
-					<div
-						className="mt-1 truncate text-2xs text-content-secondary"
-						title={item.work_dir}
-					>
-						{item.work_dir}
-					</div>
+				{!idle && (
+					<>
+						<code className="block whitespace-pre-wrap break-words text-xs text-content-primary">
+							{displayCommand(item)}
+						</code>
+						{item.work_dir && (
+							<div
+								className="mt-1 truncate text-2xs text-content-secondary"
+								title={item.work_dir}
+							>
+								{item.work_dir}
+							</div>
+						)}
+					</>
 				)}
 			</TableCell>
-			<TableCell>{item.exit_code ?? ""}</TableCell>
+			<TableCell>{idle ? "" : (item.exit_code ?? "")}</TableCell>
 		</TableRow>
 	);
 };
@@ -916,11 +1287,13 @@ const CommandStatusBadge: FC<{ status: WorkspaceCommandActivityStatus }> = ({
 	const variant =
 		status === "running"
 			? "info"
-			: status === "succeeded"
-				? "green"
-				: status === "failed"
-					? "destructive"
-					: "warning";
+			: status === "idle"
+				? "default"
+				: status === "succeeded"
+					? "green"
+					: status === "failed"
+						? "destructive"
+						: "warning";
 	return (
 		<Badge variant={variant} size="xs">
 			{status}
@@ -1009,6 +1382,12 @@ const CommandActivityPagination: FC<CommandActivityPaginationProps> = ({
 	);
 };
 
+const hasDefaultStatuses = (
+	statuses: readonly WorkspaceCommandActivityStatus[],
+): boolean =>
+	statuses.length === defaultStatusOptions.length &&
+	defaultStatusOptions.every((status) => statuses.includes(status));
+
 const parseDurationFilter = (raw: string, label: string): ParsedDuration => {
 	const value = raw.trim().toLowerCase();
 	if (!value) return {};
@@ -1033,6 +1412,7 @@ const connectionTypeLabel = (type: ConnectionType): string =>
 	connectionTypeLabels[type] ?? type;
 
 const displayCommand = (item: WorkspaceCommandActivity): string => {
+	if (item.kind === "tool") return "";
 	if (item.command) {
 		return item.command;
 	}
@@ -1049,9 +1429,26 @@ const formatTimestamp = (value?: string): string => {
 	return dayjs(value).format("YYYY-MM-DD HH:mm:ss");
 };
 
-const formatDuration = (item: WorkspaceCommandActivity): string => {
+const CommandDuration: FC<{ item: WorkspaceCommandActivity }> = ({ item }) => {
+	const live = !item.finished_at;
+	const [now, setNow] = useState(() => Date.now());
+
+	useEffect(() => {
+		if (!live) return;
+		setNow(Date.now());
+		const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+		return () => window.clearInterval(timer);
+	}, [live]);
+
+	return <>{formatDuration(item, now)}</>;
+};
+
+const formatDuration = (
+	item: WorkspaceCommandActivity,
+	now: number,
+): string => {
 	const started = dayjs(item.started_at);
-	const finished = item.finished_at ? dayjs(item.finished_at) : dayjs();
+	const finished = item.finished_at ? dayjs(item.finished_at) : dayjs(now);
 	const milliseconds = Math.max(0, finished.diff(started));
 
 	if (milliseconds < 1_000) {
