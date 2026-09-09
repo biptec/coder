@@ -44,7 +44,7 @@ func TestCommandActivity(t *testing.T) {
 			WorkspaceID: workspaceID,
 			AgentID:     agentID,
 			SessionID:   sessionID,
-			Source:      "agentproc",
+			Source:      "mcp",
 			Tool:        "exec",
 			Command:     "echo hello",
 			Argv:        []string{},
@@ -87,6 +87,44 @@ func TestCommandActivity(t *testing.T) {
 				Action:    agentproto.CommandActivity_FINISHED,
 				Timestamp: timestamppb.New(activityTime),
 				ExitCode:  &exitCode,
+			},
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("LegacyAgentProcWithoutMCPToolStaysInternal", func(t *testing.T) {
+		t.Parallel()
+
+		legacyActivityID := uuid.New()
+		mDB := dbmock.NewMockStore(gomock.NewController(t))
+		api := &agentapi.CommandActivityAPI{
+			AgentID:     agentID,
+			WorkspaceID: workspaceID,
+			Database:    mDB,
+			Log:         testutil.Logger(t),
+		}
+
+		mDB.EXPECT().InsertWorkspaceCommandActivity(gomock.Any(), database.InsertWorkspaceCommandActivityParams{
+			ID:          legacyActivityID,
+			WorkspaceID: workspaceID,
+			AgentID:     agentID,
+			SessionID:   sessionID,
+			Source:      "agentproc",
+			Command:     "legacy command",
+			Argv:        []string{},
+			WorkDir:     "/workspace",
+			StartedAt:   activityTime,
+		}).Return(nil)
+
+		_, err := api.ReportCommandActivity(context.Background(), &agentproto.ReportCommandActivityRequest{
+			Activity: &agentproto.CommandActivity{
+				Id:        legacyActivityID[:],
+				SessionId: sessionID[:],
+				Action:    agentproto.CommandActivity_STARTED,
+				Source:    agentproto.CommandActivity_AGENTPROC,
+				Command:   "legacy command",
+				WorkDir:   "/workspace",
+				Timestamp: timestamppb.New(activityTime),
 			},
 		})
 		require.NoError(t, err)

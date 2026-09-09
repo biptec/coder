@@ -74,11 +74,13 @@ func TestActivityTrackingPropagatesInvocationTool(t *testing.T) {
 
 type fakePersistentActivityRecorder struct {
 	starts   []string
+	inputs   []string
 	finishes []PersistentActivityStatus
 }
 
-func (f *fakePersistentActivityRecorder) StartToolActivity(_ context.Context, _ string, toolName, workspace string, _ time.Time) (PersistentActivityHandle, error) {
+func (f *fakePersistentActivityRecorder) StartToolActivity(_ context.Context, _ string, toolName, workspace, input string, _ time.Time) (PersistentActivityHandle, error) {
 	f.starts = append(f.starts, toolName+"@"+workspace)
+	f.inputs = append(f.inputs, input)
 	return PersistentActivityHandle{ID: uuid.New(), WorkspaceID: uuid.New()}, nil
 }
 
@@ -93,7 +95,10 @@ func TestActivityTrackingPersistsWorkspaceToolCallsWithoutDuplicatingCommands(t 
 	recorder := &fakePersistentActivityRecorder{}
 	s := &Server{activityUserID: "user-a", activityRecorder: recorder}
 	request := mcpgo.CallToolRequest{Params: mcpgo.CallToolParams{Arguments: map[string]any{
-		"workspace": "owner/workspace",
+		"workspace":       "owner/workspace",
+		"process_id":      "process-123",
+		"wait_timeout_ms": float64(10_000),
+		"stdin":           "never persist this",
 	}}}
 	okHandler := func(context.Context, mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
 		return mcpgo.NewToolResultText("ok"), nil
@@ -103,6 +108,11 @@ func TestActivityTrackingPersistsWorkspaceToolCallsWithoutDuplicatingCommands(t 
 	_, err := processOutput.Handler(context.Background(), request)
 	require.NoError(t, err)
 	require.Equal(t, []string{"process_output@owner/workspace"}, recorder.starts)
+	require.Len(t, recorder.inputs, 1)
+	require.Contains(t, recorder.inputs[0], `"process_id":"process-123"`)
+	require.Contains(t, recorder.inputs[0], `"wait_timeout_ms":10000`)
+	require.Contains(t, recorder.inputs[0], `"stdin":"<redacted 18 bytes>"`)
+	require.NotContains(t, recorder.inputs[0], "never persist this")
 	require.Equal(t, []PersistentActivityStatus{PersistentActivityStatusSucceeded}, recorder.finishes)
 
 	execTool := s.withActivityTracking(server.ServerTool{Handler: okHandler}, "exec")

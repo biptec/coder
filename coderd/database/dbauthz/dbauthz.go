@@ -2015,13 +2015,6 @@ func (q *querier) CountWorkspaceCommandActivity(ctx context.Context, arg databas
 	return q.db.CountWorkspaceCommandActivity(ctx, arg)
 }
 
-func (q *querier) CountWorkspaceCommandActivityTimeline(ctx context.Context, arg database.CountWorkspaceCommandActivityTimelineParams) (int64, error) {
-	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionRead); err != nil {
-		return 0, err
-	}
-	return q.db.CountWorkspaceCommandActivityTimeline(ctx, arg)
-}
-
 func (q *querier) CreateUserSecret(ctx context.Context, arg database.CreateUserSecretParams) (database.UserSecret, error) {
 	obj := rbac.ResourceUserSecret.WithOwner(arg.UserID.String())
 	if err := q.authorizeContext(ctx, policy.ActionCreate, obj); err != nil {
@@ -6910,13 +6903,6 @@ func (q *querier) ListWorkspaceCommandActivity(ctx context.Context, arg database
 		return nil, err
 	}
 	return q.db.ListWorkspaceCommandActivity(ctx, arg)
-}
-
-func (q *querier) ListWorkspaceCommandActivityTimeline(ctx context.Context, arg database.ListWorkspaceCommandActivityTimelineParams) ([]database.ListWorkspaceCommandActivityTimelineRow, error) {
-	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionRead); err != nil {
-		return nil, err
-	}
-	return q.db.ListWorkspaceCommandActivityTimeline(ctx, arg)
 }
 
 func (q *querier) ListWorkspaceCommandActivityTools(ctx context.Context, workspaceID uuid.UUID) ([]string, error) {

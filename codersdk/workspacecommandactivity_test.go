@@ -14,8 +14,10 @@ func TestWorkspaceCommandActivityRequestQueryValues(t *testing.T) {
 	startedBefore := startedAfter.Add(2 * time.Hour)
 	minDuration := int64(250)
 	maxDuration := int64(20_000)
+	exitCode := -1
 	req := WorkspaceCommandActivityRequest{
 		WorkspaceCommandActivityFilter: WorkspaceCommandActivityFilter{
+			ID:            "9211e11f",
 			Statuses:      []WorkspaceCommandActivityStatus{WorkspaceCommandActivityStatusRunning, WorkspaceCommandActivityStatusSucceeded},
 			Tools:         []string{"exec", "bash"},
 			Sources:       []WorkspaceCommandActivitySource{WorkspaceCommandActivitySourceMCP, WorkspaceCommandActivitySourceSSH},
@@ -24,6 +26,7 @@ func TestWorkspaceCommandActivityRequestQueryValues(t *testing.T) {
 			StartedBefore: &startedBefore,
 			DurationMinMS: &minDuration,
 			DurationMaxMS: &maxDuration,
+			ExitCode:      &exitCode,
 		},
 		SortBy:        WorkspaceCommandActivitySortDuration,
 		SortDirection: WorkspaceCommandActivitySortDescending,
@@ -32,6 +35,7 @@ func TestWorkspaceCommandActivityRequestQueryValues(t *testing.T) {
 	}
 
 	values := req.queryValues()
+	require.Equal(t, "9211e11f", values.Get("id"))
 	require.Equal(t, []string{"running", "succeeded"}, values["status"])
 	require.Equal(t, []string{"exec", "bash"}, values["tool"])
 	require.Equal(t, []string{"mcp", "ssh"}, values["source"])
@@ -41,6 +45,7 @@ func TestWorkspaceCommandActivityRequestQueryValues(t *testing.T) {
 	require.Equal(t, startedBefore.Format(time.RFC3339Nano), values.Get("started_before"))
 	require.Equal(t, "250", values.Get("duration_min_ms"))
 	require.Equal(t, "20000", values.Get("duration_max_ms"))
+	require.Equal(t, "-1", values.Get("exit_code"))
 	require.Equal(t, "duration", values.Get("sort_by"))
 	require.Equal(t, "desc", values.Get("sort_direction"))
 	require.Equal(t, "3", values.Get("page"))

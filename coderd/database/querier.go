@@ -111,7 +111,6 @@ type sqlcQuerier interface {
 	CountPendingNonActivePrebuilds(ctx context.Context) ([]CountPendingNonActivePrebuildsRow, error)
 	CountUnreadInboxNotificationsByUserID(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountWorkspaceCommandActivity(ctx context.Context, arg CountWorkspaceCommandActivityParams) (int64, error)
-	CountWorkspaceCommandActivityTimeline(ctx context.Context, arg CountWorkspaceCommandActivityTimelineParams) (int64, error)
 	CreateUserSecret(ctx context.Context, arg CreateUserSecretParams) (UserSecret, error)
 	CustomRoles(ctx context.Context, arg CustomRolesParams) ([]CustomRole, error)
 	DeleteAIGatewayKey(ctx context.Context, id uuid.UUID) (DeleteAIGatewayKeyRow, error)
@@ -1200,7 +1199,6 @@ type sqlcQuerier interface {
 	ListWorkspaceAgentContextResources(ctx context.Context, workspaceAgentID uuid.UUID) ([]WorkspaceAgentContextResource, error)
 	ListWorkspaceAgentPortShares(ctx context.Context, workspaceID uuid.UUID) ([]WorkspaceAgentPortShare, error)
 	ListWorkspaceCommandActivity(ctx context.Context, arg ListWorkspaceCommandActivityParams) ([]WorkspaceCommandActivity, error)
-	ListWorkspaceCommandActivityTimeline(ctx context.Context, arg ListWorkspaceCommandActivityTimelineParams) ([]ListWorkspaceCommandActivityTimelineRow, error)
 	ListWorkspaceCommandActivityTools(ctx context.Context, workspaceID uuid.UUID) ([]string, error)
 	// Locks the chat row with FOR UPDATE and atomically increments its
 	// snapshot_version, returning the post-bump chat. This is the single

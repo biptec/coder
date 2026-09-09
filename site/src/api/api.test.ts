@@ -161,6 +161,7 @@ describe("api.ts", () => {
 	describe("getWorkspaceCommandActivityURL", () => {
 		it("serializes command activity filters using the server query parameter names", () => {
 			const raw = getWorkspaceCommandActivityURL("workspace-id", {
+				id: "9211e11f",
 				statuses: ["running", "succeeded"],
 				tools: ["exec", "bash"],
 				sources: ["mcp", "ssh"],
@@ -169,6 +170,7 @@ describe("api.ts", () => {
 				started_before: "2026-09-09T10:00:00.000Z",
 				duration_min_ms: 250,
 				duration_max_ms: 20_000,
+				exit_code: -1,
 				sort_by: "duration",
 				sort_direction: "desc",
 				page: 3,
@@ -179,6 +181,7 @@ describe("api.ts", () => {
 			expect(url.pathname).toBe(
 				"/api/v2/workspaces/workspace-id/command-activity",
 			);
+			expect(url.searchParams.get("id")).toBe("9211e11f");
 			expect(url.searchParams.getAll("status")).toEqual([
 				"running",
 				"succeeded",
@@ -194,6 +197,7 @@ describe("api.ts", () => {
 			);
 			expect(url.searchParams.get("duration_min_ms")).toBe("250");
 			expect(url.searchParams.get("duration_max_ms")).toBe("20000");
+			expect(url.searchParams.get("exit_code")).toBe("-1");
 			expect(url.searchParams.get("sort_by")).toBe("duration");
 			expect(url.searchParams.get("sort_direction")).toBe("desc");
 			expect(url.searchParams.get("page")).toBe("3");

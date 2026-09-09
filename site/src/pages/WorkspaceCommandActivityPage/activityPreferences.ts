@@ -6,24 +6,30 @@ import type {
 } from "#/api/typesGenerated";
 
 export const activityPreferencesStorageKey =
+	"coder.activity-history.preferences.v2";
+const legacyActivityPreferencesStorageKey =
 	"coder.workspace-activity.preferences.v1";
 
-export const defaultActivityStatuses: readonly WorkspaceCommandActivityStatus[] =
-	["running", "succeeded", "failed", "interrupted"];
+export const defaultRealActivityStatuses = [
+	"running",
+	"succeeded",
+	"failed",
+	"interrupted",
+] as const satisfies readonly WorkspaceCommandActivityStatus[];
 
-export const activityStatusOptions: readonly WorkspaceCommandActivityStatus[] =
-	[...defaultActivityStatuses, "idle"];
+export type ActivityDisplayStatus = WorkspaceCommandActivityStatus | "idle";
+export const activityStatusOptions: readonly ActivityDisplayStatus[] = [
+	...defaultRealActivityStatuses,
+	"idle",
+];
 
-export const activitySourceOptions: readonly WorkspaceCommandActivitySource[] =
-	[
-		"mcp",
-		"ssh",
-		"reconnecting_pty",
-		"vscode",
-		"jetbrains",
-		"chat",
-		"agentproc",
-	];
+export const activitySourceOptions = [
+	"mcp",
+	"ssh",
+	"reconnecting_pty",
+	"chat",
+] as const satisfies readonly WorkspaceCommandActivitySource[];
+export type ActivityVisibleSource = (typeof activitySourceOptions)[number];
 
 export const activityPageSizeOptions = [25, 50, 100, 250, 500] as const;
 
@@ -39,15 +45,19 @@ const activitySortOptions: readonly WorkspaceCommandActivitySort[] = [
 ];
 
 export type WorkspaceActivityPreferences = {
-	search: string;
-	statuses: WorkspaceCommandActivityStatus[];
+	id: string;
+	input: string;
+	statuses: ActivityDisplayStatus[];
 	// null means "all tools", including tools added in future releases.
 	tools: string[] | null;
-	source: "all" | WorkspaceCommandActivitySource;
+	// Activity history intentionally exposes only the supported user-facing
+	// sources. Internal compatibility/editor sources never participate in this UI.
+	sources: ActivityVisibleSource[];
 	startedAfter: string;
 	startedBefore: string;
 	durationMin: string;
 	durationMax: string;
+	exitCode: string;
 	sortBy: WorkspaceCommandActivitySort;
 	sortDirection: WorkspaceCommandActivitySortDirection;
 	pageSize: number;
@@ -55,21 +65,23 @@ export type WorkspaceActivityPreferences = {
 
 export const defaultWorkspaceActivityPreferences =
 	(): WorkspaceActivityPreferences => ({
-		search: "",
-		statuses: [...defaultActivityStatuses],
+		id: "",
+		input: "",
+		statuses: [...defaultRealActivityStatuses],
 		tools: null,
-		source: "all",
+		sources: [...activitySourceOptions],
 		startedAfter: "",
 		startedBefore: "",
 		durationMin: "",
 		durationMax: "",
+		exitCode: "",
 		sortBy: "started",
 		sortDirection: "desc",
 		pageSize: 50,
 	});
 
 type StoredWorkspaceActivityPreferences = WorkspaceActivityPreferences & {
-	version: 1;
+	version: 2;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -88,30 +100,42 @@ const uniqueStrings = (value: unknown): string[] | undefined => {
 	return [...new Set(value.map((item) => item.trim()).filter(Boolean))];
 };
 
-export const parseWorkspaceActivityPreferences = (
+const parseStatuses = (
 	value: unknown,
-): WorkspaceActivityPreferences => {
-	const defaults = defaultWorkspaceActivityPreferences();
-	if (!isRecord(value) || value.version !== 1) return defaults;
-
-	const statuses = Array.isArray(value.statuses)
-		? value.statuses.filter(
-				(status): status is WorkspaceCommandActivityStatus =>
+	fallback: readonly ActivityDisplayStatus[],
+): ActivityDisplayStatus[] => {
+	if (!Array.isArray(value)) return [...fallback];
+	return [
+		...new Set(
+			value.filter(
+				(status): status is ActivityDisplayStatus =>
 					typeof status === "string" &&
-					activityStatusOptions.includes(
-						status as WorkspaceCommandActivityStatus,
-					),
-			)
-		: defaults.statuses;
+					activityStatusOptions.includes(status as ActivityDisplayStatus),
+			),
+		),
+	];
+};
+
+const parseSources = (
+	value: unknown,
+	fallback: ActivityVisibleSource[],
+): ActivityVisibleSource[] => {
+	if (value === null) return [...fallback];
+	const values = uniqueStrings(value);
+	if (!values) return fallback;
+	return values.filter((source): source is ActivityVisibleSource =>
+		activitySourceOptions.includes(source as ActivityVisibleSource),
+	);
+};
+
+const parseCommon = (
+	value: Record<string, unknown>,
+	defaults: WorkspaceActivityPreferences,
+): Pick<
+	WorkspaceActivityPreferences,
+	"tools" | "sortBy" | "sortDirection" | "pageSize"
+> => {
 	const tools = value.tools === null ? null : uniqueStrings(value.tools);
-	const source =
-		typeof value.source === "string" &&
-		(value.source === "all" ||
-			activitySourceOptions.includes(
-				value.source as WorkspaceCommandActivitySource,
-			))
-			? (value.source as WorkspaceActivityPreferences["source"])
-			: defaults.source;
 	const sortBy =
 		typeof value.sortBy === "string" &&
 		activitySortOptions.includes(value.sortBy as WorkspaceCommandActivitySort)
@@ -128,20 +152,60 @@ export const parseWorkspaceActivityPreferences = (
 		)
 			? value.pageSize
 			: defaults.pageSize;
+	return { tools: tools ?? defaults.tools, sortBy, sortDirection, pageSize };
+};
 
-	return {
-		search: stringValue(value.search, defaults.search),
-		statuses: [...new Set(statuses)],
-		tools: tools ?? defaults.tools,
-		source,
-		startedAfter: stringValue(value.startedAfter, defaults.startedAfter),
-		startedBefore: stringValue(value.startedBefore, defaults.startedBefore),
-		durationMin: stringValue(value.durationMin, defaults.durationMin),
-		durationMax: stringValue(value.durationMax, defaults.durationMax),
-		sortBy,
-		sortDirection,
-		pageSize,
-	};
+export const parseWorkspaceActivityPreferences = (
+	value: unknown,
+): WorkspaceActivityPreferences => {
+	const defaults = defaultWorkspaceActivityPreferences();
+	if (!isRecord(value)) return defaults;
+
+	const common = parseCommon(value, defaults);
+	if (value.version === 2) {
+		return {
+			id: stringValue(value.id, defaults.id),
+			input: stringValue(value.input, defaults.input),
+			statuses: parseStatuses(value.statuses, defaults.statuses),
+			tools: common.tools,
+			sources: parseSources(value.sources, defaults.sources),
+			startedAfter: stringValue(value.startedAfter, defaults.startedAfter),
+			startedBefore: stringValue(value.startedBefore, defaults.startedBefore),
+			durationMin: stringValue(value.durationMin, defaults.durationMin),
+			durationMax: stringValue(value.durationMax, defaults.durationMax),
+			exitCode: stringValue(value.exitCode, defaults.exitCode),
+			sortBy: common.sortBy,
+			sortDirection: common.sortDirection,
+			pageSize: common.pageSize,
+		};
+	}
+
+	// Migrate the first browser-only preference format used by the initial
+	// Activity page. Unsupported legacy sources intentionally fall back to All.
+	if (value.version === 1) {
+		const legacySource =
+			typeof value.source === "string" &&
+			activitySourceOptions.includes(value.source as ActivityVisibleSource)
+				? [value.source as ActivityVisibleSource]
+				: [...activitySourceOptions];
+		return {
+			id: "",
+			input: stringValue(value.search, defaults.input),
+			statuses: parseStatuses(value.statuses, defaults.statuses),
+			tools: common.tools,
+			sources: legacySource,
+			startedAfter: stringValue(value.startedAfter, defaults.startedAfter),
+			startedBefore: stringValue(value.startedBefore, defaults.startedBefore),
+			durationMin: stringValue(value.durationMin, defaults.durationMin),
+			durationMax: stringValue(value.durationMax, defaults.durationMax),
+			exitCode: "",
+			sortBy: common.sortBy,
+			sortDirection: common.sortDirection,
+			pageSize: common.pageSize,
+		};
+	}
+
+	return defaults;
 };
 
 export const loadWorkspaceActivityPreferences =
@@ -149,9 +213,16 @@ export const loadWorkspaceActivityPreferences =
 		if (typeof window === "undefined")
 			return defaultWorkspaceActivityPreferences();
 		try {
-			const raw = window.localStorage.getItem(activityPreferencesStorageKey);
-			return raw
-				? parseWorkspaceActivityPreferences(JSON.parse(raw))
+			const current = window.localStorage.getItem(
+				activityPreferencesStorageKey,
+			);
+			if (current)
+				return parseWorkspaceActivityPreferences(JSON.parse(current));
+			const legacy = window.localStorage.getItem(
+				legacyActivityPreferencesStorageKey,
+			);
+			return legacy
+				? parseWorkspaceActivityPreferences(JSON.parse(legacy))
 				: defaultWorkspaceActivityPreferences();
 		} catch {
 			return defaultWorkspaceActivityPreferences();
@@ -163,7 +234,7 @@ export const saveWorkspaceActivityPreferences = (
 ): void => {
 	if (typeof window === "undefined") return;
 	const stored: StoredWorkspaceActivityPreferences = {
-		version: 1,
+		version: 2,
 		...preferences,
 	};
 	try {

@@ -16,6 +16,7 @@ func TestParseWorkspaceCommandActivityQuery(t *testing.T) {
 	startedAfter := time.Date(2026, 9, 9, 8, 0, 0, 0, time.UTC)
 	startedBefore := startedAfter.Add(3 * time.Hour)
 	values := url.Values{
+		"id":              {"9211e11f"},
 		"status":          {"running,succeeded"},
 		"tool":            {"exec", "bash"},
 		"source":          {"mcp,ssh"},
@@ -24,6 +25,7 @@ func TestParseWorkspaceCommandActivityQuery(t *testing.T) {
 		"started_before":  {startedBefore.Format(time.RFC3339Nano)},
 		"duration_min_ms": {"250"},
 		"duration_max_ms": {"20000"},
+		"exit_code":       {"-1"},
 		"sort_by":         {"duration"},
 		"sort_direction":  {"desc"},
 		"page":            {"3"},
@@ -32,6 +34,7 @@ func TestParseWorkspaceCommandActivityQuery(t *testing.T) {
 
 	req, err := parseWorkspaceCommandActivityQuery(values)
 	require.NoError(t, err)
+	require.Equal(t, "9211e11f", req.ID)
 	require.Equal(t, []codersdk.WorkspaceCommandActivityStatus{
 		codersdk.WorkspaceCommandActivityStatusRunning,
 		codersdk.WorkspaceCommandActivityStatusSucceeded,
@@ -46,6 +49,7 @@ func TestParseWorkspaceCommandActivityQuery(t *testing.T) {
 	require.Equal(t, startedBefore, *req.StartedBefore)
 	require.EqualValues(t, 250, *req.DurationMinMS)
 	require.EqualValues(t, 20_000, *req.DurationMaxMS)
+	require.Equal(t, -1, *req.ExitCode)
 	require.Equal(t, codersdk.WorkspaceCommandActivitySortDuration, req.SortBy)
 	require.Equal(t, codersdk.WorkspaceCommandActivitySortDescending, req.SortDirection)
 	require.Equal(t, 3, req.Page)
@@ -67,18 +71,13 @@ func TestParseWorkspaceCommandActivityQueryLegacyQAlias(t *testing.T) {
 	require.Equal(t, "canonical", req.Search)
 }
 
-func TestWorkspaceCommandActivityFilterIdle(t *testing.T) {
+func TestNormalizedWorkspaceCommandActivitySource(t *testing.T) {
 	t.Parallel()
 
-	req, err := parseWorkspaceCommandActivityQuery(url.Values{
-		"status": {"running,succeeded,failed,interrupted,idle"},
-	})
-	require.NoError(t, err)
-	require.Contains(t, req.Statuses, codersdk.WorkspaceCommandActivityStatusIdle)
-
-	filter, err := workspaceCommandActivityFilter(req.WorkspaceCommandActivityFilter)
-	require.NoError(t, err)
-	require.True(t, filter.includesIdle())
+	require.Equal(t, codersdk.WorkspaceCommandActivitySourceMCP, normalizedWorkspaceCommandActivitySource("agentproc", "exec"))
+	require.Equal(t, codersdk.WorkspaceCommandActivitySourceMCP, normalizedWorkspaceCommandActivitySource("agentproc", "coder_workspace_process_start"))
+	require.Equal(t, codersdk.WorkspaceCommandActivitySourceAgentProc, normalizedWorkspaceCommandActivitySource("agentproc", ""))
+	require.Equal(t, codersdk.WorkspaceCommandActivitySourceSSH, normalizedWorkspaceCommandActivitySource("ssh", ""))
 }
 
 func TestWorkspaceCommandActivityFilterValidation(t *testing.T) {

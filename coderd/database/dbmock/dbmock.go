@@ -632,21 +632,6 @@ func (mr *MockStoreMockRecorder) CountWorkspaceCommandActivity(ctx, arg any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountWorkspaceCommandActivity", reflect.TypeOf((*MockStore)(nil).CountWorkspaceCommandActivity), ctx, arg)
 }
 
-// CountWorkspaceCommandActivityTimeline mocks base method.
-func (m *MockStore) CountWorkspaceCommandActivityTimeline(ctx context.Context, arg database.CountWorkspaceCommandActivityTimelineParams) (int64, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CountWorkspaceCommandActivityTimeline", ctx, arg)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CountWorkspaceCommandActivityTimeline indicates an expected call of CountWorkspaceCommandActivityTimeline.
-func (mr *MockStoreMockRecorder) CountWorkspaceCommandActivityTimeline(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountWorkspaceCommandActivityTimeline", reflect.TypeOf((*MockStore)(nil).CountWorkspaceCommandActivityTimeline), ctx, arg)
-}
-
 // CreateUserSecret mocks base method.
 func (m *MockStore) CreateUserSecret(ctx context.Context, arg database.CreateUserSecretParams) (database.UserSecret, error) {
 	m.ctrl.T.Helper()
@@ -9303,21 +9288,6 @@ func (m *MockStore) ListWorkspaceCommandActivity(ctx context.Context, arg databa
 func (mr *MockStoreMockRecorder) ListWorkspaceCommandActivity(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWorkspaceCommandActivity", reflect.TypeOf((*MockStore)(nil).ListWorkspaceCommandActivity), ctx, arg)
-}
-
-// ListWorkspaceCommandActivityTimeline mocks base method.
-func (m *MockStore) ListWorkspaceCommandActivityTimeline(ctx context.Context, arg database.ListWorkspaceCommandActivityTimelineParams) ([]database.ListWorkspaceCommandActivityTimelineRow, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListWorkspaceCommandActivityTimeline", ctx, arg)
-	ret0, _ := ret[0].([]database.ListWorkspaceCommandActivityTimelineRow)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListWorkspaceCommandActivityTimeline indicates an expected call of ListWorkspaceCommandActivityTimeline.
-func (mr *MockStoreMockRecorder) ListWorkspaceCommandActivityTimeline(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWorkspaceCommandActivityTimeline", reflect.TypeOf((*MockStore)(nil).ListWorkspaceCommandActivityTimeline), ctx, arg)
 }
 
 // ListWorkspaceCommandActivityTools mocks base method.

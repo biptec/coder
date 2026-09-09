@@ -38,10 +38,6 @@ const (
 	WorkspaceCommandActivityStatusSucceeded   WorkspaceCommandActivityStatus = "succeeded"
 	WorkspaceCommandActivityStatusFailed      WorkspaceCommandActivityStatus = "failed"
 	WorkspaceCommandActivityStatusInterrupted WorkspaceCommandActivityStatus = "interrupted"
-	// WorkspaceCommandActivityStatusIdle is a synthetic timeline row representing
-	// a period where no command was running in the workspace. Idle rows are not
-	// persisted and therefore cannot be selected or deleted.
-	WorkspaceCommandActivityStatusIdle WorkspaceCommandActivityStatus = "idle"
 )
 
 type WorkspaceCommandActivitySort string
@@ -81,6 +77,7 @@ type WorkspaceCommandActivity struct {
 }
 
 type WorkspaceCommandActivityFilter struct {
+	ID            string                           `json:"id,omitempty"`
 	Statuses      []WorkspaceCommandActivityStatus `json:"statuses,omitempty"`
 	Tools         []string                         `json:"tools,omitempty"`
 	Sources       []WorkspaceCommandActivitySource `json:"sources,omitempty"`
@@ -89,6 +86,7 @@ type WorkspaceCommandActivityFilter struct {
 	StartedBefore *time.Time                       `json:"started_before,omitempty" format:"date-time"`
 	DurationMinMS *int64                           `json:"duration_min_ms,omitempty"`
 	DurationMaxMS *int64                           `json:"duration_max_ms,omitempty"`
+	ExitCode      *int                             `json:"exit_code,omitempty"`
 }
 
 type WorkspaceCommandActivityRequest struct {
@@ -113,19 +111,16 @@ type WorkspaceCommandActivityResponse struct {
 type WorkspaceActivityWatchEventType string
 
 const (
-	WorkspaceActivityWatchEventCommandUpsert    WorkspaceActivityWatchEventType = "command_upsert"
-	WorkspaceActivityWatchEventCommandResync    WorkspaceActivityWatchEventType = "command_resync"
-	WorkspaceActivityWatchEventConnectionUpdate WorkspaceActivityWatchEventType = "connection_update"
+	WorkspaceActivityWatchEventCommandUpsert WorkspaceActivityWatchEventType = "command_upsert"
+	WorkspaceActivityWatchEventCommandResync WorkspaceActivityWatchEventType = "command_resync"
 )
 
 // WorkspaceActivityWatchEvent is emitted by the one-way workspace activity
-// WebSocket. Command events contain one changed row. Connection events contain
-// the small aggregated connection snapshot. Resync is reserved for bulk
+// WebSocket. Command events contain one changed row. Resync is reserved for bulk
 // mutations where emitting every changed row would be more expensive.
 type WorkspaceActivityWatchEvent struct {
-	Type       WorkspaceActivityWatchEventType      `json:"type"`
-	Command    *WorkspaceCommandActivity            `json:"command,omitempty"`
-	Connection *WorkspaceConnectionActivityResponse `json:"connection,omitempty"`
+	Type    WorkspaceActivityWatchEventType `json:"type"`
+	Command *WorkspaceCommandActivity       `json:"command,omitempty"`
 }
 
 type WorkspaceCommandActivityDeleteMode string
@@ -147,6 +142,9 @@ type DeleteWorkspaceCommandActivityResponse struct {
 
 func (r WorkspaceCommandActivityRequest) queryValues() url.Values {
 	q := url.Values{}
+	if r.ID != "" {
+		q.Set("id", r.ID)
+	}
 	for _, status := range r.Statuses {
 		q.Add("status", string(status))
 	}
@@ -170,6 +168,9 @@ func (r WorkspaceCommandActivityRequest) queryValues() url.Values {
 	}
 	if r.DurationMaxMS != nil {
 		q.Set("duration_max_ms", strconv.FormatInt(*r.DurationMaxMS, 10))
+	}
+	if r.ExitCode != nil {
+		q.Set("exit_code", strconv.Itoa(*r.ExitCode))
 	}
 	if r.SortBy != "" {
 		q.Set("sort_by", string(r.SortBy))
