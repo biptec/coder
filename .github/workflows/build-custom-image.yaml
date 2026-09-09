@@ -87,8 +87,12 @@ jobs:
             -count=1
 
           go test ./codersdk/toolsdk \
-            -run '^(TestCommandInvokesSudo|TestCommandAdvisories|TestAdvisoryIsSeparateFromCommandOutput|TestProcessListAdvisoryPreservesFlatJSONShape|TestWorkspaceProcessToolsValidateArgs|TestWorkspaceProcessToolInstructions)$'
-          go test ./coderd/agentapi -run '^TestUpdateStartup$'
+            -run '^(TestCommandInvokesSudo|TestCommandAdvisories|TestAdvisoryIsSeparateFromCommandOutput|TestProcessListAdvisoryPreservesFlatJSONShape|TestWorkspaceExecHasNoExecutionTimeout|TestInvocationToolContext|TestWaitForExecCompletionRepeatsWhileRunning|TestWorkspaceProcessToolsValidateArgs|TestWorkspaceProcessToolInstructions)$'
+          go test ./codersdk/toolsdk -run '^TestWorkspaceProcessIntegration/CommandActivityToolAttribution$' -count=1
+          go test ./coderd/mcp -run '^TestActivityTrackingPropagatesInvocationTool$'
+          go test ./agent/agentproc -run '^TestListProcesses/IncludesValidatedToolAttribution$'
+          go test ./agent/agentssh -run '^TestExtractCommandActivityTool$'
+          go test ./coderd/agentapi -run '^(TestCommandActivity|TestUpdateStartup)$'
           go test ./cli/cliui -run '^TestRenderAgentVersion$'
           go test ./support -run '^TestVersionSupportsPprof$'
           go test ./codersdk -run '^TestBuildInfo'

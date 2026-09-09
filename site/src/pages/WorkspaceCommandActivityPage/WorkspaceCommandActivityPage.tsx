@@ -225,6 +225,7 @@ const CommandActivityTable: FC<CommandActivityTableProps> = ({ activity }) => {
 					<TableHead>Status</TableHead>
 					<TableHead>Started</TableHead>
 					<TableHead>Duration</TableHead>
+					<TableHead>Tool</TableHead>
 					<TableHead>Source</TableHead>
 					<TableHead>Command</TableHead>
 					<TableHead>Exit</TableHead>
@@ -253,6 +254,7 @@ const CommandActivityRow: FC<{ item: WorkspaceCommandActivity }> = ({
 			<TableCell className="whitespace-nowrap">
 				{formatDuration(item)}
 			</TableCell>
+			<TableCell>{item.tool || "—"}</TableCell>
 			<TableCell>{item.source === "agentproc" ? "Agent" : "SSH"}</TableCell>
 			<TableCell className="min-w-72 max-w-[48rem]">
 				<code className="block whitespace-pre-wrap break-words text-xs text-content-primary">

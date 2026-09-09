@@ -78,6 +78,7 @@ The command is executed by the workspace Agent using sh -c. If workdir is omitte
 			Command:    args.Command,
 			WorkDir:    args.WorkDir,
 			Env:        args.Env,
+			Tool:       InvocationToolFromContext(ctx),
 			Background: args.Background,
 		})
 		if err != nil {

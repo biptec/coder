@@ -3903,6 +3903,7 @@ CREATE TABLE workspace_command_activity (
     started_at timestamp with time zone NOT NULL,
     finished_at timestamp with time zone,
     exit_code integer,
+    tool text DEFAULT ''::text NOT NULL,
     CONSTRAINT workspace_command_activity_source_check CHECK ((source = ANY (ARRAY['agentproc'::text, 'ssh'::text]))),
     CONSTRAINT workspace_command_activity_status_check CHECK ((status = ANY (ARRAY['running'::text, 'succeeded'::text, 'failed'::text, 'interrupted'::text])))
 );

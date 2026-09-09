@@ -45,6 +45,7 @@ func (api *API) workspaceCommandActivity(rw http.ResponseWriter, r *http.Request
 			AgentID:   row.AgentID,
 			SessionID: row.SessionID,
 			Source:    codersdk.WorkspaceCommandActivitySource(row.Source),
+			Tool:      row.Tool,
 			Command:   row.Command,
 			Argv:      append([]string(nil), row.Argv...),
 			WorkDir:   row.WorkDir,

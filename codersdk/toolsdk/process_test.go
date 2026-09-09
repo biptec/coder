@@ -3,12 +3,15 @@ package toolsdk_test
 import (
 	"context"
 	"runtime"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/coder/coder/v2/agent/agenttest"
 	"github.com/coder/coder/v2/coderd/coderdtest"
+	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/codersdk/toolsdk"
 )
 
@@ -72,7 +75,8 @@ func TestWorkspaceProcessIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("StartListOutput", func(t *testing.T) {
-		started, err := testTool(t, toolsdk.WorkspaceProcessStart, deps, toolsdk.WorkspaceProcessStartArgs{
+		ctx := toolsdk.WithInvocationTool(t.Context(), "process_start")
+		started, err := toolsdk.WorkspaceProcessStart.Handler(ctx, deps, toolsdk.WorkspaceProcessStartArgs{
 			Workspace:  workspace.Name,
 			Command:    `printf '%s:%s\n' "$PROCESS_TOOL_VALUE" "$PWD"; sleep 2; echo done`,
 			WorkDir:    "/tmp",
@@ -95,6 +99,7 @@ func TestWorkspaceProcessIntegration(t *testing.T) {
 			}
 			found = true
 			require.Equal(t, "/tmp", process.WorkDir)
+			require.Equal(t, "process_start", process.Tool)
 			require.True(t, process.Background)
 			require.Contains(t, process.Command, "PROCESS_TOOL_VALUE")
 			break
@@ -113,6 +118,77 @@ func TestWorkspaceProcessIntegration(t *testing.T) {
 		require.Equal(t, started.ProcessID, completed.ProcessID)
 		require.Contains(t, completed.Output, "value:/tmp")
 		require.Contains(t, completed.Output, "done")
+	})
+
+	t.Run("CommandActivityToolAttribution", func(t *testing.T) {
+		processCtx := toolsdk.WithInvocationTool(t.Context(), "process_start")
+		started, err := toolsdk.WorkspaceProcessStart.Handler(processCtx, deps, toolsdk.WorkspaceProcessStartArgs{
+			Workspace:  workspace.Name,
+			Command:    `printf 'process-start-tool-marker\n'; sleep 5`,
+			Background: true,
+		})
+		require.NoError(t, err)
+
+		require.Eventually(t, func() bool {
+			activity, err := client.WorkspaceCommandActivity(t.Context(), workspace.ID)
+			if err != nil {
+				return false
+			}
+			for _, item := range activity.Activity {
+				if item.Tool == "process_start" && item.Source == codersdk.WorkspaceCommandActivitySourceAgentProc && item.Status == codersdk.WorkspaceCommandActivityStatusRunning && strings.Contains(item.Command, "process-start-tool-marker") {
+					return true
+				}
+			}
+			return false
+		}, 4*time.Second, 50*time.Millisecond, "running process_start command should be attributed in command activity")
+
+		execCtx := toolsdk.WithInvocationTool(t.Context(), "exec")
+		execResult, err := toolsdk.WorkspaceExec.Handler(execCtx, deps, toolsdk.WorkspaceExecArgs{
+			Workspace: workspace.Name,
+			Argv:      []string{"/bin/sh", "-c", `printf 'exec-tool-marker\n'`},
+		})
+		require.NoError(t, err)
+		require.Equal(t, 0, execResult.ExitCode)
+
+		bashCtx := toolsdk.WithInvocationTool(t.Context(), "bash")
+		bashResult, err := toolsdk.WorkspaceBash.Handler(bashCtx, deps, toolsdk.WorkspaceBashArgs{
+			Workspace: workspace.Name,
+			Command:   `printf 'bash-tool-marker\n'`,
+		})
+		require.NoError(t, err)
+		require.Equal(t, 0, bashResult.ExitCode)
+
+		waitMs := 10_000
+		_, err = toolsdk.WorkspaceProcessOutput.Handler(t.Context(), deps, toolsdk.WorkspaceProcessOutputArgs{
+			Workspace:     workspace.Name,
+			ProcessID:     started.ProcessID,
+			WaitTimeoutMs: &waitMs,
+		})
+		require.NoError(t, err)
+
+		require.Eventually(t, func() bool {
+			activity, err := client.WorkspaceCommandActivity(t.Context(), workspace.ID)
+			if err != nil {
+				return false
+			}
+			found := map[string]bool{}
+			for _, item := range activity.Activity {
+				if item.Status == codersdk.WorkspaceCommandActivityStatusRunning {
+					continue
+				}
+				switch item.Tool {
+				case "exec":
+					found["exec"] = item.Source == codersdk.WorkspaceCommandActivitySourceAgentProc && strings.Contains(strings.Join(item.Argv, " "), "exec-tool-marker")
+				case "bash":
+					found["bash"] = item.Source == codersdk.WorkspaceCommandActivitySourceSSH && strings.Contains(item.Command, "bash-tool-marker")
+				case "process_start":
+					if strings.Contains(item.Command, "process-start-tool-marker") {
+						found["process_start"] = item.Source == codersdk.WorkspaceCommandActivitySourceAgentProc
+					}
+				}
+			}
+			return found["exec"] && found["bash"] && found["process_start"]
+		}, 5*time.Second, 50*time.Millisecond, "completed command history should expose the invoking MCP tool")
 	})
 
 	t.Run("CallerContextDoesNotOwnProcess", func(t *testing.T) {

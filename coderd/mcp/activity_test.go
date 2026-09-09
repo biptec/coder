@@ -1,11 +1,15 @@
 package mcp
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/require"
+
+	"github.com/coder/coder/v2/codersdk/toolsdk"
 )
 
 func TestActivityStoreRetentionAndRunningVisibility(t *testing.T) {
@@ -45,6 +49,23 @@ func TestActivityStoreRetentionAndRunningVisibility(t *testing.T) {
 	}
 	require.Equal(t, 3, completed)
 	require.Empty(t, store.List("different-user", "", 3), "activity must be isolated by authenticated user")
+}
+
+func TestActivityTrackingPropagatesInvocationTool(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{activityStore: NewActivityStore(20), activityUserID: "user-a"}
+	var gotTool string
+	wrapped := s.withActivityTracking(server.ServerTool{
+		Handler: func(ctx context.Context, _ mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
+			gotTool = toolsdk.InvocationToolFromContext(ctx)
+			return mcpgo.NewToolResultText("ok"), nil
+		},
+	}, "exec")
+
+	_, err := wrapped.Handler(context.Background(), mcpgo.CallToolRequest{})
+	require.NoError(t, err)
+	require.Equal(t, "exec", gotTool)
 }
 
 func TestActivityStoreWorkspaceFilter(t *testing.T) {

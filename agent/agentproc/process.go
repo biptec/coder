@@ -31,6 +31,15 @@ var (
 	exitedProcessReapAge = 5 * time.Minute
 )
 
+func normalizeCommandActivityTool(tool string) string {
+	switch tool = strings.TrimSpace(tool); tool {
+	case "exec", "process_start":
+		return tool
+	default:
+		return ""
+	}
+}
+
 // process represents a running or completed process.
 type process struct {
 	mu          sync.Mutex
@@ -39,6 +48,7 @@ type process struct {
 	command     string
 	argv        []string
 	workDir     string
+	tool        string
 	background  bool
 	interactive bool
 	chatID      string
@@ -65,6 +75,7 @@ func (p *process) info() workspacesdk.ProcessInfo {
 		Command:     p.command,
 		Argv:        append([]string(nil), p.argv...),
 		WorkDir:     p.workDir,
+		Tool:        p.tool,
 		Background:  p.background,
 		Interactive: p.interactive,
 		Running:     p.running,
@@ -219,11 +230,13 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 	}
 
 	now := m.clock.Now().Unix()
+	tool := normalizeCommandActivityTool(req.Tool)
 	proc := &process{
 		id:          id,
 		command:     req.Command,
 		argv:        append([]string(nil), req.Argv...),
 		workDir:     cmd.Dir,
+		tool:        tool,
 		background:  req.Background,
 		interactive: req.Interactive,
 		chatID:      chatID,
@@ -251,7 +264,7 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 
 	finishActivity := func(int) {}
 	if m.reportCommandActivity != nil {
-		finishActivity = m.reportCommandActivity(req.Command, req.Argv, cmd.Dir)
+		finishActivity = m.reportCommandActivity(req.Command, req.Argv, cmd.Dir, tool)
 	}
 
 	go func() {

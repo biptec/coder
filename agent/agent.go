@@ -440,8 +440,8 @@ func (a *agent) init() {
 		BlockFileTransfer:          a.blockFileTransfer,
 		BlockReversePortForwarding: a.blockReversePortForwarding,
 		BlockLocalPortForwarding:   a.blockLocalPortForwarding,
-		ReportCommandActivity: func(command string, argv []string, workDir string) func(int) {
-			return a.startCommandActivity(proto.CommandActivity_SSH, command, argv, workDir)
+		ReportCommandActivity: func(command string, argv []string, workDir, tool string) func(int) {
+			return a.startCommandActivity(proto.CommandActivity_SSH, command, argv, workDir, tool)
 		},
 		ReportConnection: func(id uuid.UUID, magicType agentssh.MagicSessionType, ip string) func(code int, reason string) {
 			var connectionType proto.Connection_Type
@@ -500,8 +500,8 @@ func (a *agent) init() {
 			return m.Directory
 		}
 		return ""
-	}, agentproc.WithCommandActivityReporter(func(command string, argv []string, workDir string) func(int) {
-		return a.startCommandActivity(proto.CommandActivity_AGENTPROC, command, argv, workDir)
+	}, agentproc.WithCommandActivityReporter(func(command string, argv []string, workDir, tool string) func(int) {
+		return a.startCommandActivity(proto.CommandActivity_AGENTPROC, command, argv, workDir, tool)
 	}))
 	gitOpts := append([]agentgit.Option{
 		agentgit.WithClock(a.clock),
@@ -1194,7 +1194,7 @@ func (a *agent) queueCommandActivity(req *proto.ReportCommandActivityRequest) bo
 	return true
 }
 
-func (a *agent) startCommandActivity(source proto.CommandActivity_Source, command string, argv []string, workDir string) func(int) {
+func (a *agent) startCommandActivity(source proto.CommandActivity_Source, command string, argv []string, workDir, tool string) func(int) {
 	if a.commandActivityReportingOff.Load() {
 		return func(int) {}
 	}
@@ -1210,6 +1210,7 @@ func (a *agent) startCommandActivity(source proto.CommandActivity_Source, comman
 			Command:   command,
 			Argv:      append([]string(nil), argv...),
 			WorkDir:   workDir,
+			Tool:      tool,
 			Timestamp: timestamppb.New(startedAt),
 		},
 	}) {

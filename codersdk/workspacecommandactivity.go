@@ -31,6 +31,7 @@ type WorkspaceCommandActivity struct {
 	AgentID    uuid.UUID                      `json:"agent_id" format:"uuid"`
 	SessionID  uuid.UUID                      `json:"session_id" format:"uuid"`
 	Source     WorkspaceCommandActivitySource `json:"source"`
+	Tool       string                         `json:"tool,omitempty"`
 	Command    string                         `json:"command,omitempty"`
 	Argv       []string                       `json:"argv,omitempty"`
 	WorkDir    string                         `json:"work_dir,omitempty"`
