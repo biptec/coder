@@ -516,13 +516,19 @@ func (api *API) workspaceActivityToolNames(ctx context.Context, r *http.Request,
 		return nil, err
 	}
 
-	assigned, err := api.Database.GetUserMCPToolset(ctx, httpmw.APIKey(r).UserID)
-	if err != nil {
-		return nil, err
-	}
-	toolset := codersdk.MCPToolset(assigned)
-	if !toolset.Valid() {
-		toolset = codersdk.MCPToolsetDeveloper
+	toolset := codersdk.MCPToolsetDeveloper
+	assigned, toolsetErr := api.Database.GetUserMCPToolset(ctx, httpmw.APIKey(r).UserID)
+	if toolsetErr == nil {
+		if candidate := codersdk.MCPToolset(assigned); candidate.Valid() {
+			toolset = candidate
+		}
+	} else {
+		// Toolset metadata is only used to enrich the filter catalog. History
+		// itself must remain readable even if this optional lookup fails.
+		api.Logger.Debug(ctx, "get MCP toolset for workspace activity catalog",
+			slog.Error(toolsetErr),
+			slog.F("user_id", httpmw.APIKey(r).UserID),
+		)
 	}
 
 	unique := make(map[string]struct{}, len(historical)+32)
