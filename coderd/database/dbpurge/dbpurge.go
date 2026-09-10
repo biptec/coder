@@ -46,6 +46,7 @@ const (
 	// Chat debug run deletions can cascade into steps with large JSONB
 	// payloads, so they use the same conservative batch size.
 	chatDebugRunsBatchSize = 1000
+	mcpTraceBatchSize      = 10000
 )
 
 type Option func(*instance)
@@ -242,6 +243,19 @@ func (i *instance) purgeTick(ctx context.Context, db database.Store, start time.
 			}
 		}
 
+		var purgedMCPTraceRequests int64
+		mcpTraceRetentionHours := i.vals.MCPTraceRetentionHours.Value()
+		if mcpTraceRetentionHours > 0 {
+			deleteMCPTraceBefore := start.Add(-time.Duration(mcpTraceRetentionHours) * time.Hour)
+			purgedMCPTraceRequests, err = tx.DeleteOldMCPTraceRequests(ctx, database.DeleteOldMCPTraceRequestsParams{
+				BeforeTime: deleteMCPTraceBefore,
+				LimitCount: mcpTraceBatchSize,
+			})
+			if err != nil {
+				return xerrors.Errorf("failed to delete old MCP trace requests: %w", err)
+			}
+		}
+
 		var purgedAuditLogs int64
 		auditLogsRetention := i.vals.Retention.AuditLogs.Value()
 		if auditLogsRetention > 0 {
@@ -301,6 +315,7 @@ func (i *instance) purgeTick(ctx context.Context, db database.Store, start time.
 			slog.F("expired_api_keys", expiredAPIKeys),
 			slog.F("aibridge_records", purgedAIBridgeRecords),
 			slog.F("connection_logs", purgedConnectionLogs),
+			slog.F("mcp_trace_requests", purgedMCPTraceRequests),
 			slog.F("audit_logs", purgedAuditLogs),
 			slog.F("boundary_logs", purgedBoundaryLogs),
 			slog.F("boundary_sessions", purgedBoundarySessions),
@@ -315,6 +330,7 @@ func (i *instance) purgeTick(ctx context.Context, db database.Store, start time.
 			i.recordsPurged.WithLabelValues("expired_api_keys").Add(float64(expiredAPIKeys))
 			i.recordsPurged.WithLabelValues("aibridge_records").Add(float64(purgedAIBridgeRecords))
 			i.recordsPurged.WithLabelValues("connection_logs").Add(float64(purgedConnectionLogs))
+			i.recordsPurged.WithLabelValues("mcp_trace_requests").Add(float64(purgedMCPTraceRequests))
 			i.recordsPurged.WithLabelValues("audit_logs").Add(float64(purgedAuditLogs))
 			i.recordsPurged.WithLabelValues("boundary_logs").Add(float64(purgedBoundaryLogs))
 			i.recordsPurged.WithLabelValues("boundary_sessions").Add(float64(purgedBoundarySessions))

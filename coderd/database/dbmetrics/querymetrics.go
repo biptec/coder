@@ -777,6 +777,14 @@ func (m queryMetricsStore) DeleteOldConnectionLogs(ctx context.Context, arg data
 	return r0, r1
 }
 
+func (m queryMetricsStore) DeleteOldMCPTraceRequests(ctx context.Context, arg database.DeleteOldMCPTraceRequestsParams) (int64, error) {
+	start := time.Now()
+	r0, r1 := m.s.DeleteOldMCPTraceRequests(ctx, arg)
+	m.queryLatencies.WithLabelValues("DeleteOldMCPTraceRequests").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "DeleteOldMCPTraceRequests").Inc()
+	return r0, r1
+}
+
 func (m queryMetricsStore) DeleteOldNotificationMessages(ctx context.Context) error {
 	start := time.Now()
 	r0 := m.s.DeleteOldNotificationMessages(ctx)
@@ -1103,6 +1111,22 @@ func (m queryMetricsStore) FindMatchingPresetID(ctx context.Context, arg databas
 	m.queryLatencies.WithLabelValues("FindMatchingPresetID").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "FindMatchingPresetID").Inc()
 	return r0, r1
+}
+
+func (m queryMetricsStore) FinishMCPTraceConnection(ctx context.Context, arg database.FinishMCPTraceConnectionParams) error {
+	start := time.Now()
+	r0 := m.s.FinishMCPTraceConnection(ctx, arg)
+	m.queryLatencies.WithLabelValues("FinishMCPTraceConnection").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "FinishMCPTraceConnection").Inc()
+	return r0
+}
+
+func (m queryMetricsStore) FinishMCPTraceRequest(ctx context.Context, arg database.FinishMCPTraceRequestParams) error {
+	start := time.Now()
+	r0 := m.s.FinishMCPTraceRequest(ctx, arg)
+	m.queryLatencies.WithLabelValues("FinishMCPTraceRequest").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "FinishMCPTraceRequest").Inc()
+	return r0
 }
 
 func (m queryMetricsStore) FinishWorkspaceCommandActivity(ctx context.Context, arg database.FinishWorkspaceCommandActivityParams) (int64, error) {
@@ -2414,6 +2438,22 @@ func (m queryMetricsStore) GetMCPServerUserTokensByUserID(ctx context.Context, u
 	r0, r1 := m.s.GetMCPServerUserTokensByUserID(ctx, userID)
 	m.queryLatencies.WithLabelValues("GetMCPServerUserTokensByUserID").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetMCPServerUserTokensByUserID").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) GetMCPTraceConnectionByRequestID(ctx context.Context, requestID uuid.UUID) (database.McpTraceConnection, error) {
+	start := time.Now()
+	r0, r1 := m.s.GetMCPTraceConnectionByRequestID(ctx, requestID)
+	m.queryLatencies.WithLabelValues("GetMCPTraceConnectionByRequestID").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetMCPTraceConnectionByRequestID").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) GetMCPTraceRequestByID(ctx context.Context, id uuid.UUID) (database.McpTraceRequest, error) {
+	start := time.Now()
+	r0, r1 := m.s.GetMCPTraceRequestByID(ctx, id)
+	m.queryLatencies.WithLabelValues("GetMCPTraceRequestByID").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetMCPTraceRequestByID").Inc()
 	return r0, r1
 }
 
@@ -4305,6 +4345,22 @@ func (m queryMetricsStore) InsertMCPServerConfig(ctx context.Context, arg databa
 	return r0, r1
 }
 
+func (m queryMetricsStore) InsertMCPTraceConnection(ctx context.Context, arg database.InsertMCPTraceConnectionParams) error {
+	start := time.Now()
+	r0 := m.s.InsertMCPTraceConnection(ctx, arg)
+	m.queryLatencies.WithLabelValues("InsertMCPTraceConnection").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "InsertMCPTraceConnection").Inc()
+	return r0
+}
+
+func (m queryMetricsStore) InsertMCPTraceRequest(ctx context.Context, arg database.InsertMCPTraceRequestParams) error {
+	start := time.Now()
+	r0 := m.s.InsertMCPTraceRequest(ctx, arg)
+	m.queryLatencies.WithLabelValues("InsertMCPTraceRequest").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "InsertMCPTraceRequest").Inc()
+	return r0
+}
+
 func (m queryMetricsStore) InsertMemoryResourceMonitor(ctx context.Context, arg database.InsertMemoryResourceMonitorParams) (database.WorkspaceAgentMemoryResourceMonitor, error) {
 	start := time.Now()
 	r0, r1 := m.s.InsertMemoryResourceMonitor(ctx, arg)
@@ -5623,6 +5679,102 @@ func (m queryMetricsStore) UpdateMCPServerConfig(ctx context.Context, arg databa
 	m.queryLatencies.WithLabelValues("UpdateMCPServerConfig").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "UpdateMCPServerConfig").Inc()
 	return r0, r1
+}
+
+func (m queryMetricsStore) UpdateMCPTraceConnectionSession(ctx context.Context, arg database.UpdateMCPTraceConnectionSessionParams) error {
+	start := time.Now()
+	r0 := m.s.UpdateMCPTraceConnectionSession(ctx, arg)
+	m.queryLatencies.WithLabelValues("UpdateMCPTraceConnectionSession").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "UpdateMCPTraceConnectionSession").Inc()
+	return r0
+}
+
+func (m queryMetricsStore) UpdateMCPTraceRequestAuthenticated(ctx context.Context, arg database.UpdateMCPTraceRequestAuthenticatedParams) error {
+	start := time.Now()
+	r0 := m.s.UpdateMCPTraceRequestAuthenticated(ctx, arg)
+	m.queryLatencies.WithLabelValues("UpdateMCPTraceRequestAuthenticated").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "UpdateMCPTraceRequestAuthenticated").Inc()
+	return r0
+}
+
+func (m queryMetricsStore) UpdateMCPTraceRequestCoderRequestID(ctx context.Context, arg database.UpdateMCPTraceRequestCoderRequestIDParams) error {
+	start := time.Now()
+	r0 := m.s.UpdateMCPTraceRequestCoderRequestID(ctx, arg)
+	m.queryLatencies.WithLabelValues("UpdateMCPTraceRequestCoderRequestID").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "UpdateMCPTraceRequestCoderRequestID").Inc()
+	return r0
+}
+
+func (m queryMetricsStore) UpdateMCPTraceRequestDispatched(ctx context.Context, arg database.UpdateMCPTraceRequestDispatchedParams) error {
+	start := time.Now()
+	r0 := m.s.UpdateMCPTraceRequestDispatched(ctx, arg)
+	m.queryLatencies.WithLabelValues("UpdateMCPTraceRequestDispatched").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "UpdateMCPTraceRequestDispatched").Inc()
+	return r0
+}
+
+func (m queryMetricsStore) UpdateMCPTraceRequestHandlerFinished(ctx context.Context, arg database.UpdateMCPTraceRequestHandlerFinishedParams) error {
+	start := time.Now()
+	r0 := m.s.UpdateMCPTraceRequestHandlerFinished(ctx, arg)
+	m.queryLatencies.WithLabelValues("UpdateMCPTraceRequestHandlerFinished").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "UpdateMCPTraceRequestHandlerFinished").Inc()
+	return r0
+}
+
+func (m queryMetricsStore) UpdateMCPTraceRequestHandlerStarted(ctx context.Context, arg database.UpdateMCPTraceRequestHandlerStartedParams) error {
+	start := time.Now()
+	r0 := m.s.UpdateMCPTraceRequestHandlerStarted(ctx, arg)
+	m.queryLatencies.WithLabelValues("UpdateMCPTraceRequestHandlerStarted").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "UpdateMCPTraceRequestHandlerStarted").Inc()
+	return r0
+}
+
+func (m queryMetricsStore) UpdateMCPTraceRequestMCPFinished(ctx context.Context, arg database.UpdateMCPTraceRequestMCPFinishedParams) error {
+	start := time.Now()
+	r0 := m.s.UpdateMCPTraceRequestMCPFinished(ctx, arg)
+	m.queryLatencies.WithLabelValues("UpdateMCPTraceRequestMCPFinished").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "UpdateMCPTraceRequestMCPFinished").Inc()
+	return r0
+}
+
+func (m queryMetricsStore) UpdateMCPTraceRequestParsed(ctx context.Context, arg database.UpdateMCPTraceRequestParsedParams) error {
+	start := time.Now()
+	r0 := m.s.UpdateMCPTraceRequestParsed(ctx, arg)
+	m.queryLatencies.WithLabelValues("UpdateMCPTraceRequestParsed").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "UpdateMCPTraceRequestParsed").Inc()
+	return r0
+}
+
+func (m queryMetricsStore) UpdateMCPTraceRequestResponseProgress(ctx context.Context, arg database.UpdateMCPTraceRequestResponseProgressParams) error {
+	start := time.Now()
+	r0 := m.s.UpdateMCPTraceRequestResponseProgress(ctx, arg)
+	m.queryLatencies.WithLabelValues("UpdateMCPTraceRequestResponseProgress").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "UpdateMCPTraceRequestResponseProgress").Inc()
+	return r0
+}
+
+func (m queryMetricsStore) UpdateMCPTraceRequestSessionRegistered(ctx context.Context, arg database.UpdateMCPTraceRequestSessionRegisteredParams) error {
+	start := time.Now()
+	r0 := m.s.UpdateMCPTraceRequestSessionRegistered(ctx, arg)
+	m.queryLatencies.WithLabelValues("UpdateMCPTraceRequestSessionRegistered").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "UpdateMCPTraceRequestSessionRegistered").Inc()
+	return r0
+}
+
+func (m queryMetricsStore) UpdateMCPTraceRequestSessionUnregistered(ctx context.Context, arg database.UpdateMCPTraceRequestSessionUnregisteredParams) error {
+	start := time.Now()
+	r0 := m.s.UpdateMCPTraceRequestSessionUnregistered(ctx, arg)
+	m.queryLatencies.WithLabelValues("UpdateMCPTraceRequestSessionUnregistered").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "UpdateMCPTraceRequestSessionUnregistered").Inc()
+	return r0
+}
+
+func (m queryMetricsStore) UpdateMCPTraceRequestTransportEntered(ctx context.Context, arg database.UpdateMCPTraceRequestTransportEnteredParams) error {
+	start := time.Now()
+	r0 := m.s.UpdateMCPTraceRequestTransportEntered(ctx, arg)
+	m.queryLatencies.WithLabelValues("UpdateMCPTraceRequestTransportEntered").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "UpdateMCPTraceRequestTransportEntered").Inc()
+	return r0
 }
 
 func (m queryMetricsStore) UpdateMemberRoles(ctx context.Context, arg database.UpdateMemberRolesParams) (database.OrganizationMember, error) {

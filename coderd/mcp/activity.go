@@ -451,6 +451,9 @@ func (s *Server) registerRecentActivityTool() {
 		}
 		return mcp.NewToolResultText(string(data)), nil
 	}
-	tool = s.withActivityTracking(tool, "recent_activity")
+	// Do not track recent_activity in the in-memory store it reads. Tracking it
+	// would make every call report itself as the newest running record and would
+	// prevent an otherwise idle user's activity list from ever being empty.
+	tool = s.withTraceTracking(tool, "recent_activity")
 	s.mcpServer.AddTools(tool)
 }

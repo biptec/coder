@@ -2411,6 +2411,13 @@ func (q *querier) DeleteOldConnectionLogs(ctx context.Context, arg database.Dele
 	return q.db.DeleteOldConnectionLogs(ctx, arg)
 }
 
+func (q *querier) DeleteOldMCPTraceRequests(ctx context.Context, arg database.DeleteOldMCPTraceRequestsParams) (int64, error) {
+	if err := q.authorizeContext(ctx, policy.ActionDelete, rbac.ResourceSystem); err != nil {
+		return 0, err
+	}
+	return q.db.DeleteOldMCPTraceRequests(ctx, arg)
+}
+
 func (q *querier) DeleteOldNotificationMessages(ctx context.Context) error {
 	if err := q.authorizeContext(ctx, policy.ActionDelete, rbac.ResourceNotificationMessage); err != nil {
 		return err
@@ -2788,6 +2795,20 @@ func (q *querier) FindMatchingPresetID(ctx context.Context, arg database.FindMat
 		return uuid.Nil, err
 	}
 	return q.db.FindMatchingPresetID(ctx, arg)
+}
+
+func (q *querier) FinishMCPTraceConnection(ctx context.Context, arg database.FinishMCPTraceConnectionParams) error {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceSystem); err != nil {
+		return err
+	}
+	return q.db.FinishMCPTraceConnection(ctx, arg)
+}
+
+func (q *querier) FinishMCPTraceRequest(ctx context.Context, arg database.FinishMCPTraceRequestParams) error {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceSystem); err != nil {
+		return err
+	}
+	return q.db.FinishMCPTraceRequest(ctx, arg)
 }
 
 func (q *querier) FinishWorkspaceCommandActivity(ctx context.Context, arg database.FinishWorkspaceCommandActivityParams) (int64, error) {
@@ -4099,6 +4120,20 @@ func (q *querier) GetMCPServerUserTokensByUserID(ctx context.Context, userID uui
 		return nil, err
 	}
 	return q.db.GetMCPServerUserTokensByUserID(ctx, userID)
+}
+
+func (q *querier) GetMCPTraceConnectionByRequestID(ctx context.Context, requestID uuid.UUID) (database.McpTraceConnection, error) {
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceSystem); err != nil {
+		return database.McpTraceConnection{}, err
+	}
+	return q.db.GetMCPTraceConnectionByRequestID(ctx, requestID)
+}
+
+func (q *querier) GetMCPTraceRequestByID(ctx context.Context, id uuid.UUID) (database.McpTraceRequest, error) {
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceSystem); err != nil {
+		return database.McpTraceRequest{}, err
+	}
+	return q.db.GetMCPTraceRequestByID(ctx, id)
 }
 
 func (q *querier) GetNotificationMessagesByStatus(ctx context.Context, arg database.GetNotificationMessagesByStatusParams) ([]database.NotificationMessage, error) {
@@ -6201,6 +6236,20 @@ func (q *querier) InsertMCPServerConfig(ctx context.Context, arg database.Insert
 	return q.db.InsertMCPServerConfig(ctx, arg)
 }
 
+func (q *querier) InsertMCPTraceConnection(ctx context.Context, arg database.InsertMCPTraceConnectionParams) error {
+	if err := q.authorizeContext(ctx, policy.ActionCreate, rbac.ResourceSystem); err != nil {
+		return err
+	}
+	return q.db.InsertMCPTraceConnection(ctx, arg)
+}
+
+func (q *querier) InsertMCPTraceRequest(ctx context.Context, arg database.InsertMCPTraceRequestParams) error {
+	if err := q.authorizeContext(ctx, policy.ActionCreate, rbac.ResourceSystem); err != nil {
+		return err
+	}
+	return q.db.InsertMCPTraceRequest(ctx, arg)
+}
+
 func (q *querier) InsertMemoryResourceMonitor(ctx context.Context, arg database.InsertMemoryResourceMonitorParams) (database.WorkspaceAgentMemoryResourceMonitor, error) {
 	if err := q.authorizeContext(ctx, policy.ActionCreate, rbac.ResourceWorkspaceAgentResourceMonitor); err != nil {
 		return database.WorkspaceAgentMemoryResourceMonitor{}, err
@@ -7753,6 +7802,90 @@ func (q *querier) UpdateMCPServerConfig(ctx context.Context, arg database.Update
 		return database.MCPServerConfig{}, err
 	}
 	return q.db.UpdateMCPServerConfig(ctx, arg)
+}
+
+func (q *querier) UpdateMCPTraceConnectionSession(ctx context.Context, arg database.UpdateMCPTraceConnectionSessionParams) error {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceSystem); err != nil {
+		return err
+	}
+	return q.db.UpdateMCPTraceConnectionSession(ctx, arg)
+}
+
+func (q *querier) UpdateMCPTraceRequestAuthenticated(ctx context.Context, arg database.UpdateMCPTraceRequestAuthenticatedParams) error {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceSystem); err != nil {
+		return err
+	}
+	return q.db.UpdateMCPTraceRequestAuthenticated(ctx, arg)
+}
+
+func (q *querier) UpdateMCPTraceRequestCoderRequestID(ctx context.Context, arg database.UpdateMCPTraceRequestCoderRequestIDParams) error {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceSystem); err != nil {
+		return err
+	}
+	return q.db.UpdateMCPTraceRequestCoderRequestID(ctx, arg)
+}
+
+func (q *querier) UpdateMCPTraceRequestDispatched(ctx context.Context, arg database.UpdateMCPTraceRequestDispatchedParams) error {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceSystem); err != nil {
+		return err
+	}
+	return q.db.UpdateMCPTraceRequestDispatched(ctx, arg)
+}
+
+func (q *querier) UpdateMCPTraceRequestHandlerFinished(ctx context.Context, arg database.UpdateMCPTraceRequestHandlerFinishedParams) error {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceSystem); err != nil {
+		return err
+	}
+	return q.db.UpdateMCPTraceRequestHandlerFinished(ctx, arg)
+}
+
+func (q *querier) UpdateMCPTraceRequestHandlerStarted(ctx context.Context, arg database.UpdateMCPTraceRequestHandlerStartedParams) error {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceSystem); err != nil {
+		return err
+	}
+	return q.db.UpdateMCPTraceRequestHandlerStarted(ctx, arg)
+}
+
+func (q *querier) UpdateMCPTraceRequestMCPFinished(ctx context.Context, arg database.UpdateMCPTraceRequestMCPFinishedParams) error {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceSystem); err != nil {
+		return err
+	}
+	return q.db.UpdateMCPTraceRequestMCPFinished(ctx, arg)
+}
+
+func (q *querier) UpdateMCPTraceRequestParsed(ctx context.Context, arg database.UpdateMCPTraceRequestParsedParams) error {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceSystem); err != nil {
+		return err
+	}
+	return q.db.UpdateMCPTraceRequestParsed(ctx, arg)
+}
+
+func (q *querier) UpdateMCPTraceRequestResponseProgress(ctx context.Context, arg database.UpdateMCPTraceRequestResponseProgressParams) error {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceSystem); err != nil {
+		return err
+	}
+	return q.db.UpdateMCPTraceRequestResponseProgress(ctx, arg)
+}
+
+func (q *querier) UpdateMCPTraceRequestSessionRegistered(ctx context.Context, arg database.UpdateMCPTraceRequestSessionRegisteredParams) error {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceSystem); err != nil {
+		return err
+	}
+	return q.db.UpdateMCPTraceRequestSessionRegistered(ctx, arg)
+}
+
+func (q *querier) UpdateMCPTraceRequestSessionUnregistered(ctx context.Context, arg database.UpdateMCPTraceRequestSessionUnregisteredParams) error {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceSystem); err != nil {
+		return err
+	}
+	return q.db.UpdateMCPTraceRequestSessionUnregistered(ctx, arg)
+}
+
+func (q *querier) UpdateMCPTraceRequestTransportEntered(ctx context.Context, arg database.UpdateMCPTraceRequestTransportEnteredParams) error {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceSystem); err != nil {
+		return err
+	}
+	return q.db.UpdateMCPTraceRequestTransportEntered(ctx, arg)
 }
 
 func (q *querier) UpdateMemberRoles(ctx context.Context, arg database.UpdateMemberRolesParams) (database.OrganizationMember, error) {

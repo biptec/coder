@@ -615,6 +615,7 @@ var AIBudgetPeriods = []string{
 const (
 	DefaultWorkspaceActivityNowThreshold        = 5 * time.Minute
 	DefaultWorkspaceCommandActivityHistoryLimit = int64(0)
+	DefaultMCPTraceRetentionHours               = int64(24)
 )
 
 // DeploymentValues is the central configuration values the coder server.
@@ -653,6 +654,8 @@ type DeploymentValues struct {
 	AgentStatRefreshInterval                serpent.Duration                     `json:"agent_stat_refresh_interval,omitempty" typescript:",notnull"`
 	WorkspaceActivityNowThreshold           serpent.Duration                     `json:"workspace_activity_now_threshold,omitempty" typescript:",notnull"`
 	WorkspaceCommandActivityHistoryLimit    serpent.Int64                        `json:"workspace_command_activity_history_limit,omitempty" typescript:",notnull"`
+	MCPTraceEnabled                         serpent.Bool                         `json:"mcp_trace_enabled,omitempty" typescript:",notnull"`
+	MCPTraceRetentionHours                  serpent.Int64                        `json:"mcp_trace_retention_hours,omitempty" typescript:",notnull"`
 	WorkspaceVolumeCopyEnabled              serpent.Bool                         `json:"workspace_volume_copy_enabled,omitempty" typescript:",notnull"`
 	WorkspaceVolumeCopyNamespace            serpent.String                       `json:"workspace_volume_copy_namespace,omitempty" typescript:",notnull"`
 	WorkspaceVolumeCopyImage                serpent.String                       `json:"workspace_volume_copy_image,omitempty" typescript:",notnull"`
@@ -3624,6 +3627,31 @@ communicating directly.`,
 				}
 				if value.Value() > 2147483647 {
 					return xerrors.New("workspace command activity history limit must not exceed 2147483647")
+				}
+				return nil
+			}),
+		},
+		{
+			Name:        "MCP Trace Enabled",
+			Description: "Enable temporary diagnostic tracing for MCP HTTP transport, sessions, request dispatch, tool handlers, and response lifecycle. Disabled by default.",
+			Flag:        "mcp-trace-enabled",
+			Env:         "CODER_MCP_TRACE_ENABLED",
+			YAML:        "mcpTraceEnabled",
+			Hidden:      true,
+			Default:     "false",
+			Value:       &c.MCPTraceEnabled,
+		},
+		{
+			Name:        "MCP Trace Retention Hours",
+			Description: "Maximum age in hours for temporary MCP diagnostic trace records before automatic deletion.",
+			Flag:        "mcp-trace-retention-hours",
+			Env:         "CODER_MCP_TRACE_RETENTION_HOURS",
+			YAML:        "mcpTraceRetentionHours",
+			Hidden:      true,
+			Default:     fmt.Sprintf("%d", DefaultMCPTraceRetentionHours),
+			Value: serpent.Validate(&c.MCPTraceRetentionHours, func(value *serpent.Int64) error {
+				if value.Value() <= 0 {
+					return xerrors.New("MCP trace retention hours must be greater than zero")
 				}
 				return nil
 			}),

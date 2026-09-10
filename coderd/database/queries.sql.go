@@ -17425,6 +17425,475 @@ func (q *sqlQuerier) UpsertMCPServerUserToken(ctx context.Context, arg UpsertMCP
 	return i, err
 }
 
+const deleteOldMCPTraceRequests = `-- name: DeleteOldMCPTraceRequests :execrows
+DELETE FROM mcp_trace_requests AS target
+WHERE target.id IN (
+    SELECT candidate.id
+    FROM mcp_trace_requests AS candidate
+    WHERE candidate.received_at < $1
+    ORDER BY candidate.received_at ASC
+    LIMIT $2
+)
+`
+
+type DeleteOldMCPTraceRequestsParams struct {
+	BeforeTime time.Time `db:"before_time" json:"before_time"`
+	LimitCount int32     `db:"limit_count" json:"limit_count"`
+}
+
+func (q *sqlQuerier) DeleteOldMCPTraceRequests(ctx context.Context, arg DeleteOldMCPTraceRequestsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteOldMCPTraceRequests, arg.BeforeTime, arg.LimitCount)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const finishMCPTraceConnection = `-- name: FinishMCPTraceConnection :exec
+UPDATE mcp_trace_connections
+SET status = $1,
+    closed_at = $2,
+    close_reason = $3
+WHERE request_id = $4
+`
+
+type FinishMCPTraceConnectionParams struct {
+	Status      string       `db:"status" json:"status"`
+	ClosedAt    sql.NullTime `db:"closed_at" json:"closed_at"`
+	CloseReason string       `db:"close_reason" json:"close_reason"`
+	RequestID   uuid.UUID    `db:"request_id" json:"request_id"`
+}
+
+func (q *sqlQuerier) FinishMCPTraceConnection(ctx context.Context, arg FinishMCPTraceConnectionParams) error {
+	_, err := q.db.ExecContext(ctx, finishMCPTraceConnection,
+		arg.Status,
+		arg.ClosedAt,
+		arg.CloseReason,
+		arg.RequestID,
+	)
+	return err
+}
+
+const finishMCPTraceRequest = `-- name: FinishMCPTraceRequest :exec
+UPDATE mcp_trace_requests
+SET status = $1,
+    error_kind = $2,
+    http_status = $3,
+    response_started_at = COALESCE($4, response_started_at),
+    last_response_write_at = COALESCE($5, last_response_write_at),
+    response_bytes = GREATEST(response_bytes, $6),
+    response_write_count = GREATEST(response_write_count, $7),
+    canceled_at = $8,
+    finished_at = $9,
+    last_stage = $10
+WHERE id = $11
+`
+
+type FinishMCPTraceRequestParams struct {
+	Status              string        `db:"status" json:"status"`
+	ErrorKind           string        `db:"error_kind" json:"error_kind"`
+	HttpStatus          sql.NullInt32 `db:"http_status" json:"http_status"`
+	ResponseStartedAt   sql.NullTime  `db:"response_started_at" json:"response_started_at"`
+	LastResponseWriteAt sql.NullTime  `db:"last_response_write_at" json:"last_response_write_at"`
+	ResponseBytes       int64         `db:"response_bytes" json:"response_bytes"`
+	ResponseWriteCount  int64         `db:"response_write_count" json:"response_write_count"`
+	CanceledAt          sql.NullTime  `db:"canceled_at" json:"canceled_at"`
+	FinishedAt          sql.NullTime  `db:"finished_at" json:"finished_at"`
+	LastStage           string        `db:"last_stage" json:"last_stage"`
+	ID                  uuid.UUID     `db:"id" json:"id"`
+}
+
+func (q *sqlQuerier) FinishMCPTraceRequest(ctx context.Context, arg FinishMCPTraceRequestParams) error {
+	_, err := q.db.ExecContext(ctx, finishMCPTraceRequest,
+		arg.Status,
+		arg.ErrorKind,
+		arg.HttpStatus,
+		arg.ResponseStartedAt,
+		arg.LastResponseWriteAt,
+		arg.ResponseBytes,
+		arg.ResponseWriteCount,
+		arg.CanceledAt,
+		arg.FinishedAt,
+		arg.LastStage,
+		arg.ID,
+	)
+	return err
+}
+
+const getMCPTraceConnectionByRequestID = `-- name: GetMCPTraceConnectionByRequestID :one
+SELECT id, request_id, replica_id, user_id, session_id, http_protocol, status, opened_at, closed_at, close_reason FROM mcp_trace_connections WHERE request_id = $1
+`
+
+func (q *sqlQuerier) GetMCPTraceConnectionByRequestID(ctx context.Context, requestID uuid.UUID) (McpTraceConnection, error) {
+	row := q.db.QueryRowContext(ctx, getMCPTraceConnectionByRequestID, requestID)
+	var i McpTraceConnection
+	err := row.Scan(
+		&i.ID,
+		&i.RequestID,
+		&i.ReplicaID,
+		&i.UserID,
+		&i.SessionID,
+		&i.HttpProtocol,
+		&i.Status,
+		&i.OpenedAt,
+		&i.ClosedAt,
+		&i.CloseReason,
+	)
+	return i, err
+}
+
+const getMCPTraceRequestByID = `-- name: GetMCPTraceRequestByID :one
+SELECT id, replica_id, coder_request_id, user_id, session_id, http_method, http_protocol, mcp_method, jsonrpc_id, tool, status, last_stage, error_kind, http_status, response_bytes, response_write_count, received_at, authenticated_at, transport_entered_at, parsed_at, dispatched_at, handler_started_at, handler_finished_at, mcp_finished_at, response_started_at, last_response_write_at, canceled_at, session_registered_at, session_unregistered_at, finished_at FROM mcp_trace_requests WHERE id = $1
+`
+
+func (q *sqlQuerier) GetMCPTraceRequestByID(ctx context.Context, id uuid.UUID) (McpTraceRequest, error) {
+	row := q.db.QueryRowContext(ctx, getMCPTraceRequestByID, id)
+	var i McpTraceRequest
+	err := row.Scan(
+		&i.ID,
+		&i.ReplicaID,
+		&i.CoderRequestID,
+		&i.UserID,
+		&i.SessionID,
+		&i.HttpMethod,
+		&i.HttpProtocol,
+		&i.McpMethod,
+		&i.JsonrpcID,
+		&i.Tool,
+		&i.Status,
+		&i.LastStage,
+		&i.ErrorKind,
+		&i.HttpStatus,
+		&i.ResponseBytes,
+		&i.ResponseWriteCount,
+		&i.ReceivedAt,
+		&i.AuthenticatedAt,
+		&i.TransportEnteredAt,
+		&i.ParsedAt,
+		&i.DispatchedAt,
+		&i.HandlerStartedAt,
+		&i.HandlerFinishedAt,
+		&i.McpFinishedAt,
+		&i.ResponseStartedAt,
+		&i.LastResponseWriteAt,
+		&i.CanceledAt,
+		&i.SessionRegisteredAt,
+		&i.SessionUnregisteredAt,
+		&i.FinishedAt,
+	)
+	return i, err
+}
+
+const insertMCPTraceConnection = `-- name: InsertMCPTraceConnection :exec
+INSERT INTO mcp_trace_connections (
+    id, request_id, replica_id, user_id, session_id, http_protocol, opened_at
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7
+)
+ON CONFLICT (request_id) DO NOTHING
+`
+
+type InsertMCPTraceConnectionParams struct {
+	ID           uuid.UUID     `db:"id" json:"id"`
+	RequestID    uuid.UUID     `db:"request_id" json:"request_id"`
+	ReplicaID    uuid.UUID     `db:"replica_id" json:"replica_id"`
+	UserID       uuid.NullUUID `db:"user_id" json:"user_id"`
+	SessionID    string        `db:"session_id" json:"session_id"`
+	HttpProtocol string        `db:"http_protocol" json:"http_protocol"`
+	OpenedAt     time.Time     `db:"opened_at" json:"opened_at"`
+}
+
+func (q *sqlQuerier) InsertMCPTraceConnection(ctx context.Context, arg InsertMCPTraceConnectionParams) error {
+	_, err := q.db.ExecContext(ctx, insertMCPTraceConnection,
+		arg.ID,
+		arg.RequestID,
+		arg.ReplicaID,
+		arg.UserID,
+		arg.SessionID,
+		arg.HttpProtocol,
+		arg.OpenedAt,
+	)
+	return err
+}
+
+const insertMCPTraceRequest = `-- name: InsertMCPTraceRequest :exec
+INSERT INTO mcp_trace_requests (
+    id, replica_id, coder_request_id, user_id, session_id,
+    http_method, http_protocol, received_at
+) VALUES (
+    $1, $2, $3, $4, $5,
+    $6, $7, $8
+)
+`
+
+type InsertMCPTraceRequestParams struct {
+	ID             uuid.UUID     `db:"id" json:"id"`
+	ReplicaID      uuid.UUID     `db:"replica_id" json:"replica_id"`
+	CoderRequestID uuid.NullUUID `db:"coder_request_id" json:"coder_request_id"`
+	UserID         uuid.NullUUID `db:"user_id" json:"user_id"`
+	SessionID      string        `db:"session_id" json:"session_id"`
+	HttpMethod     string        `db:"http_method" json:"http_method"`
+	HttpProtocol   string        `db:"http_protocol" json:"http_protocol"`
+	ReceivedAt     time.Time     `db:"received_at" json:"received_at"`
+}
+
+func (q *sqlQuerier) InsertMCPTraceRequest(ctx context.Context, arg InsertMCPTraceRequestParams) error {
+	_, err := q.db.ExecContext(ctx, insertMCPTraceRequest,
+		arg.ID,
+		arg.ReplicaID,
+		arg.CoderRequestID,
+		arg.UserID,
+		arg.SessionID,
+		arg.HttpMethod,
+		arg.HttpProtocol,
+		arg.ReceivedAt,
+	)
+	return err
+}
+
+const updateMCPTraceConnectionSession = `-- name: UpdateMCPTraceConnectionSession :exec
+UPDATE mcp_trace_connections
+SET user_id = COALESCE($1, user_id),
+    session_id = CASE WHEN $2::text = '' THEN session_id ELSE $2::text END
+WHERE request_id = $3
+`
+
+type UpdateMCPTraceConnectionSessionParams struct {
+	UserID    uuid.NullUUID `db:"user_id" json:"user_id"`
+	SessionID string        `db:"session_id" json:"session_id"`
+	RequestID uuid.UUID     `db:"request_id" json:"request_id"`
+}
+
+func (q *sqlQuerier) UpdateMCPTraceConnectionSession(ctx context.Context, arg UpdateMCPTraceConnectionSessionParams) error {
+	_, err := q.db.ExecContext(ctx, updateMCPTraceConnectionSession, arg.UserID, arg.SessionID, arg.RequestID)
+	return err
+}
+
+const updateMCPTraceRequestAuthenticated = `-- name: UpdateMCPTraceRequestAuthenticated :exec
+UPDATE mcp_trace_requests
+SET user_id = COALESCE($1, user_id),
+    authenticated_at = $2,
+    last_stage = 'authenticated'
+WHERE id = $3
+`
+
+type UpdateMCPTraceRequestAuthenticatedParams struct {
+	UserID          uuid.NullUUID `db:"user_id" json:"user_id"`
+	AuthenticatedAt sql.NullTime  `db:"authenticated_at" json:"authenticated_at"`
+	ID              uuid.UUID     `db:"id" json:"id"`
+}
+
+func (q *sqlQuerier) UpdateMCPTraceRequestAuthenticated(ctx context.Context, arg UpdateMCPTraceRequestAuthenticatedParams) error {
+	_, err := q.db.ExecContext(ctx, updateMCPTraceRequestAuthenticated, arg.UserID, arg.AuthenticatedAt, arg.ID)
+	return err
+}
+
+const updateMCPTraceRequestCoderRequestID = `-- name: UpdateMCPTraceRequestCoderRequestID :exec
+UPDATE mcp_trace_requests
+SET coder_request_id = $1
+WHERE id = $2
+`
+
+type UpdateMCPTraceRequestCoderRequestIDParams struct {
+	CoderRequestID uuid.NullUUID `db:"coder_request_id" json:"coder_request_id"`
+	ID             uuid.UUID     `db:"id" json:"id"`
+}
+
+func (q *sqlQuerier) UpdateMCPTraceRequestCoderRequestID(ctx context.Context, arg UpdateMCPTraceRequestCoderRequestIDParams) error {
+	_, err := q.db.ExecContext(ctx, updateMCPTraceRequestCoderRequestID, arg.CoderRequestID, arg.ID)
+	return err
+}
+
+const updateMCPTraceRequestDispatched = `-- name: UpdateMCPTraceRequestDispatched :exec
+UPDATE mcp_trace_requests
+SET mcp_method = $1,
+    jsonrpc_id = $2,
+    tool = CASE WHEN $3::text = '' THEN tool ELSE $3::text END,
+    dispatched_at = $4,
+    last_stage = 'dispatched'
+WHERE id = $5
+`
+
+type UpdateMCPTraceRequestDispatchedParams struct {
+	McpMethod    string       `db:"mcp_method" json:"mcp_method"`
+	JsonrpcID    string       `db:"jsonrpc_id" json:"jsonrpc_id"`
+	Tool         string       `db:"tool" json:"tool"`
+	DispatchedAt sql.NullTime `db:"dispatched_at" json:"dispatched_at"`
+	ID           uuid.UUID    `db:"id" json:"id"`
+}
+
+func (q *sqlQuerier) UpdateMCPTraceRequestDispatched(ctx context.Context, arg UpdateMCPTraceRequestDispatchedParams) error {
+	_, err := q.db.ExecContext(ctx, updateMCPTraceRequestDispatched,
+		arg.McpMethod,
+		arg.JsonrpcID,
+		arg.Tool,
+		arg.DispatchedAt,
+		arg.ID,
+	)
+	return err
+}
+
+const updateMCPTraceRequestHandlerFinished = `-- name: UpdateMCPTraceRequestHandlerFinished :exec
+UPDATE mcp_trace_requests
+SET handler_finished_at = $1,
+    last_stage = 'handler_finished'
+WHERE id = $2
+`
+
+type UpdateMCPTraceRequestHandlerFinishedParams struct {
+	HandlerFinishedAt sql.NullTime `db:"handler_finished_at" json:"handler_finished_at"`
+	ID                uuid.UUID    `db:"id" json:"id"`
+}
+
+func (q *sqlQuerier) UpdateMCPTraceRequestHandlerFinished(ctx context.Context, arg UpdateMCPTraceRequestHandlerFinishedParams) error {
+	_, err := q.db.ExecContext(ctx, updateMCPTraceRequestHandlerFinished, arg.HandlerFinishedAt, arg.ID)
+	return err
+}
+
+const updateMCPTraceRequestHandlerStarted = `-- name: UpdateMCPTraceRequestHandlerStarted :exec
+UPDATE mcp_trace_requests
+SET tool = CASE WHEN $1::text = '' THEN tool ELSE $1::text END,
+    handler_started_at = $2,
+    last_stage = 'handler_started'
+WHERE id = $3
+`
+
+type UpdateMCPTraceRequestHandlerStartedParams struct {
+	Tool             string       `db:"tool" json:"tool"`
+	HandlerStartedAt sql.NullTime `db:"handler_started_at" json:"handler_started_at"`
+	ID               uuid.UUID    `db:"id" json:"id"`
+}
+
+func (q *sqlQuerier) UpdateMCPTraceRequestHandlerStarted(ctx context.Context, arg UpdateMCPTraceRequestHandlerStartedParams) error {
+	_, err := q.db.ExecContext(ctx, updateMCPTraceRequestHandlerStarted, arg.Tool, arg.HandlerStartedAt, arg.ID)
+	return err
+}
+
+const updateMCPTraceRequestMCPFinished = `-- name: UpdateMCPTraceRequestMCPFinished :exec
+UPDATE mcp_trace_requests
+SET mcp_finished_at = $1,
+    last_stage = 'mcp_finished'
+WHERE id = $2
+`
+
+type UpdateMCPTraceRequestMCPFinishedParams struct {
+	McpFinishedAt sql.NullTime `db:"mcp_finished_at" json:"mcp_finished_at"`
+	ID            uuid.UUID    `db:"id" json:"id"`
+}
+
+func (q *sqlQuerier) UpdateMCPTraceRequestMCPFinished(ctx context.Context, arg UpdateMCPTraceRequestMCPFinishedParams) error {
+	_, err := q.db.ExecContext(ctx, updateMCPTraceRequestMCPFinished, arg.McpFinishedAt, arg.ID)
+	return err
+}
+
+const updateMCPTraceRequestParsed = `-- name: UpdateMCPTraceRequestParsed :exec
+UPDATE mcp_trace_requests
+SET mcp_method = $1,
+    jsonrpc_id = $2,
+    session_id = CASE WHEN $3::text = '' THEN session_id ELSE $3::text END,
+    parsed_at = $4,
+    last_stage = 'parsed'
+WHERE id = $5
+`
+
+type UpdateMCPTraceRequestParsedParams struct {
+	McpMethod string       `db:"mcp_method" json:"mcp_method"`
+	JsonrpcID string       `db:"jsonrpc_id" json:"jsonrpc_id"`
+	SessionID string       `db:"session_id" json:"session_id"`
+	ParsedAt  sql.NullTime `db:"parsed_at" json:"parsed_at"`
+	ID        uuid.UUID    `db:"id" json:"id"`
+}
+
+func (q *sqlQuerier) UpdateMCPTraceRequestParsed(ctx context.Context, arg UpdateMCPTraceRequestParsedParams) error {
+	_, err := q.db.ExecContext(ctx, updateMCPTraceRequestParsed,
+		arg.McpMethod,
+		arg.JsonrpcID,
+		arg.SessionID,
+		arg.ParsedAt,
+		arg.ID,
+	)
+	return err
+}
+
+const updateMCPTraceRequestResponseProgress = `-- name: UpdateMCPTraceRequestResponseProgress :exec
+UPDATE mcp_trace_requests
+SET response_started_at = COALESCE(response_started_at, $1),
+    last_response_write_at = $1,
+    response_bytes = response_bytes + $2,
+    response_write_count = response_write_count + CASE WHEN $2 > 0 THEN 1 ELSE 0 END,
+    last_stage = 'response_writing'
+WHERE id = $3
+  AND finished_at IS NULL
+`
+
+type UpdateMCPTraceRequestResponseProgressParams struct {
+	WriteAt      sql.NullTime `db:"write_at" json:"write_at"`
+	BytesWritten int64        `db:"bytes_written" json:"bytes_written"`
+	ID           uuid.UUID    `db:"id" json:"id"`
+}
+
+func (q *sqlQuerier) UpdateMCPTraceRequestResponseProgress(ctx context.Context, arg UpdateMCPTraceRequestResponseProgressParams) error {
+	_, err := q.db.ExecContext(ctx, updateMCPTraceRequestResponseProgress, arg.WriteAt, arg.BytesWritten, arg.ID)
+	return err
+}
+
+const updateMCPTraceRequestSessionRegistered = `-- name: UpdateMCPTraceRequestSessionRegistered :exec
+UPDATE mcp_trace_requests
+SET session_id = CASE WHEN $1::text = '' THEN session_id ELSE $1::text END,
+    session_registered_at = $2,
+    last_stage = 'session_registered'
+WHERE id = $3
+`
+
+type UpdateMCPTraceRequestSessionRegisteredParams struct {
+	SessionID    string       `db:"session_id" json:"session_id"`
+	RegisteredAt sql.NullTime `db:"registered_at" json:"registered_at"`
+	ID           uuid.UUID    `db:"id" json:"id"`
+}
+
+func (q *sqlQuerier) UpdateMCPTraceRequestSessionRegistered(ctx context.Context, arg UpdateMCPTraceRequestSessionRegisteredParams) error {
+	_, err := q.db.ExecContext(ctx, updateMCPTraceRequestSessionRegistered, arg.SessionID, arg.RegisteredAt, arg.ID)
+	return err
+}
+
+const updateMCPTraceRequestSessionUnregistered = `-- name: UpdateMCPTraceRequestSessionUnregistered :exec
+UPDATE mcp_trace_requests
+SET session_id = CASE WHEN $1::text = '' THEN session_id ELSE $1::text END,
+    session_unregistered_at = $2,
+    last_stage = 'session_unregistered'
+WHERE id = $3
+`
+
+type UpdateMCPTraceRequestSessionUnregisteredParams struct {
+	SessionID      string       `db:"session_id" json:"session_id"`
+	UnregisteredAt sql.NullTime `db:"unregistered_at" json:"unregistered_at"`
+	ID             uuid.UUID    `db:"id" json:"id"`
+}
+
+func (q *sqlQuerier) UpdateMCPTraceRequestSessionUnregistered(ctx context.Context, arg UpdateMCPTraceRequestSessionUnregisteredParams) error {
+	_, err := q.db.ExecContext(ctx, updateMCPTraceRequestSessionUnregistered, arg.SessionID, arg.UnregisteredAt, arg.ID)
+	return err
+}
+
+const updateMCPTraceRequestTransportEntered = `-- name: UpdateMCPTraceRequestTransportEntered :exec
+UPDATE mcp_trace_requests
+SET session_id = CASE WHEN $1::text = '' THEN session_id ELSE $1::text END,
+    transport_entered_at = $2,
+    last_stage = 'transport_entered'
+WHERE id = $3
+`
+
+type UpdateMCPTraceRequestTransportEnteredParams struct {
+	SessionID          string       `db:"session_id" json:"session_id"`
+	TransportEnteredAt sql.NullTime `db:"transport_entered_at" json:"transport_entered_at"`
+	ID                 uuid.UUID    `db:"id" json:"id"`
+}
+
+func (q *sqlQuerier) UpdateMCPTraceRequestTransportEntered(ctx context.Context, arg UpdateMCPTraceRequestTransportEnteredParams) error {
+	_, err := q.db.ExecContext(ctx, updateMCPTraceRequestTransportEntered, arg.SessionID, arg.TransportEnteredAt, arg.ID)
+	return err
+}
+
 const acquireNotificationMessages = `-- name: AcquireNotificationMessages :many
 WITH acquired AS (
     UPDATE

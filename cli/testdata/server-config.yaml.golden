@@ -539,6 +539,14 @@ workspaceActivityNowThreshold: 5m0s
 # to a positive limit.
 # (default: 0, type: int)
 workspaceCommandActivityHistoryLimit: 0
+# Enable temporary diagnostic tracing for MCP HTTP transport, sessions, request
+# dispatch, tool handlers, and response lifecycle. Disabled by default.
+# (default: false, type: bool)
+mcpTraceEnabled: false
+# Maximum age in hours for temporary MCP diagnostic trace records before automatic
+# deletion.
+# (default: 24, type: int)
+mcpTraceRetentionHours: 24
 # Enable administrative copying of explicitly annotated Kubernetes workspace
 # persistent volumes.
 # (default: false, type: bool)

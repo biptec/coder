@@ -2434,6 +2434,52 @@ CREATE TABLE mcp_server_user_tokens (
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
+CREATE TABLE mcp_trace_connections (
+    id uuid NOT NULL,
+    request_id uuid NOT NULL,
+    replica_id uuid NOT NULL,
+    user_id uuid,
+    session_id text DEFAULT ''::text NOT NULL,
+    http_protocol text NOT NULL,
+    status text DEFAULT 'open'::text NOT NULL,
+    opened_at timestamp with time zone NOT NULL,
+    closed_at timestamp with time zone,
+    close_reason text DEFAULT ''::text NOT NULL
+);
+
+CREATE TABLE mcp_trace_requests (
+    id uuid NOT NULL,
+    replica_id uuid NOT NULL,
+    coder_request_id uuid,
+    user_id uuid,
+    session_id text DEFAULT ''::text NOT NULL,
+    http_method text NOT NULL,
+    http_protocol text NOT NULL,
+    mcp_method text DEFAULT ''::text NOT NULL,
+    jsonrpc_id text DEFAULT ''::text NOT NULL,
+    tool text DEFAULT ''::text NOT NULL,
+    status text DEFAULT 'running'::text NOT NULL,
+    last_stage text DEFAULT 'http_received'::text NOT NULL,
+    error_kind text DEFAULT ''::text NOT NULL,
+    http_status integer,
+    response_bytes bigint DEFAULT 0 NOT NULL,
+    response_write_count bigint DEFAULT 0 NOT NULL,
+    received_at timestamp with time zone NOT NULL,
+    authenticated_at timestamp with time zone,
+    transport_entered_at timestamp with time zone,
+    parsed_at timestamp with time zone,
+    dispatched_at timestamp with time zone,
+    handler_started_at timestamp with time zone,
+    handler_finished_at timestamp with time zone,
+    mcp_finished_at timestamp with time zone,
+    response_started_at timestamp with time zone,
+    last_response_write_at timestamp with time zone,
+    canceled_at timestamp with time zone,
+    session_registered_at timestamp with time zone,
+    session_unregistered_at timestamp with time zone,
+    finished_at timestamp with time zone
+);
+
 CREATE TABLE notification_messages (
     id uuid NOT NULL,
     notification_template_id uuid NOT NULL,
@@ -4329,6 +4375,15 @@ ALTER TABLE ONLY mcp_server_user_tokens
 ALTER TABLE ONLY mcp_server_user_tokens
     ADD CONSTRAINT mcp_server_user_tokens_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY mcp_trace_connections
+    ADD CONSTRAINT mcp_trace_connections_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY mcp_trace_connections
+    ADD CONSTRAINT mcp_trace_connections_request_id_key UNIQUE (request_id);
+
+ALTER TABLE ONLY mcp_trace_requests
+    ADD CONSTRAINT mcp_trace_requests_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY notification_messages
     ADD CONSTRAINT notification_messages_pkey PRIMARY KEY (id);
 
@@ -4817,6 +4872,20 @@ CREATE INDEX idx_workspace_app_statuses_workspace_id_created_at ON workspace_app
 
 CREATE INDEX idx_workspace_builds_initiator_id ON workspace_builds USING btree (initiator_id);
 
+CREATE INDEX mcp_trace_connections_open_idx ON mcp_trace_connections USING btree (opened_at DESC) WHERE (closed_at IS NULL);
+
+CREATE INDEX mcp_trace_connections_opened_idx ON mcp_trace_connections USING btree (opened_at DESC, id DESC);
+
+CREATE INDEX mcp_trace_connections_session_opened_idx ON mcp_trace_connections USING btree (session_id, opened_at DESC) WHERE (session_id <> ''::text);
+
+CREATE INDEX mcp_trace_requests_coder_request_idx ON mcp_trace_requests USING btree (coder_request_id);
+
+CREATE INDEX mcp_trace_requests_received_idx ON mcp_trace_requests USING btree (received_at DESC, id DESC);
+
+CREATE INDEX mcp_trace_requests_running_idx ON mcp_trace_requests USING btree (received_at DESC) WHERE (finished_at IS NULL);
+
+CREATE INDEX mcp_trace_requests_session_received_idx ON mcp_trace_requests USING btree (session_id, received_at DESC) WHERE (session_id <> ''::text);
+
 CREATE UNIQUE INDEX notification_messages_dedupe_hash_idx ON notification_messages USING btree (dedupe_hash);
 
 CREATE UNIQUE INDEX organizations_single_default_org ON organizations USING btree (is_default) WHERE (is_default = true);
@@ -5235,6 +5304,15 @@ ALTER TABLE ONLY mcp_server_user_tokens
 
 ALTER TABLE ONLY mcp_server_user_tokens
     ADD CONSTRAINT mcp_server_user_tokens_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY mcp_trace_connections
+    ADD CONSTRAINT mcp_trace_connections_request_id_fkey FOREIGN KEY (request_id) REFERENCES mcp_trace_requests(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY mcp_trace_connections
+    ADD CONSTRAINT mcp_trace_connections_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY mcp_trace_requests
+    ADD CONSTRAINT mcp_trace_requests_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
 
 ALTER TABLE ONLY notification_messages
     ADD CONSTRAINT notification_messages_notification_template_id_fkey FOREIGN KEY (notification_template_id) REFERENCES notification_templates(id) ON DELETE CASCADE;

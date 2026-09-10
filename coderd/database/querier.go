@@ -203,6 +203,7 @@ type sqlcQuerier interface {
 	// Parent/root references on child chats are SET NULL.
 	DeleteOldChats(ctx context.Context, arg DeleteOldChatsParams) (int64, error)
 	DeleteOldConnectionLogs(ctx context.Context, arg DeleteOldConnectionLogsParams) (int64, error)
+	DeleteOldMCPTraceRequests(ctx context.Context, arg DeleteOldMCPTraceRequestsParams) (int64, error)
 	// Delete all notification messages which have not been updated for over a week.
 	DeleteOldNotificationMessages(ctx context.Context) error
 	// Delete provisioner daemons that have been created at least a week ago
@@ -289,6 +290,8 @@ type sqlcQuerier interface {
 	// The query finds presets where all preset parameters are present in the provided parameters,
 	// and returns the preset with the most parameters (largest subset).
 	FindMatchingPresetID(ctx context.Context, arg FindMatchingPresetIDParams) (uuid.UUID, error)
+	FinishMCPTraceConnection(ctx context.Context, arg FinishMCPTraceConnectionParams) error
+	FinishMCPTraceRequest(ctx context.Context, arg FinishMCPTraceRequestParams) error
 	FinishWorkspaceCommandActivity(ctx context.Context, arg FinishWorkspaceCommandActivityParams) (int64, error)
 	FinishWorkspaceMCPRequestActivity(ctx context.Context, arg FinishWorkspaceMCPRequestActivityParams) (int64, error)
 	FinishWorkspaceToolActivity(ctx context.Context, arg FinishWorkspaceToolActivityParams) (int64, error)
@@ -620,6 +623,8 @@ type sqlcQuerier interface {
 	GetMCPServerConfigsByIDs(ctx context.Context, ids []uuid.UUID) ([]MCPServerConfig, error)
 	GetMCPServerUserToken(ctx context.Context, arg GetMCPServerUserTokenParams) (MCPServerUserToken, error)
 	GetMCPServerUserTokensByUserID(ctx context.Context, userID uuid.UUID) ([]MCPServerUserToken, error)
+	GetMCPTraceConnectionByRequestID(ctx context.Context, requestID uuid.UUID) (McpTraceConnection, error)
+	GetMCPTraceRequestByID(ctx context.Context, id uuid.UUID) (McpTraceRequest, error)
 	GetNotificationMessagesByStatus(ctx context.Context, arg GetNotificationMessagesByStatusParams) ([]NotificationMessage, error)
 	// Fetch the notification report generator log indicating recent activity.
 	GetNotificationReportGeneratorLogByTemplate(ctx context.Context, templateID uuid.UUID) (NotificationReportGeneratorLog, error)
@@ -1070,6 +1075,8 @@ type sqlcQuerier interface {
 	InsertInboxNotification(ctx context.Context, arg InsertInboxNotificationParams) (InboxNotification, error)
 	InsertLicense(ctx context.Context, arg InsertLicenseParams) (License, error)
 	InsertMCPServerConfig(ctx context.Context, arg InsertMCPServerConfigParams) (MCPServerConfig, error)
+	InsertMCPTraceConnection(ctx context.Context, arg InsertMCPTraceConnectionParams) error
+	InsertMCPTraceRequest(ctx context.Context, arg InsertMCPTraceRequestParams) error
 	InsertMemoryResourceMonitor(ctx context.Context, arg InsertMemoryResourceMonitorParams) (WorkspaceAgentMemoryResourceMonitor, error)
 	// Inserts any group by name that does not exist. All new groups are given
 	// a random uuid, are inserted into the same organization. They have the default
@@ -1434,6 +1441,18 @@ type sqlcQuerier interface {
 	UpdateInactiveUsersToDormant(ctx context.Context, arg UpdateInactiveUsersToDormantParams) ([]UpdateInactiveUsersToDormantRow, error)
 	UpdateInboxNotificationReadStatus(ctx context.Context, arg UpdateInboxNotificationReadStatusParams) error
 	UpdateMCPServerConfig(ctx context.Context, arg UpdateMCPServerConfigParams) (MCPServerConfig, error)
+	UpdateMCPTraceConnectionSession(ctx context.Context, arg UpdateMCPTraceConnectionSessionParams) error
+	UpdateMCPTraceRequestAuthenticated(ctx context.Context, arg UpdateMCPTraceRequestAuthenticatedParams) error
+	UpdateMCPTraceRequestCoderRequestID(ctx context.Context, arg UpdateMCPTraceRequestCoderRequestIDParams) error
+	UpdateMCPTraceRequestDispatched(ctx context.Context, arg UpdateMCPTraceRequestDispatchedParams) error
+	UpdateMCPTraceRequestHandlerFinished(ctx context.Context, arg UpdateMCPTraceRequestHandlerFinishedParams) error
+	UpdateMCPTraceRequestHandlerStarted(ctx context.Context, arg UpdateMCPTraceRequestHandlerStartedParams) error
+	UpdateMCPTraceRequestMCPFinished(ctx context.Context, arg UpdateMCPTraceRequestMCPFinishedParams) error
+	UpdateMCPTraceRequestParsed(ctx context.Context, arg UpdateMCPTraceRequestParsedParams) error
+	UpdateMCPTraceRequestResponseProgress(ctx context.Context, arg UpdateMCPTraceRequestResponseProgressParams) error
+	UpdateMCPTraceRequestSessionRegistered(ctx context.Context, arg UpdateMCPTraceRequestSessionRegisteredParams) error
+	UpdateMCPTraceRequestSessionUnregistered(ctx context.Context, arg UpdateMCPTraceRequestSessionUnregisteredParams) error
+	UpdateMCPTraceRequestTransportEntered(ctx context.Context, arg UpdateMCPTraceRequestTransportEnteredParams) error
 	UpdateMemberRoles(ctx context.Context, arg UpdateMemberRolesParams) (OrganizationMember, error)
 	UpdateMemoryResourceMonitor(ctx context.Context, arg UpdateMemoryResourceMonitorParams) error
 	UpdateNotificationTemplateMethodByID(ctx context.Context, arg UpdateNotificationTemplateMethodByIDParams) (NotificationTemplate, error)

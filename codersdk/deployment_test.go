@@ -611,6 +611,46 @@ func TestDeploymentValues_WorkspaceActivityNowThreshold(t *testing.T) {
 	})
 }
 
+func TestDeploymentValues_MCPTrace(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Defaults", func(t *testing.T) {
+		t.Parallel()
+		dv := &codersdk.DeploymentValues{}
+		opts := dv.Options()
+		require.NoError(t, opts.SetDefaults())
+		require.False(t, dv.MCPTraceEnabled.Value())
+		require.Equal(t, int64(24), dv.MCPTraceRetentionHours.Value())
+	})
+
+	t.Run("Environment", func(t *testing.T) {
+		t.Parallel()
+		dv := &codersdk.DeploymentValues{}
+		opts := dv.Options()
+		require.NoError(t, opts.SetDefaults())
+		require.NoError(t, opts.ParseEnv([]serpent.EnvVar{
+			{Name: "CODER_MCP_TRACE_ENABLED", Value: "true"},
+			{Name: "CODER_MCP_TRACE_RETENTION_HOURS", Value: "48"},
+		}))
+		require.True(t, dv.MCPTraceEnabled.Value())
+		require.Equal(t, int64(48), dv.MCPTraceRetentionHours.Value())
+	})
+
+	t.Run("RejectNonPositiveRetention", func(t *testing.T) {
+		t.Parallel()
+		for _, value := range []string{"0", "-1"} {
+			dv := &codersdk.DeploymentValues{}
+			opts := dv.Options()
+			require.NoError(t, opts.SetDefaults())
+			err := opts.ParseEnv([]serpent.EnvVar{{
+				Name:  "CODER_MCP_TRACE_RETENTION_HOURS",
+				Value: value,
+			}})
+			require.ErrorContains(t, err, "MCP trace retention hours must be greater than zero")
+		}
+	})
+}
+
 func TestAIGatewayCompatibilityAliases(t *testing.T) {
 	t.Parallel()
 

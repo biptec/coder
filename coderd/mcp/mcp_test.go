@@ -2,11 +2,14 @@ package mcp_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -99,6 +102,125 @@ func TestMCPHTTP_InitializeRequest(t *testing.T) {
 	assert.Equal(t, mcp.LATEST_PROTOCOL_VERSION, result["protocolVersion"])
 	assert.Contains(t, result, "capabilities")
 	assert.Contains(t, result, "serverInfo")
+}
+
+type traceEventRecorder struct {
+	mu     sync.Mutex
+	events []string
+}
+
+func (r *traceEventRecorder) add(event string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, event)
+}
+
+func (r *traceEventRecorder) snapshot() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.events...)
+}
+
+func (r *traceEventRecorder) reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = nil
+}
+
+func (r *traceEventRecorder) TransportEntered(context.Context, string) { r.add("transport") }
+func (r *traceEventRecorder) Parsed(_ context.Context, method mcp.MCPMethod, _, _ string) {
+	r.add("parsed:" + string(method))
+}
+func (r *traceEventRecorder) Dispatched(_ context.Context, method mcp.MCPMethod, _, tool string) {
+	r.add("dispatched:" + string(method) + ":" + tool)
+}
+func (r *traceEventRecorder) HandlerStarted(_ context.Context, tool string) {
+	r.add("handler_started:" + tool)
+}
+func (r *traceEventRecorder) HandlerFinished(_ context.Context, tool string) {
+	r.add("handler_finished:" + tool)
+}
+func (r *traceEventRecorder) MCPFinished(context.Context) { r.add("mcp_finished") }
+func (r *traceEventRecorder) SessionRegistered(_ context.Context, sessionID string) {
+	r.add("session_registered:" + sessionID)
+}
+func (r *traceEventRecorder) SessionUnregistered(_ context.Context, sessionID string) {
+	r.add("session_unregistered:" + sessionID)
+}
+
+func TestMCPHTTP_TraceLifecycle(t *testing.T) {
+	t.Parallel()
+
+	logger := testutil.Logger(t)
+	server, err := mcpserver.NewServer(logger)
+	require.NoError(t, err)
+
+	trace := &traceEventRecorder{}
+	server.SetTraceRecorder(trace)
+	server.SetActivityStore(mcpserver.NewActivityStore(100), "trace-test-user")
+	client := codersdk.New(testutil.MustURL(t, "http://not-used"))
+	require.NoError(t, server.RegisterTools(client))
+
+	initBody, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+		"params": map[string]any{
+			"protocolVersion": mcp.LATEST_PROTOCOL_VERSION,
+			"capabilities":    map[string]any{},
+			"clientInfo": map[string]any{
+				"name":    "trace-test",
+				"version": "1.0.0",
+			},
+		},
+	})
+	require.NoError(t, err)
+	initReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(initBody))
+	initReq = initReq.WithContext(mcpserver.WithTraceID(initReq.Context(), uuid.New()))
+	initReq.Header.Set("Content-Type", "application/json")
+	initReq.Header.Set("Accept", "application/json,text/event-stream")
+	initRecorder := httptest.NewRecorder()
+	server.ServeHTTP(initRecorder, initReq)
+	require.Equal(t, http.StatusOK, initRecorder.Code)
+	sessionID := initRecorder.Header().Get("Mcp-Session-Id")
+	require.NotEmpty(t, sessionID)
+
+	initEvents := trace.snapshot()
+	require.Contains(t, initEvents, "transport")
+	require.Contains(t, initEvents, "parsed:initialize")
+	require.Contains(t, initEvents, "dispatched:initialize:")
+	require.Contains(t, initEvents, "session_registered:"+sessionID)
+	require.Equal(t, "mcp_finished", initEvents[len(initEvents)-1])
+
+	trace.reset()
+	callBody, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      2,
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name":      "recent_activity",
+			"arguments": map[string]any{},
+		},
+	})
+	require.NoError(t, err)
+	callReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(callBody))
+	callReq = callReq.WithContext(mcpserver.WithTraceID(callReq.Context(), uuid.New()))
+	callReq.Header.Set("Content-Type", "application/json")
+	callReq.Header.Set("Accept", "application/json,text/event-stream")
+	callReq.Header.Set("Mcp-Session-Id", sessionID)
+	callRecorder := httptest.NewRecorder()
+	server.ServeHTTP(callRecorder, callReq)
+	require.Equal(t, http.StatusOK, callRecorder.Code)
+
+	callEvents := trace.snapshot()
+	require.Equal(t, []string{
+		"transport",
+		"parsed:tools/call",
+		"dispatched:tools/call:recent_activity",
+		"handler_started:recent_activity",
+		"handler_finished:recent_activity",
+		"mcp_finished",
+	}, callEvents)
 }
 
 func TestMCPHTTP_ToolRegistration(t *testing.T) {
