@@ -1,6 +1,7 @@
 package mcp_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -28,6 +29,7 @@ import (
 	"github.com/coder/coder/v2/agent/agenttest"
 	"github.com/coder/coder/v2/coderd/coderdtest"
 	"github.com/coder/coder/v2/coderd/database"
+	"github.com/coder/coder/v2/coderd/database/dbauthz"
 	"github.com/coder/coder/v2/coderd/database/dbfake"
 	mcpserver "github.com/coder/coder/v2/coderd/mcp"
 	"github.com/coder/coder/v2/coderd/rbac"
@@ -43,6 +45,82 @@ func mcpGeneratePKCE() (verifier, challenge string) {
 	h := sha256.Sum256([]byte(verifier))
 	challenge = base64.RawURLEncoding.EncodeToString(h[:])
 	return verifier, challenge
+}
+
+func TestMCPHTTP_E2E_TracePersistence(t *testing.T) {
+	t.Parallel()
+
+	deploymentValues := coderdtest.DeploymentValues(t)
+	require.NoError(t, deploymentValues.MCPTraceEnabled.Set("true"))
+	coderClient, closer, api := coderdtest.NewWithAPI(t, &coderdtest.Options{DeploymentValues: deploymentValues})
+	defer closer.Close()
+
+	admin := coderdtest.CreateFirstUser(t, coderClient)
+	ctx, cancel := context.WithTimeout(context.Background(), testutil.WaitLong)
+	defer cancel()
+	mcpURL := api.AccessURL.String() + mcpserver.MCPEndpoint
+
+	initializeBody := []byte(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"trace-e2e","version":"1.0.0"}}}`)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, mcpURL, bytes.NewReader(initializeBody))
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+coderClient.SessionToken())
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	_, err = io.Copy(io.Discard, resp.Body)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	traceID, err := uuid.Parse(resp.Header.Get("X-Coder-MCP-Trace-Id"))
+	require.NoError(t, err)
+	require.NotEqual(t, uuid.Nil, traceID)
+	sessionID := resp.Header.Get("Mcp-Session-Id")
+	require.NotEmpty(t, sessionID)
+
+	var trace database.McpTraceRequest
+	require.Eventually(t, func() bool {
+		var queryErr error
+		trace, queryErr = api.Database.GetMCPTraceRequestByID(dbauthz.AsSystemRestricted(ctx), traceID)
+		return queryErr == nil && trace.FinishedAt.Valid
+	}, testutil.WaitShort, testutil.IntervalFast)
+	require.True(t, trace.CoderRequestID.Valid)
+	require.True(t, trace.UserID.Valid)
+	require.Equal(t, admin.UserID, trace.UserID.UUID)
+	require.Equal(t, "initialize", trace.McpMethod)
+	require.Equal(t, "1", trace.JsonrpcID)
+	require.Equal(t, "completed", trace.Status)
+	require.True(t, trace.AuthenticatedAt.Valid)
+	require.True(t, trace.TransportEnteredAt.Valid)
+	require.True(t, trace.ParsedAt.Valid)
+	require.True(t, trace.SessionRegisteredAt.Valid)
+	require.True(t, trace.McpFinishedAt.Valid)
+	require.True(t, trace.ResponseStartedAt.Valid)
+	require.Greater(t, trace.ResponseBytes, int64(0))
+
+	streamCtx, streamCancel := context.WithCancel(ctx)
+	streamReq, err := http.NewRequestWithContext(streamCtx, http.MethodGet, mcpURL, nil)
+	require.NoError(t, err)
+	streamReq.Header.Set("Authorization", "Bearer "+coderClient.SessionToken())
+	streamReq.Header.Set("Accept", "text/event-stream")
+	streamReq.Header.Set("Mcp-Session-Id", sessionID)
+	streamResp, err := http.DefaultClient.Do(streamReq)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, streamResp.StatusCode)
+	streamTraceID, err := uuid.Parse(streamResp.Header.Get("X-Coder-MCP-Trace-Id"))
+	require.NoError(t, err)
+	streamCancel()
+	require.NoError(t, streamResp.Body.Close())
+
+	var connection database.McpTraceConnection
+	require.Eventually(t, func() bool {
+		var queryErr error
+		connection, queryErr = api.Database.GetMCPTraceConnectionByRequestID(dbauthz.AsSystemRestricted(ctx), streamTraceID)
+		return queryErr == nil && connection.ClosedAt.Valid
+	}, testutil.WaitShort, testutil.IntervalFast)
+	require.Equal(t, sessionID, connection.SessionID)
+	require.Contains(t, []string{"canceled", "completed"}, connection.Status)
 }
 
 func TestMCPHTTP_E2E_ClientIntegration(t *testing.T) {

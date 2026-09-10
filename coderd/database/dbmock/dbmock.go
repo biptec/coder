@@ -1310,6 +1310,21 @@ func (mr *MockStoreMockRecorder) DeleteOldConnectionLogs(ctx, arg any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOldConnectionLogs", reflect.TypeOf((*MockStore)(nil).DeleteOldConnectionLogs), ctx, arg)
 }
 
+// DeleteOldMCPTraceRequests mocks base method.
+func (m *MockStore) DeleteOldMCPTraceRequests(ctx context.Context, arg database.DeleteOldMCPTraceRequestsParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteOldMCPTraceRequests", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteOldMCPTraceRequests indicates an expected call of DeleteOldMCPTraceRequests.
+func (mr *MockStoreMockRecorder) DeleteOldMCPTraceRequests(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOldMCPTraceRequests", reflect.TypeOf((*MockStore)(nil).DeleteOldMCPTraceRequests), ctx, arg)
+}
+
 // DeleteOldNotificationMessages mocks base method.
 func (m *MockStore) DeleteOldNotificationMessages(ctx context.Context) error {
 	m.ctrl.T.Helper()
@@ -1899,6 +1914,34 @@ func (m *MockStore) FindMatchingPresetID(ctx context.Context, arg database.FindM
 func (mr *MockStoreMockRecorder) FindMatchingPresetID(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindMatchingPresetID", reflect.TypeOf((*MockStore)(nil).FindMatchingPresetID), ctx, arg)
+}
+
+// FinishMCPTraceConnection mocks base method.
+func (m *MockStore) FinishMCPTraceConnection(ctx context.Context, arg database.FinishMCPTraceConnectionParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FinishMCPTraceConnection", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// FinishMCPTraceConnection indicates an expected call of FinishMCPTraceConnection.
+func (mr *MockStoreMockRecorder) FinishMCPTraceConnection(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FinishMCPTraceConnection", reflect.TypeOf((*MockStore)(nil).FinishMCPTraceConnection), ctx, arg)
+}
+
+// FinishMCPTraceRequest mocks base method.
+func (m *MockStore) FinishMCPTraceRequest(ctx context.Context, arg database.FinishMCPTraceRequestParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FinishMCPTraceRequest", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// FinishMCPTraceRequest indicates an expected call of FinishMCPTraceRequest.
+func (mr *MockStoreMockRecorder) FinishMCPTraceRequest(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FinishMCPTraceRequest", reflect.TypeOf((*MockStore)(nil).FinishMCPTraceRequest), ctx, arg)
 }
 
 // FinishWorkspaceCommandActivity mocks base method.
@@ -4479,6 +4522,36 @@ func (m *MockStore) GetMCPServerUserTokensByUserID(ctx context.Context, userID u
 func (mr *MockStoreMockRecorder) GetMCPServerUserTokensByUserID(ctx, userID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMCPServerUserTokensByUserID", reflect.TypeOf((*MockStore)(nil).GetMCPServerUserTokensByUserID), ctx, userID)
+}
+
+// GetMCPTraceConnectionByRequestID mocks base method.
+func (m *MockStore) GetMCPTraceConnectionByRequestID(ctx context.Context, requestID uuid.UUID) (database.McpTraceConnection, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMCPTraceConnectionByRequestID", ctx, requestID)
+	ret0, _ := ret[0].(database.McpTraceConnection)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMCPTraceConnectionByRequestID indicates an expected call of GetMCPTraceConnectionByRequestID.
+func (mr *MockStoreMockRecorder) GetMCPTraceConnectionByRequestID(ctx, requestID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMCPTraceConnectionByRequestID", reflect.TypeOf((*MockStore)(nil).GetMCPTraceConnectionByRequestID), ctx, requestID)
+}
+
+// GetMCPTraceRequestByID mocks base method.
+func (m *MockStore) GetMCPTraceRequestByID(ctx context.Context, id uuid.UUID) (database.McpTraceRequest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMCPTraceRequestByID", ctx, id)
+	ret0, _ := ret[0].(database.McpTraceRequest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMCPTraceRequestByID indicates an expected call of GetMCPTraceRequestByID.
+func (mr *MockStoreMockRecorder) GetMCPTraceRequestByID(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMCPTraceRequestByID", reflect.TypeOf((*MockStore)(nil).GetMCPTraceRequestByID), ctx, id)
 }
 
 // GetNotificationMessagesByStatus mocks base method.
@@ -8059,6 +8132,34 @@ func (mr *MockStoreMockRecorder) InsertMCPServerConfig(ctx, arg any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertMCPServerConfig", reflect.TypeOf((*MockStore)(nil).InsertMCPServerConfig), ctx, arg)
 }
 
+// InsertMCPTraceConnection mocks base method.
+func (m *MockStore) InsertMCPTraceConnection(ctx context.Context, arg database.InsertMCPTraceConnectionParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertMCPTraceConnection", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertMCPTraceConnection indicates an expected call of InsertMCPTraceConnection.
+func (mr *MockStoreMockRecorder) InsertMCPTraceConnection(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertMCPTraceConnection", reflect.TypeOf((*MockStore)(nil).InsertMCPTraceConnection), ctx, arg)
+}
+
+// InsertMCPTraceRequest mocks base method.
+func (m *MockStore) InsertMCPTraceRequest(ctx context.Context, arg database.InsertMCPTraceRequestParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertMCPTraceRequest", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertMCPTraceRequest indicates an expected call of InsertMCPTraceRequest.
+func (mr *MockStoreMockRecorder) InsertMCPTraceRequest(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertMCPTraceRequest", reflect.TypeOf((*MockStore)(nil).InsertMCPTraceRequest), ctx, arg)
+}
+
 // InsertMemoryResourceMonitor mocks base method.
 func (m *MockStore) InsertMemoryResourceMonitor(ctx context.Context, arg database.InsertMemoryResourceMonitorParams) (database.WorkspaceAgentMemoryResourceMonitor, error) {
 	m.ctrl.T.Helper()
@@ -10580,6 +10681,174 @@ func (m *MockStore) UpdateMCPServerConfig(ctx context.Context, arg database.Upda
 func (mr *MockStoreMockRecorder) UpdateMCPServerConfig(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMCPServerConfig", reflect.TypeOf((*MockStore)(nil).UpdateMCPServerConfig), ctx, arg)
+}
+
+// UpdateMCPTraceConnectionSession mocks base method.
+func (m *MockStore) UpdateMCPTraceConnectionSession(ctx context.Context, arg database.UpdateMCPTraceConnectionSessionParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateMCPTraceConnectionSession", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateMCPTraceConnectionSession indicates an expected call of UpdateMCPTraceConnectionSession.
+func (mr *MockStoreMockRecorder) UpdateMCPTraceConnectionSession(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMCPTraceConnectionSession", reflect.TypeOf((*MockStore)(nil).UpdateMCPTraceConnectionSession), ctx, arg)
+}
+
+// UpdateMCPTraceRequestAuthenticated mocks base method.
+func (m *MockStore) UpdateMCPTraceRequestAuthenticated(ctx context.Context, arg database.UpdateMCPTraceRequestAuthenticatedParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateMCPTraceRequestAuthenticated", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateMCPTraceRequestAuthenticated indicates an expected call of UpdateMCPTraceRequestAuthenticated.
+func (mr *MockStoreMockRecorder) UpdateMCPTraceRequestAuthenticated(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMCPTraceRequestAuthenticated", reflect.TypeOf((*MockStore)(nil).UpdateMCPTraceRequestAuthenticated), ctx, arg)
+}
+
+// UpdateMCPTraceRequestCoderRequestID mocks base method.
+func (m *MockStore) UpdateMCPTraceRequestCoderRequestID(ctx context.Context, arg database.UpdateMCPTraceRequestCoderRequestIDParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateMCPTraceRequestCoderRequestID", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateMCPTraceRequestCoderRequestID indicates an expected call of UpdateMCPTraceRequestCoderRequestID.
+func (mr *MockStoreMockRecorder) UpdateMCPTraceRequestCoderRequestID(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMCPTraceRequestCoderRequestID", reflect.TypeOf((*MockStore)(nil).UpdateMCPTraceRequestCoderRequestID), ctx, arg)
+}
+
+// UpdateMCPTraceRequestDispatched mocks base method.
+func (m *MockStore) UpdateMCPTraceRequestDispatched(ctx context.Context, arg database.UpdateMCPTraceRequestDispatchedParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateMCPTraceRequestDispatched", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateMCPTraceRequestDispatched indicates an expected call of UpdateMCPTraceRequestDispatched.
+func (mr *MockStoreMockRecorder) UpdateMCPTraceRequestDispatched(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMCPTraceRequestDispatched", reflect.TypeOf((*MockStore)(nil).UpdateMCPTraceRequestDispatched), ctx, arg)
+}
+
+// UpdateMCPTraceRequestHandlerFinished mocks base method.
+func (m *MockStore) UpdateMCPTraceRequestHandlerFinished(ctx context.Context, arg database.UpdateMCPTraceRequestHandlerFinishedParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateMCPTraceRequestHandlerFinished", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateMCPTraceRequestHandlerFinished indicates an expected call of UpdateMCPTraceRequestHandlerFinished.
+func (mr *MockStoreMockRecorder) UpdateMCPTraceRequestHandlerFinished(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMCPTraceRequestHandlerFinished", reflect.TypeOf((*MockStore)(nil).UpdateMCPTraceRequestHandlerFinished), ctx, arg)
+}
+
+// UpdateMCPTraceRequestHandlerStarted mocks base method.
+func (m *MockStore) UpdateMCPTraceRequestHandlerStarted(ctx context.Context, arg database.UpdateMCPTraceRequestHandlerStartedParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateMCPTraceRequestHandlerStarted", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateMCPTraceRequestHandlerStarted indicates an expected call of UpdateMCPTraceRequestHandlerStarted.
+func (mr *MockStoreMockRecorder) UpdateMCPTraceRequestHandlerStarted(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMCPTraceRequestHandlerStarted", reflect.TypeOf((*MockStore)(nil).UpdateMCPTraceRequestHandlerStarted), ctx, arg)
+}
+
+// UpdateMCPTraceRequestMCPFinished mocks base method.
+func (m *MockStore) UpdateMCPTraceRequestMCPFinished(ctx context.Context, arg database.UpdateMCPTraceRequestMCPFinishedParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateMCPTraceRequestMCPFinished", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateMCPTraceRequestMCPFinished indicates an expected call of UpdateMCPTraceRequestMCPFinished.
+func (mr *MockStoreMockRecorder) UpdateMCPTraceRequestMCPFinished(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMCPTraceRequestMCPFinished", reflect.TypeOf((*MockStore)(nil).UpdateMCPTraceRequestMCPFinished), ctx, arg)
+}
+
+// UpdateMCPTraceRequestParsed mocks base method.
+func (m *MockStore) UpdateMCPTraceRequestParsed(ctx context.Context, arg database.UpdateMCPTraceRequestParsedParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateMCPTraceRequestParsed", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateMCPTraceRequestParsed indicates an expected call of UpdateMCPTraceRequestParsed.
+func (mr *MockStoreMockRecorder) UpdateMCPTraceRequestParsed(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMCPTraceRequestParsed", reflect.TypeOf((*MockStore)(nil).UpdateMCPTraceRequestParsed), ctx, arg)
+}
+
+// UpdateMCPTraceRequestResponseProgress mocks base method.
+func (m *MockStore) UpdateMCPTraceRequestResponseProgress(ctx context.Context, arg database.UpdateMCPTraceRequestResponseProgressParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateMCPTraceRequestResponseProgress", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateMCPTraceRequestResponseProgress indicates an expected call of UpdateMCPTraceRequestResponseProgress.
+func (mr *MockStoreMockRecorder) UpdateMCPTraceRequestResponseProgress(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMCPTraceRequestResponseProgress", reflect.TypeOf((*MockStore)(nil).UpdateMCPTraceRequestResponseProgress), ctx, arg)
+}
+
+// UpdateMCPTraceRequestSessionRegistered mocks base method.
+func (m *MockStore) UpdateMCPTraceRequestSessionRegistered(ctx context.Context, arg database.UpdateMCPTraceRequestSessionRegisteredParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateMCPTraceRequestSessionRegistered", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateMCPTraceRequestSessionRegistered indicates an expected call of UpdateMCPTraceRequestSessionRegistered.
+func (mr *MockStoreMockRecorder) UpdateMCPTraceRequestSessionRegistered(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMCPTraceRequestSessionRegistered", reflect.TypeOf((*MockStore)(nil).UpdateMCPTraceRequestSessionRegistered), ctx, arg)
+}
+
+// UpdateMCPTraceRequestSessionUnregistered mocks base method.
+func (m *MockStore) UpdateMCPTraceRequestSessionUnregistered(ctx context.Context, arg database.UpdateMCPTraceRequestSessionUnregisteredParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateMCPTraceRequestSessionUnregistered", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateMCPTraceRequestSessionUnregistered indicates an expected call of UpdateMCPTraceRequestSessionUnregistered.
+func (mr *MockStoreMockRecorder) UpdateMCPTraceRequestSessionUnregistered(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMCPTraceRequestSessionUnregistered", reflect.TypeOf((*MockStore)(nil).UpdateMCPTraceRequestSessionUnregistered), ctx, arg)
+}
+
+// UpdateMCPTraceRequestTransportEntered mocks base method.
+func (m *MockStore) UpdateMCPTraceRequestTransportEntered(ctx context.Context, arg database.UpdateMCPTraceRequestTransportEnteredParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateMCPTraceRequestTransportEntered", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateMCPTraceRequestTransportEntered indicates an expected call of UpdateMCPTraceRequestTransportEntered.
+func (mr *MockStoreMockRecorder) UpdateMCPTraceRequestTransportEntered(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMCPTraceRequestTransportEntered", reflect.TypeOf((*MockStore)(nil).UpdateMCPTraceRequestTransportEntered), ctx, arg)
 }
 
 // UpdateMemberRoles mocks base method.

@@ -676,6 +676,9 @@ func New(options *Options) *API {
 		workspaceVolumeCopyKubernetes: options.WorkspaceVolumeCopyKubernetes,
 		workspaceMCPConnections:       newWorkspaceMCPConnectionTracker(options.Database, options.Pubsub, options.Logger),
 	}
+	if api.DeploymentValues.MCPTraceEnabled.Value() {
+		api.mcpTrace = newMCPTraceRecorder(api.ctx, options.Database, options.Logger, api.ID)
+	}
 
 	if api.DeploymentValues.WorkspaceVolumeCopyEnabled.Value() {
 		if strings.TrimSpace(api.DeploymentValues.WorkspaceVolumeCopyNamespace.String()) == "" {
@@ -1053,11 +1056,13 @@ func New(options *Options) *API {
 
 	r.Use(
 		sharedhttpmw.Recover(api.Logger),
+		api.mcpTraceMiddleware,
 		httpmw.WithProfilingLabels,
 		tracing.StatusWriterMiddleware,
 		options.DeploymentValues.HTTPCookies.Middleware,
 		tracing.Middleware(api.TracerProvider),
 		httpmw.AttachRequestID,
+		api.mcpTraceRequestIDMiddleware,
 		httpmw.ExtractRealIP(api.RealIPConfig),
 		loggermw.Logger(api.Logger, func(r *http.Request) string {
 			return httpmw.EffectiveHost(api.RealIPConfig, r)
@@ -2355,6 +2360,7 @@ type API struct {
 
 	workspaceVolumeCopyKubernetes volcopyk8s.Kubernetes
 	workspaceMCPConnections       *workspaceMCPConnectionTracker
+	mcpTrace                      *mcpTraceRecorder
 }
 
 // Close waits for all WebSocket connections to drain before returning.

@@ -5276,6 +5276,52 @@ type MCPServerUserToken struct {
 	UpdatedAt         time.Time      `db:"updated_at" json:"updated_at"`
 }
 
+type McpTraceConnection struct {
+	ID           uuid.UUID     `db:"id" json:"id"`
+	RequestID    uuid.UUID     `db:"request_id" json:"request_id"`
+	ReplicaID    uuid.UUID     `db:"replica_id" json:"replica_id"`
+	UserID       uuid.NullUUID `db:"user_id" json:"user_id"`
+	SessionID    string        `db:"session_id" json:"session_id"`
+	HttpProtocol string        `db:"http_protocol" json:"http_protocol"`
+	Status       string        `db:"status" json:"status"`
+	OpenedAt     time.Time     `db:"opened_at" json:"opened_at"`
+	ClosedAt     sql.NullTime  `db:"closed_at" json:"closed_at"`
+	CloseReason  string        `db:"close_reason" json:"close_reason"`
+}
+
+type McpTraceRequest struct {
+	ID                    uuid.UUID     `db:"id" json:"id"`
+	ReplicaID             uuid.UUID     `db:"replica_id" json:"replica_id"`
+	CoderRequestID        uuid.NullUUID `db:"coder_request_id" json:"coder_request_id"`
+	UserID                uuid.NullUUID `db:"user_id" json:"user_id"`
+	SessionID             string        `db:"session_id" json:"session_id"`
+	HttpMethod            string        `db:"http_method" json:"http_method"`
+	HttpProtocol          string        `db:"http_protocol" json:"http_protocol"`
+	McpMethod             string        `db:"mcp_method" json:"mcp_method"`
+	JsonrpcID             string        `db:"jsonrpc_id" json:"jsonrpc_id"`
+	Tool                  string        `db:"tool" json:"tool"`
+	Status                string        `db:"status" json:"status"`
+	LastStage             string        `db:"last_stage" json:"last_stage"`
+	ErrorKind             string        `db:"error_kind" json:"error_kind"`
+	HttpStatus            sql.NullInt32 `db:"http_status" json:"http_status"`
+	ResponseBytes         int64         `db:"response_bytes" json:"response_bytes"`
+	ResponseWriteCount    int64         `db:"response_write_count" json:"response_write_count"`
+	ReceivedAt            time.Time     `db:"received_at" json:"received_at"`
+	AuthenticatedAt       sql.NullTime  `db:"authenticated_at" json:"authenticated_at"`
+	TransportEnteredAt    sql.NullTime  `db:"transport_entered_at" json:"transport_entered_at"`
+	ParsedAt              sql.NullTime  `db:"parsed_at" json:"parsed_at"`
+	DispatchedAt          sql.NullTime  `db:"dispatched_at" json:"dispatched_at"`
+	HandlerStartedAt      sql.NullTime  `db:"handler_started_at" json:"handler_started_at"`
+	HandlerFinishedAt     sql.NullTime  `db:"handler_finished_at" json:"handler_finished_at"`
+	McpFinishedAt         sql.NullTime  `db:"mcp_finished_at" json:"mcp_finished_at"`
+	ResponseStartedAt     sql.NullTime  `db:"response_started_at" json:"response_started_at"`
+	LastResponseWriteAt   sql.NullTime  `db:"last_response_write_at" json:"last_response_write_at"`
+	CanceledAt            sql.NullTime  `db:"canceled_at" json:"canceled_at"`
+	SessionRegisteredAt   sql.NullTime  `db:"session_registered_at" json:"session_registered_at"`
+	SessionUnregisteredAt sql.NullTime  `db:"session_unregistered_at" json:"session_unregistered_at"`
+	FinishedAt            sql.NullTime  `db:"finished_at" json:"finished_at"`
+}
+
 type NotificationMessage struct {
 	ID                     uuid.UUID                 `db:"id" json:"id"`
 	NotificationTemplateID uuid.UUID                 `db:"notification_template_id" json:"notification_template_id"`

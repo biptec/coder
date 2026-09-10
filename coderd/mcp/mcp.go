@@ -44,15 +44,65 @@ type Server struct {
 	activityStore    *ActivityStore
 	activityUserID   string
 	activityRecorder PersistentActivityRecorder
+	traceRecorder    TraceRecorder
 }
 
 // NewServer creates a new MCP HTTP server
 func NewServer(logger slog.Logger) (*Server, error) {
+	var wrapped *Server
+	hooks := &server.Hooks{}
+	hooks.AddOnRequestInitialization(func(ctx context.Context, id any, message any) error {
+		if wrapped == nil || wrapped.traceRecorder == nil {
+			return nil
+		}
+		method := mcp.MCPMethod("")
+		var raw []byte
+		switch value := message.(type) {
+		case []byte:
+			raw = value
+		case json.RawMessage:
+			raw = value
+		default:
+			raw, _ = json.Marshal(value)
+		}
+		if len(raw) > 0 {
+			var envelope struct {
+				Method mcp.MCPMethod `json:"method"`
+			}
+			if json.Unmarshal(raw, &envelope) == nil {
+				method = envelope.Method
+			}
+		}
+		wrapped.traceRecorder.Parsed(ctx, method, traceJSONRPCID(id), traceSessionID(ctx))
+		return nil
+	})
+	hooks.AddBeforeAny(func(ctx context.Context, id any, method mcp.MCPMethod, message any) {
+		if wrapped == nil || wrapped.traceRecorder == nil {
+			return
+		}
+		tool := ""
+		if request, ok := message.(*mcp.CallToolRequest); ok {
+			tool = request.Params.Name
+		}
+		wrapped.traceRecorder.Dispatched(ctx, method, traceJSONRPCID(id), tool)
+	})
+	hooks.AddOnRegisterSession(func(ctx context.Context, session server.ClientSession) {
+		if wrapped != nil && wrapped.traceRecorder != nil && session != nil {
+			wrapped.traceRecorder.SessionRegistered(ctx, session.SessionID())
+		}
+	})
+	hooks.AddOnUnregisterSession(func(ctx context.Context, session server.ClientSession) {
+		if wrapped != nil && wrapped.traceRecorder != nil && session != nil {
+			wrapped.traceRecorder.SessionUnregistered(ctx, session.SessionID())
+		}
+	})
+
 	// Create the core MCP server
 	mcpSrv := server.NewMCPServer(
 		MCPServerName,
 		buildinfo.Version(),
 		server.WithInstructions(MCPServerInstructions),
+		server.WithHooks(hooks),
 	)
 
 	// Create logger adapter for mcp-go
@@ -64,15 +114,20 @@ func NewServer(logger slog.Logger) (*Server, error) {
 		server.WithLogger(mcpLogger),
 	)
 
-	return &Server{
+	wrapped = &Server{
 		Logger:           logger,
 		mcpServer:        mcpSrv,
 		streamableServer: streamableServer,
-	}, nil
+	}
+	return wrapped, nil
 }
 
 // ServeHTTP implements http.Handler interface
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if s.traceRecorder != nil {
+		s.traceRecorder.TransportEntered(r.Context(), r.Header.Get("Mcp-Session-Id"))
+		defer s.traceRecorder.MCPFinished(r.Context())
+	}
 	s.streamableServer.ServeHTTP(w, r)
 }
 
@@ -88,6 +143,11 @@ func (s *Server) SetActivityStore(store *ActivityStore, userID string) {
 // activity. Recording is best-effort and never changes a tool's result.
 func (s *Server) SetPersistentActivityRecorder(recorder PersistentActivityRecorder) {
 	s.activityRecorder = recorder
+}
+
+// SetTraceRecorder enables temporary opt-in MCP transport diagnostics.
+func (s *Server) SetTraceRecorder(recorder TraceRecorder) {
+	s.traceRecorder = recorder
 }
 
 // Register all available MCP tools with the server excluding:
@@ -114,6 +174,7 @@ func (s *Server) RegisterTools(client *codersdk.Client, opts ...func(*toolsdk.De
 
 		serverTool := mcpFromSDK(tool, toolDeps)
 		serverTool = s.withActivityTracking(serverTool, tool.Name)
+		serverTool = s.withTraceTracking(serverTool, tool.Name)
 		s.mcpServer.AddTools(serverTool)
 	}
 	s.registerRecentActivityTool()
@@ -264,6 +325,7 @@ func (s *Server) registerAliasedTools(client *codersdk.Client, aliases []toolAli
 		rewriteAssistantWorkspaceDescriptions(serverTool.Tool.InputSchema.Properties)
 		serverTool = withSharedWorkspaceResolution(serverTool, client)
 		serverTool = s.withActivityTracking(serverTool, alias.MCPName)
+		serverTool = s.withTraceTracking(serverTool, alias.MCPName)
 		s.mcpServer.AddTools(serverTool)
 	}
 	s.registerRecentActivityTool()

@@ -43,6 +43,10 @@ func (api *API) mcpHTTPHandler() http.Handler {
 		// Extract the original session token from the request.
 		authenticatedClient := codersdk.New(api.AccessURL,
 			codersdk.WithSessionToken(httpmw.APITokenFromRequest(r)))
+		if api.mcpTrace != nil {
+			api.mcpTrace.Authenticated(r.Context(), httpmw.APIKey(r).UserID)
+			mcpServer.SetTraceRecorder(api.mcpTrace)
+		}
 		mcpServer.SetActivityStore(activityStore, httpmw.APIKey(r).UserID.String())
 		mcpServer.SetPersistentActivityRecorder(newWorkspaceMCPToolActivityRecorder(
 			api.Database,
