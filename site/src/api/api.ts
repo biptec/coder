@@ -278,6 +278,7 @@ export const getWorkspaceCommandActivityURL = (
 		searchParams.set("page", String(request.page));
 	if (request.page_size !== undefined)
 		searchParams.set("page_size", String(request.page_size));
+	if (request.include_idle) searchParams.set("include_idle", "true");
 
 	const basePath = `/api/v2/workspaces/${workspaceId}/command-activity`;
 	const searchString = searchParams.toString();

@@ -76,6 +76,16 @@ type WorkspaceCommandActivity struct {
 	ExitCode   *int                           `json:"exit_code,omitempty"`
 }
 
+// WorkspaceMCPRequestActivity is the minimal MCP request lifecycle exposed to
+// Activity History when Idle rows are enabled. Tool input stays server-side;
+// the browser only needs timing/status to derive busy and idle intervals.
+type WorkspaceMCPRequestActivity struct {
+	ID         uuid.UUID                      `json:"id" format:"uuid"`
+	Status     WorkspaceCommandActivityStatus `json:"status"`
+	StartedAt  time.Time                      `json:"started_at" format:"date-time"`
+	FinishedAt *time.Time                     `json:"finished_at,omitempty" format:"date-time"`
+}
+
 type WorkspaceCommandActivityFilter struct {
 	ID            string                           `json:"id,omitempty"`
 	Statuses      []WorkspaceCommandActivityStatus `json:"statuses,omitempty"`
@@ -95,32 +105,36 @@ type WorkspaceCommandActivityRequest struct {
 	SortDirection WorkspaceCommandActivitySortDirection `json:"sort_direction,omitempty"`
 	Page          int                                   `json:"page,omitempty"`
 	PageSize      int                                   `json:"page_size,omitempty"`
+	IncludeIdle   bool                                  `json:"include_idle,omitempty"`
 }
 
 type WorkspaceCommandActivityResponse struct {
-	Activity       []WorkspaceCommandActivity `json:"activity"`
-	TotalCount     int64                      `json:"total_count"`
-	DeletableCount int64                      `json:"deletable_count"`
-	AvailableTools []string                   `json:"available_tools"`
-	Page           int                        `json:"page"`
-	PageSize       int                        `json:"page_size"`
-	TotalPages     int                        `json:"total_pages"`
-	HistoryLimit   int64                      `json:"history_limit"`
+	Activity       []WorkspaceCommandActivity    `json:"activity"`
+	TotalCount     int64                         `json:"total_count"`
+	DeletableCount int64                         `json:"deletable_count"`
+	AvailableTools []string                      `json:"available_tools"`
+	Page           int                           `json:"page"`
+	PageSize       int                           `json:"page_size"`
+	TotalPages     int                           `json:"total_pages"`
+	HistoryLimit   int64                         `json:"history_limit"`
+	MCPRequests    []WorkspaceMCPRequestActivity `json:"mcp_requests,omitempty"`
 }
 
 type WorkspaceActivityWatchEventType string
 
 const (
-	WorkspaceActivityWatchEventCommandUpsert WorkspaceActivityWatchEventType = "command_upsert"
-	WorkspaceActivityWatchEventCommandResync WorkspaceActivityWatchEventType = "command_resync"
+	WorkspaceActivityWatchEventCommandUpsert    WorkspaceActivityWatchEventType = "command_upsert"
+	WorkspaceActivityWatchEventCommandResync    WorkspaceActivityWatchEventType = "command_resync"
+	WorkspaceActivityWatchEventMCPRequestUpsert WorkspaceActivityWatchEventType = "mcp_request_upsert"
 )
 
 // WorkspaceActivityWatchEvent is emitted by the one-way workspace activity
 // WebSocket. Command events contain one changed row. Resync is reserved for bulk
 // mutations where emitting every changed row would be more expensive.
 type WorkspaceActivityWatchEvent struct {
-	Type    WorkspaceActivityWatchEventType `json:"type"`
-	Command *WorkspaceCommandActivity       `json:"command,omitempty"`
+	Type       WorkspaceActivityWatchEventType `json:"type"`
+	Command    *WorkspaceCommandActivity       `json:"command,omitempty"`
+	MCPRequest *WorkspaceMCPRequestActivity    `json:"mcp_request,omitempty"`
 }
 
 type WorkspaceCommandActivityDeleteMode string
@@ -183,6 +197,9 @@ func (r WorkspaceCommandActivityRequest) queryValues() url.Values {
 	}
 	if r.PageSize > 0 {
 		q.Set("page_size", strconv.Itoa(r.PageSize))
+	}
+	if r.IncludeIdle {
+		q.Set("include_idle", "true")
 	}
 	return q
 }

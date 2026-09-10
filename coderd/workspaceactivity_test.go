@@ -30,6 +30,7 @@ func TestParseWorkspaceCommandActivityQuery(t *testing.T) {
 		"sort_direction":  {"desc"},
 		"page":            {"3"},
 		"page_size":       {"100"},
+		"include_idle":    {"true"},
 	}
 
 	req, err := parseWorkspaceCommandActivityQuery(values)
@@ -54,6 +55,14 @@ func TestParseWorkspaceCommandActivityQuery(t *testing.T) {
 	require.Equal(t, codersdk.WorkspaceCommandActivitySortDescending, req.SortDirection)
 	require.Equal(t, 3, req.Page)
 	require.Equal(t, 100, req.PageSize)
+	require.True(t, req.IncludeIdle)
+}
+
+func TestParseWorkspaceCommandActivityQueryRejectsInvalidIdleFlag(t *testing.T) {
+	t.Parallel()
+
+	_, err := parseWorkspaceCommandActivityQuery(url.Values{"include_idle": {"sometimes"}})
+	require.ErrorContains(t, err, "include_idle must be a boolean")
 }
 
 func TestParseWorkspaceCommandActivityQueryLegacyQAlias(t *testing.T) {

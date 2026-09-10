@@ -175,6 +175,7 @@ describe("api.ts", () => {
 				sort_direction: "desc",
 				page: 3,
 				page_size: 100,
+				include_idle: true,
 			});
 			const url = new URL(raw, "https://coder.test");
 
@@ -202,6 +203,7 @@ describe("api.ts", () => {
 			expect(url.searchParams.get("sort_direction")).toBe("desc");
 			expect(url.searchParams.get("page")).toBe("3");
 			expect(url.searchParams.get("page_size")).toBe("100");
+			expect(url.searchParams.get("include_idle")).toBe("true");
 			expect(url.searchParams.has("statuses")).toBe(false);
 			expect(url.searchParams.has("tools")).toBe(false);
 			expect(url.searchParams.has("sources")).toBe(false);

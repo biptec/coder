@@ -136,8 +136,8 @@ func TestWorkspaceCommandActivityHistoryQueries(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, page1, 2)
-	require.Equal(t, specs[0].id, page1[0].ID)
-	require.Equal(t, specs[1].id, page1[1].ID)
+	require.Equal(t, specs[4].id, page1[0].ID, "running activity must be pinned ahead of completed history before pagination")
+	require.Equal(t, specs[0].id, page1[1].ID)
 
 	page2, err := db.ListWorkspaceCommandActivity(t.Context(), database.ListWorkspaceCommandActivityParams{
 		WorkspaceID:   workspace.ID,
@@ -150,8 +150,21 @@ func TestWorkspaceCommandActivityHistoryQueries(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, page2, 2)
-	require.Equal(t, specs[2].id, page2[0].ID)
-	require.Equal(t, specs[3].id, page2[1].ID)
+	require.Equal(t, specs[1].id, page2[0].ID)
+	require.Equal(t, specs[2].id, page2[1].ID)
+
+	toolSorted, err := db.ListWorkspaceCommandActivity(t.Context(), database.ListWorkspaceCommandActivityParams{
+		WorkspaceID:   workspace.ID,
+		DurationMinMs: -1,
+		DurationMaxMs: -1,
+		SortBy:        "tool",
+		SortDirection: "asc",
+		PageLimit:     2,
+		PageOffset:    0,
+	})
+	require.NoError(t, err)
+	require.Len(t, toolSorted, 2)
+	require.Equal(t, specs[4].id, toolSorted[0].ID, "running activity must stay pinned even when the secondary sort is not Started")
 
 	deleted, err := db.DeleteWorkspaceCommandActivityByFilter(t.Context(), database.DeleteWorkspaceCommandActivityByFilterParams{
 		WorkspaceID:   workspace.ID,
@@ -273,5 +286,4 @@ func TestWorkspaceCommandActivityHistoryQueries(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, 1, legacyDeleted)
-
 }

@@ -3,10 +3,12 @@ import type {
 	WorkspaceCommandActivity,
 	WorkspaceCommandActivityRequest,
 	WorkspaceCommandActivityResponse,
+	WorkspaceMCPRequestActivity,
 } from "#/api/typesGenerated";
 import {
 	commandMatchesRequest,
 	updateCommandActivityCache,
+	updateMCPRequestActivityCache,
 } from "./commandActivityCache";
 
 const request = {
@@ -49,7 +51,7 @@ describe("updateCommandActivityCache", () => {
 		expect(updated?.total_pages).toBe(1);
 	});
 
-	it("updates the existing row when a running command finishes", () => {
+	it("requests a REST resync when a pinned running command finishes", () => {
 		const started = updateCommandActivityCache(response, running, request);
 		expect(started).toBeDefined();
 		const finished = {
@@ -59,9 +61,7 @@ describe("updateCommandActivityCache", () => {
 			exit_code: 0,
 		} satisfies WorkspaceCommandActivity;
 		const updated = updateCommandActivityCache(started!, finished, request);
-		expect(updated).toBeDefined();
-		expect(updated?.activity).toEqual([finished]);
-		expect(updated?.total_count).toBe(1);
+		expect(updated).toBeUndefined();
 	});
 
 	it("adds a newly observed MCP tool to the realtime dropdown without a REST resync", () => {
@@ -88,6 +88,39 @@ describe("updateCommandActivityCache", () => {
 			"process_output",
 			"read_file",
 		]);
+	});
+
+	it("updates MCP request spans only for queries that include Idle", () => {
+		const idleRequest = {
+			...request,
+			include_idle: true,
+		} satisfies WorkspaceCommandActivityRequest;
+		const requestStarted = {
+			id: "00000000-0000-0000-0000-000000000101",
+			status: "running",
+			started_at: "2026-09-09T12:00:00Z",
+		} satisfies WorkspaceMCPRequestActivity;
+		const started = updateMCPRequestActivityCache(
+			response,
+			requestStarted,
+			idleRequest,
+		);
+		expect(started.mcp_requests).toEqual([requestStarted]);
+
+		const requestFinished = {
+			...requestStarted,
+			status: "succeeded",
+			finished_at: "2026-09-09T12:00:01Z",
+		} satisfies WorkspaceMCPRequestActivity;
+		const finished = updateMCPRequestActivityCache(
+			started,
+			requestFinished,
+			idleRequest,
+		);
+		expect(finished.mcp_requests).toEqual([requestFinished]);
+		expect(
+			updateMCPRequestActivityCache(response, requestStarted, request),
+		).toBe(response);
 	});
 
 	it("matches realtime rows against ID and exit filters", () => {

@@ -47,19 +47,22 @@ const FilterTrigger: FC<FilterTriggerProps> = ({
 		type="button"
 		{...props}
 		className={cn(
-			"inline-flex items-center gap-1 border-0 bg-transparent p-0 text-xs font-medium text-content-primary hover:text-content-link",
+			"inline-flex min-w-0 max-w-full items-center gap-1 border-0 bg-transparent p-0 text-xs font-medium text-content-primary hover:text-content-link",
 			className,
 		)}
 		aria-label={`Filter ${label}`}
 	>
 		{summary && (
 			<span
-				className={active ? "text-content-primary" : "text-content-secondary"}
+				className={cn(
+					"min-w-0 truncate",
+					active ? "text-content-primary" : "text-content-secondary",
+				)}
 			>
 				{summary}
 			</span>
 		)}
-		<ChevronDownIcon className="size-3.5" aria-hidden />
+		<ChevronDownIcon className="size-3.5 shrink-0" aria-hidden />
 	</button>
 );
 

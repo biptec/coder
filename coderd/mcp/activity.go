@@ -33,10 +33,14 @@ const (
 type PersistentActivityHandle struct {
 	ID          uuid.UUID
 	WorkspaceID uuid.UUID
+	PersistTool bool
 }
 
 type PersistentActivityRecorder interface {
-	StartToolActivity(ctx context.Context, userID, toolName, workspace, input string, startedAt time.Time) (PersistentActivityHandle, error)
+	// StartToolActivity always records the MCP request span. persistTool controls
+	// whether the same invocation also receives a user-facing tool row; command
+	// tools (exec/bash/process_start) are represented by the Agent command row.
+	StartToolActivity(ctx context.Context, userID, toolName, workspace, input, correlationHash string, startedAt time.Time, persistTool bool) (PersistentActivityHandle, error)
 	FinishToolActivity(ctx context.Context, handle PersistentActivityHandle, status PersistentActivityStatus, finishedAt time.Time) error
 }
 
@@ -221,7 +225,9 @@ func (s *Server) withActivityTracking(tool server.ServerTool, toolName string) s
 	original := tool.Handler
 	tool.Handler = func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		workspace := activityWorkspace(request)
-		input := persistentActivityInput(request.GetArguments())
+		arguments := request.GetArguments()
+		input := persistentActivityInput(arguments)
+		correlationHash := persistentActivityCorrelation(toolName, arguments)
 		startedAt := time.Now().UTC()
 
 		activityID := ""
@@ -230,11 +236,20 @@ func (s *Server) withActivityTracking(tool server.ServerTool, toolName string) s
 		}
 
 		var persistent PersistentActivityHandle
-		if s.activityRecorder != nil && s.activityUserID != "" && workspace != "" && persistAsToolActivity(toolName) {
+		if s.activityRecorder != nil && s.activityUserID != "" && workspace != "" {
 			var err error
-			persistent, err = s.activityRecorder.StartToolActivity(ctx, s.activityUserID, toolName, workspace, input, startedAt)
+			persistent, err = s.activityRecorder.StartToolActivity(
+				ctx,
+				s.activityUserID,
+				toolName,
+				workspace,
+				input,
+				correlationHash,
+				startedAt,
+				persistAsToolActivity(toolName),
+			)
 			if err != nil {
-				s.Logger.Debug(ctx, "start persistent MCP tool activity", slog.Error(err), slog.F("tool", toolName), slog.F("workspace", workspace))
+				s.Logger.Debug(ctx, "start persistent MCP request activity", slog.Error(err), slog.F("tool", toolName), slog.F("workspace", workspace))
 			}
 		}
 
@@ -259,7 +274,7 @@ func (s *Server) withActivityTracking(tool server.ServerTool, toolName string) s
 			finishErr := s.activityRecorder.FinishToolActivity(finishCtx, persistent, persistentStatus, time.Now().UTC())
 			cancel()
 			if finishErr != nil {
-				s.Logger.Debug(context.Background(), "finish persistent MCP tool activity", slog.Error(finishErr), slog.F("tool", toolName), slog.F("workspace_id", persistent.WorkspaceID))
+				s.Logger.Debug(context.Background(), "finish persistent MCP request activity", slog.Error(finishErr), slog.F("tool", toolName), slog.F("workspace_id", persistent.WorkspaceID))
 			}
 		}
 		return result, err
@@ -284,6 +299,40 @@ func persistentActivityInput(args map[string]any) string {
 		return "{}"
 	}
 	return truncatePersistentActivityInput(strings.TrimSuffix(buffer.String(), "\n"), maxPersistentActivityInputBytes)
+}
+
+func persistentActivityCorrelation(toolName string, args map[string]any) string {
+	if persistAsToolActivity(toolName) {
+		return ""
+	}
+	command, _ := args["command"].(string)
+	argv, ok := persistentActivityStringSlice(args["argv"])
+	if !ok || (command == "" && len(argv) == 0) {
+		return ""
+	}
+	return toolsdk.CommandActivityCorrelation(command, argv)
+}
+
+func persistentActivityStringSlice(value any) ([]string, bool) {
+	if value == nil {
+		return []string{}, true
+	}
+	switch typed := value.(type) {
+	case []string:
+		return append([]string(nil), typed...), true
+	case []any:
+		result := make([]string, 0, len(typed))
+		for _, item := range typed {
+			text, ok := item.(string)
+			if !ok {
+				return nil, false
+			}
+			result = append(result, text)
+		}
+		return result, true
+	default:
+		return nil, false
+	}
 }
 
 func sanitizePersistentActivityValue(key string, value any, depth int) any {

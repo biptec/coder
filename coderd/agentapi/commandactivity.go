@@ -3,6 +3,7 @@ package agentapi
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/google/uuid"
 	"golang.org/x/xerrors"
@@ -76,7 +77,18 @@ func (a *CommandActivityAPI) ReportCommandActivity(ctx context.Context, req *age
 		if err != nil {
 			return nil, err
 		}
-		source, err := commandActivitySource(activity.GetSource(), activity.GetTool())
+		tool := activity.GetTool()
+		sourceValue := activity.GetSource()
+		if sourceValue == agentproto.CommandActivity_AGENTPROC && tool == "" {
+			inferredTool, ok, inferErr := a.inferLegacyMCPCommandTool(activityCtx, activityTime, activity.GetCommand(), activity.GetArgv())
+			if inferErr != nil {
+				a.Log.Debug(ctx, "infer legacy MCP command activity", slog.Error(inferErr), slog.F("workspace_id", a.WorkspaceID), slog.F("agent_id", a.AgentID))
+			} else if ok {
+				tool = inferredTool
+				sourceValue = agentproto.CommandActivity_MCP
+			}
+		}
+		source, err := commandActivitySource(sourceValue, tool)
 		if err != nil {
 			return nil, err
 		}
@@ -89,7 +101,7 @@ func (a *CommandActivityAPI) ReportCommandActivity(ctx context.Context, req *age
 			AgentID:     a.AgentID,
 			SessionID:   sessionID,
 			Source:      source,
-			Tool:        activity.GetTool(),
+			Tool:        tool,
 			Command:     activity.GetCommand(),
 			// Keep argv non-nil so pq.Array serializes command-string activity as
 			// an empty PostgreSQL array instead of NULL. The column is NOT NULL.
@@ -171,6 +183,58 @@ func commandActivityID(activity *agentproto.CommandActivity) (uuid.UUID, error) 
 		return uuid.Nil, xerrors.New("command activity id cannot be nil")
 	}
 	return id, nil
+}
+
+func (a *CommandActivityAPI) inferLegacyMCPCommandTool(
+	ctx context.Context,
+	activityTime time.Time,
+	command string,
+	argv []string,
+) (string, bool, error) {
+	correlationHash := toolsdk.CommandActivityCorrelation(command, argv)
+	candidates, err := a.Database.ListWorkspaceMCPRequestActivityCandidates(ctx, database.ListWorkspaceMCPRequestActivityCandidatesParams{
+		WorkspaceID: a.WorkspaceID,
+		Tools: []string{
+			"exec", "bash", "process_start",
+			toolsdk.ToolNameWorkspaceExec,
+			toolsdk.ToolNameWorkspaceBash,
+			toolsdk.ToolNameWorkspaceProcessStart,
+			toolsdk.ToolNameWorkspaceProcessStartV2,
+		},
+		CorrelationHash: correlationHash,
+		ActivityTime:    activityTime,
+	})
+	if err != nil {
+		return "", false, err
+	}
+
+	inferred := ""
+	for _, candidate := range candidates {
+		candidateTool := canonicalMCPCommandTool(candidate.Tool)
+		if candidateTool == "" {
+			continue
+		}
+		if inferred != "" && inferred != candidateTool {
+			// The same command shape can legitimately be launched through bash or
+			// process_start at nearly the same time. Do not guess across tools.
+			return "", false, nil
+		}
+		inferred = candidateTool
+	}
+	return inferred, inferred != "", nil
+}
+
+func canonicalMCPCommandTool(tool string) string {
+	switch tool {
+	case "exec", toolsdk.ToolNameWorkspaceExec:
+		return "exec"
+	case "bash", toolsdk.ToolNameWorkspaceBash:
+		return "bash"
+	case "process_start", toolsdk.ToolNameWorkspaceProcessStart, toolsdk.ToolNameWorkspaceProcessStartV2:
+		return "process_start"
+	default:
+		return ""
+	}
 }
 
 func commandActivitySource(source agentproto.CommandActivity_Source, tool string) (string, error) {
