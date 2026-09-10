@@ -229,7 +229,7 @@ jobs:
 
           make gen/mark-fresh
 
-          make \
+          make OS_ARCHES="linux_amd64 linux_arm64 linux_armv7 darwin_amd64 darwin_arm64" \
             "build/coder_${{ steps.meta.outputs.version }}_linux_amd64" \
             "build/coder_${{ steps.meta.outputs.version }}_linux_arm64"
 
