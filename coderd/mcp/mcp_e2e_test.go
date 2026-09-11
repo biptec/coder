@@ -169,6 +169,7 @@ func TestMCPHTTP_E2E_ClientIntegration(t *testing.T) {
 	require.Equal(t, mcpserver.MCPServerName, result.ServerInfo.Name)
 	require.Equal(t, mcp.LATEST_PROTOCOL_VERSION, result.ProtocolVersion)
 	require.NotNil(t, result.Capabilities)
+	require.Equal(t, mcpserver.MCPServerInstructions, result.Instructions)
 
 	// Test tool listing
 	tools, err := mcpClient.ListTools(ctx, mcp.ListToolsRequest{})
@@ -1490,7 +1491,7 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 		}()
 
 		require.NoError(t, mcpClient.Start(ctx))
-		_, err := mcpClient.Initialize(ctx, mcp.InitializeRequest{
+		initResult, err := mcpClient.Initialize(ctx, mcp.InitializeRequest{
 			Params: mcp.InitializeParams{
 				ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
 				ClientInfo: mcp.Implementation{
@@ -1500,6 +1501,7 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
+		require.Equal(t, mcpserver.MCPServerInstructions, initResult.Instructions)
 
 		tools, err := mcpClient.ListTools(ctx, mcp.ListToolsRequest{})
 		require.NoError(t, err)
@@ -1531,6 +1533,7 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 	assert.Contains(t, adminTools, toolsdk.ToolNameCreateTemplate)
 	assert.NotContains(t, adminTools, toolsdk.ToolNameListAccessibleWorkspaces)
 	assert.NotContains(t, adminTools, "read_file")
+	assert.Contains(t, adminTools, "capabilities")
 
 	workspaceBuildLogsTool := toolByName(adminToolSpecs, toolsdk.ToolNameGetWorkspaceBuildLogs)
 	require.Contains(t, workspaceBuildLogsTool.Description, "at most a 60-second observation budget")
@@ -1560,7 +1563,7 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 		"search_start", "search_results", "search_list", "search_stop",
 		"bash", "exec",
 		"process_start", "process_output", "process_list", "process_input", "process_signal",
-		"list_apps", "recent_activity",
+		"list_apps", "capabilities", "recent_activity",
 	}, developerTools)
 	assert.NotContains(t, developerTools, "port_forward")
 	assert.NotContains(t, developerTools, toolsdk.ToolNameWorkspaceReadFile)
@@ -1582,6 +1585,12 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 	require.Contains(t, execTool.Description, "running=true")
 	require.Contains(t, execTool.Description, "process_output")
 	require.NotContains(t, execTool.InputSchema.Properties, "timeout_ms")
+
+	capabilitiesTool := toolByName(developerToolSpecs, "capabilities")
+	require.Contains(t, capabilitiesTool.Description, "before installing software")
+	require.Contains(t, capabilitiesTool.Description, "once per workspace")
+	require.Contains(t, capabilitiesTool.InputSchema.Properties, "workspace")
+	require.NotContains(t, capabilitiesTool.Description, "Chromium")
 
 	processStartTool := toolByName(developerToolSpecs, "process_start")
 	require.Contains(t, processStartTool.Description, "shared 60-second observation budget")
@@ -1612,7 +1621,7 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 		"status", "list_workspaces",
 		"list_directory", "read_file", "read_files", "file_info",
 		"search_start", "search_results", "search_list", "search_stop",
-		"process_output", "process_list", "list_apps", "recent_activity",
+		"process_output", "process_list", "list_apps", "capabilities", "recent_activity",
 	}, readonlyTools)
 	assert.NotContains(t, readonlyTools, "write_file")
 	assert.NotContains(t, readonlyTools, "create_directory")
@@ -1637,6 +1646,7 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 	assert.Contains(t, promotedTools, toolsdk.ToolNameListWorkspaces)
 	assert.Contains(t, promotedTools, toolsdk.ToolNameWorkspaceReadFile)
 	assert.Contains(t, promotedTools, toolsdk.ToolNameCreateTemplate)
+	assert.Contains(t, promotedTools, "capabilities")
 	assert.NotContains(t, promotedTools, toolsdk.ToolNameListAccessibleWorkspaces)
 	assert.NotContains(t, promotedTools, "read_file")
 }
