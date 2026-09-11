@@ -401,6 +401,7 @@ message CommandActivity {
 		SESSION_STARTED = 1;
 		STARTED = 2;
 		FINISHED = 3;
+		OUTPUT = 4;
 	}
 	enum Source {
 		SOURCE_UNSPECIFIED = 0;
@@ -423,6 +424,8 @@ message CommandActivity {
 	google.protobuf.Timestamp timestamp = 8;
 	optional int32 exit_code = 9;
 	string tool = 10;
+	map<string, string> environment = 11;
+	string output = 12;
 }
 
 message ReportCommandActivityRequest {

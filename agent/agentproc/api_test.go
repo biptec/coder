@@ -1257,9 +1257,15 @@ func TestProcessLifecycle(t *testing.T) {
 		var reportedSource string
 		var reportedCommand string
 		var reportedArgv []string
+		var reportedEnvironment map[string]string
 		var reportedWorkDir string
 		var reportedTool string
-		exitCodes := make(chan int, 1)
+		type finishResult struct {
+			exitCode int
+			output   string
+		}
+		finishes := make(chan finishResult, 1)
+		var activityOutput bytes.Buffer
 		api := agentproc.NewAPI(
 			logger,
 			agentexec.DefaultExecer,
@@ -1268,13 +1274,17 @@ func TestProcessLifecycle(t *testing.T) {
 			nil,
 			nil,
 			nil,
-			agentproc.WithCommandActivityReporter(func(source, command string, argv []string, workDir, tool string) func(int) {
+			agentproc.WithCommandActivityReporter(func(source, command string, argv []string, environment map[string]string, workDir, tool string) agentproc.CommandActivity {
 				reportedSource = source
 				reportedCommand = command
 				reportedArgv = append([]string(nil), argv...)
+				reportedEnvironment = environment
 				reportedWorkDir = workDir
 				reportedTool = tool
-				return func(exitCode int) { exitCodes <- exitCode }
+				return agentproc.CommandActivity{
+					Output: &activityOutput,
+					Finish: func(exitCode int) { finishes <- finishResult{exitCode: exitCode, output: activityOutput.String()} },
+				}
 			}),
 		)
 		t.Cleanup(func() { _ = api.Close() })
@@ -1282,7 +1292,11 @@ func TestProcessLifecycle(t *testing.T) {
 		workDir := t.TempDir()
 
 		id := startAndGetID(t, handler, workspacesdk.StartProcessRequest{
-			Command: "exit 42",
+			Command: "printf activity-output; exit 42",
+			Env: map[string]string{
+				"SAFE_FLAG": "visible",
+				"API_TOKEN": "raw-secret",
+			},
 			WorkDir: workDir,
 			Tool:    "exec",
 		})
@@ -1291,16 +1305,59 @@ func TestProcessLifecycle(t *testing.T) {
 		require.NotNil(t, resp.ExitCode)
 		require.Equal(t, 42, *resp.ExitCode)
 		require.Equal(t, "mcp", reportedSource)
-		require.Equal(t, "exit 42", reportedCommand)
+		require.Equal(t, "printf activity-output; exit 42", reportedCommand)
 		require.Empty(t, reportedArgv)
+		require.Equal(t, map[string]string{"SAFE_FLAG": "visible", "API_TOKEN": "raw-secret"}, reportedEnvironment)
 		require.Equal(t, workDir, reportedWorkDir)
 		require.Equal(t, "exec", reportedTool)
 
 		select {
-		case exitCode := <-exitCodes:
-			require.Equal(t, 42, exitCode)
+		case finish := <-finishes:
+			require.Equal(t, 42, finish.exitCode)
+			require.Equal(t, "activity-output", finish.output)
 		case <-time.After(testutil.WaitShort):
 			t.Fatal("timed out waiting for command activity completion")
+		}
+	})
+
+	t.Run("ReportsFullActivityOutputBeyondProcessBuffer", func(t *testing.T) {
+		t.Parallel()
+
+		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true}).Leveled(slog.LevelDebug)
+		var activityOutput bytes.Buffer
+		finished := make(chan string, 1)
+		api := agentproc.NewAPI(
+			logger,
+			agentexec.DefaultExecer,
+			nil,
+			nil,
+			nil,
+			nil,
+			nil,
+			agentproc.WithCommandActivityReporter(func(string, string, []string, map[string]string, string, string) agentproc.CommandActivity {
+				return agentproc.CommandActivity{
+					Output: &activityOutput,
+					Finish: func(int) { finished <- activityOutput.String() },
+				}
+			}),
+		)
+		t.Cleanup(func() { _ = api.Close() })
+		handler := agentchat.Middleware(api.Routes())
+
+		chunk := "0123456789abcdef"
+		expected := strings.Repeat(chunk, 6_000)
+		id := startAndGetID(t, handler, workspacesdk.StartProcessRequest{
+			Command: `i=0; while [ "$i" -lt 6000 ]; do printf 0123456789abcdef; i=$((i+1)); done`,
+			Tool:    "exec",
+		})
+		_ = waitForExit(t, handler, id)
+
+		select {
+		case output := <-finished:
+			require.Equal(t, expected, output)
+			require.Greater(t, len(output), 64<<10)
+		case <-time.After(testutil.WaitShort):
+			t.Fatal("timed out waiting for complete activity output")
 		}
 	})
 
@@ -1318,10 +1375,10 @@ func TestProcessLifecycle(t *testing.T) {
 			nil,
 			nil,
 			nil,
-			agentproc.WithCommandActivityReporter(func(source, _ string, _ []string, _ string, tool string) func(int) {
+			agentproc.WithCommandActivityReporter(func(source, _ string, _ []string, _ map[string]string, _ string, tool string) agentproc.CommandActivity {
 				reportedSource = source
 				reportedTool = tool
-				return func(int) {}
+				return agentproc.CommandActivity{Finish: func(int) {}}
 			}),
 		)
 		t.Cleanup(func() { _ = api.Close() })
@@ -1349,9 +1406,9 @@ func TestProcessLifecycle(t *testing.T) {
 			nil,
 			nil,
 			nil,
-			agentproc.WithCommandActivityReporter(func(source, _ string, _ []string, _ string, _ string) func(int) {
+			agentproc.WithCommandActivityReporter(func(source, _ string, _ []string, _ map[string]string, _ string, _ string) agentproc.CommandActivity {
 				reportedSource = source
-				return func(int) {}
+				return agentproc.CommandActivity{Finish: func(int) {}}
 			}),
 		)
 		t.Cleanup(func() { _ = api.Close() })

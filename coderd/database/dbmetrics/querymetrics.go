@@ -169,6 +169,14 @@ func (m queryMetricsStore) AllUserIDs(ctx context.Context, includeSystem bool) (
 	return r0, r1
 }
 
+func (m queryMetricsStore) AppendWorkspaceCommandActivityOutput(ctx context.Context, arg database.AppendWorkspaceCommandActivityOutputParams) (int64, error) {
+	start := time.Now()
+	r0, r1 := m.s.AppendWorkspaceCommandActivityOutput(ctx, arg)
+	m.queryLatencies.WithLabelValues("AppendWorkspaceCommandActivityOutput").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "AppendWorkspaceCommandActivityOutput").Inc()
+	return r0, r1
+}
+
 func (m queryMetricsStore) ArchiveChatByID(ctx context.Context, id uuid.UUID) ([]database.Chat, error) {
 	start := time.Now()
 	r0, r1 := m.s.ArchiveChatByID(ctx, id)
@@ -398,6 +406,14 @@ func (m queryMetricsStore) CountWorkspaceCommandActivity(ctx context.Context, ar
 	r0, r1 := m.s.CountWorkspaceCommandActivity(ctx, arg)
 	m.queryLatencies.WithLabelValues("CountWorkspaceCommandActivity").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "CountWorkspaceCommandActivity").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) CountWorkspaceIdleActivity(ctx context.Context, arg database.CountWorkspaceIdleActivityParams) (int64, error) {
+	start := time.Now()
+	r0, r1 := m.s.CountWorkspaceIdleActivity(ctx, arg)
+	m.queryLatencies.WithLabelValues("CountWorkspaceIdleActivity").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "CountWorkspaceIdleActivity").Inc()
 	return r0, r1
 }
 
@@ -4049,6 +4065,14 @@ func (m queryMetricsStore) HasTemplateVersionsUsingCachedModuleFileInOrg(ctx con
 	return r0, r1
 }
 
+func (m queryMetricsStore) HeartbeatWorkspaceMCPRequestActivity(ctx context.Context, arg database.HeartbeatWorkspaceMCPRequestActivityParams) (int64, error) {
+	start := time.Now()
+	r0, r1 := m.s.HeartbeatWorkspaceMCPRequestActivity(ctx, arg)
+	m.queryLatencies.WithLabelValues("HeartbeatWorkspaceMCPRequestActivity").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "HeartbeatWorkspaceMCPRequestActivity").Inc()
+	return r0, r1
+}
+
 func (m queryMetricsStore) HydrateAgentChatsContext(ctx context.Context, arg database.HydrateAgentChatsContextParams) error {
 	start := time.Now()
 	r0 := m.s.HydrateAgentChatsContext(ctx, arg)
@@ -4793,6 +4817,14 @@ func (m queryMetricsStore) InsertWorkspaceVolumeCopyOperation(ctx context.Contex
 	return r0, r1
 }
 
+func (m queryMetricsStore) InterruptStaleWorkspaceMCPRequestActivity(ctx context.Context, arg database.InterruptStaleWorkspaceMCPRequestActivityParams) (int64, error) {
+	start := time.Now()
+	r0, r1 := m.s.InterruptStaleWorkspaceMCPRequestActivity(ctx, arg)
+	m.queryLatencies.WithLabelValues("InterruptStaleWorkspaceMCPRequestActivity").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "InterruptStaleWorkspaceMCPRequestActivity").Inc()
+	return r0, r1
+}
+
 func (m queryMetricsStore) InterruptWorkspaceCommandActivityByAgentSession(ctx context.Context, arg database.InterruptWorkspaceCommandActivityByAgentSessionParams) (int64, error) {
 	start := time.Now()
 	r0, r1 := m.s.InterruptWorkspaceCommandActivityByAgentSession(ctx, arg)
@@ -5022,6 +5054,14 @@ func (m queryMetricsStore) ListWorkspaceCommandActivityTools(ctx context.Context
 	r0, r1 := m.s.ListWorkspaceCommandActivityTools(ctx, workspaceID)
 	m.queryLatencies.WithLabelValues("ListWorkspaceCommandActivityTools").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "ListWorkspaceCommandActivityTools").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) ListWorkspaceIdleActivity(ctx context.Context, arg database.ListWorkspaceIdleActivityParams) ([]database.ListWorkspaceIdleActivityRow, error) {
+	start := time.Now()
+	r0, r1 := m.s.ListWorkspaceIdleActivity(ctx, arg)
+	m.queryLatencies.WithLabelValues("ListWorkspaceIdleActivity").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "ListWorkspaceIdleActivity").Inc()
 	return r0, r1
 }
 

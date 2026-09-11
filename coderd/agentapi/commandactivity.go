@@ -3,6 +3,7 @@ package agentapi
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,6 +16,7 @@ import (
 	"github.com/coder/coder/v2/coderd/database/dbauthz"
 	databasepubsub "github.com/coder/coder/v2/coderd/database/pubsub"
 	coderdpubsub "github.com/coder/coder/v2/coderd/pubsub"
+	"github.com/coder/coder/v2/coderd/workspaceactivityredact"
 	"github.com/coder/coder/v2/codersdk/toolsdk"
 )
 
@@ -95,6 +97,10 @@ func (a *CommandActivityAPI) ReportCommandActivity(ctx context.Context, req *age
 		if activity.GetCommand() == "" && len(activity.GetArgv()) == 0 {
 			return nil, xerrors.New("command activity command or argv is required")
 		}
+		environment, err := json.Marshal(workspaceactivityredact.Environment(activity.GetEnvironment()))
+		if err != nil {
+			return nil, xerrors.Errorf("marshal command activity environment: %w", err)
+		}
 		if err := a.Database.InsertWorkspaceCommandActivity(activityCtx, database.InsertWorkspaceCommandActivityParams{
 			ID:          activityID,
 			WorkspaceID: a.WorkspaceID,
@@ -105,9 +111,10 @@ func (a *CommandActivityAPI) ReportCommandActivity(ctx context.Context, req *age
 			Command:     activity.GetCommand(),
 			// Keep argv non-nil so pq.Array serializes command-string activity as
 			// an empty PostgreSQL array instead of NULL. The column is NOT NULL.
-			Argv:      append([]string{}, activity.GetArgv()...),
-			WorkDir:   activity.GetWorkDir(),
-			StartedAt: activityTime,
+			Argv:        append([]string{}, activity.GetArgv()...),
+			Environment: environment,
+			WorkDir:     activity.GetWorkDir(),
+			StartedAt:   activityTime,
 		}); err != nil {
 			return nil, xerrors.Errorf("insert workspace command activity: %w", err)
 		}
@@ -115,6 +122,28 @@ func (a *CommandActivityAPI) ReportCommandActivity(ctx context.Context, req *age
 			Type:      coderdpubsub.WorkspaceActivityEventCommandChanged,
 			CommandID: activityID,
 		})
+
+	case agentproto.CommandActivity_OUTPUT:
+		activityID, err := commandActivityID(activity)
+		if err != nil {
+			return nil, err
+		}
+		if activity.GetOutput() == "" {
+			return &emptypb.Empty{}, nil
+		}
+		updated, err := a.Database.AppendWorkspaceCommandActivityOutput(activityCtx, database.AppendWorkspaceCommandActivityOutputParams{
+			Output:      workspaceactivityredact.Text(activity.GetOutput()),
+			ID:          activityID,
+			WorkspaceID: a.WorkspaceID,
+			AgentID:     a.AgentID,
+			SessionID:   sessionID,
+		})
+		if err != nil {
+			return nil, xerrors.Errorf("append workspace command activity output: %w", err)
+		}
+		if updated == 0 {
+			a.Log.Debug(ctx, "ignore command activity output for missing or completed row", slog.F("workspace_id", a.WorkspaceID), slog.F("agent_id", a.AgentID), slog.F("activity_id", activityID))
+		}
 
 	case agentproto.CommandActivity_FINISHED:
 		activityID, err := commandActivityID(activity)

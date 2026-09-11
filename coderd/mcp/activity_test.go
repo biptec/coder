@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,6 +79,7 @@ type fakePersistentActivityRecorder struct {
 	correlations []string
 	persistTools []bool
 	finishes     []PersistentActivityStatus
+	outputs      []string
 }
 
 func (f *fakePersistentActivityRecorder) StartToolActivity(_ context.Context, _ string, toolName, workspace, input, correlationHash string, _ time.Time, persistTool bool) (PersistentActivityHandle, error) {
@@ -88,8 +90,9 @@ func (f *fakePersistentActivityRecorder) StartToolActivity(_ context.Context, _ 
 	return PersistentActivityHandle{ID: uuid.New(), WorkspaceID: uuid.New(), PersistTool: persistTool}, nil
 }
 
-func (f *fakePersistentActivityRecorder) FinishToolActivity(_ context.Context, _ PersistentActivityHandle, status PersistentActivityStatus, _ time.Time) error {
+func (f *fakePersistentActivityRecorder) FinishToolActivity(_ context.Context, _ PersistentActivityHandle, status PersistentActivityStatus, output string, _ time.Time) error {
 	f.finishes = append(f.finishes, status)
+	f.outputs = append(f.outputs, output)
 	return nil
 }
 
@@ -115,9 +118,9 @@ func TestActivityTrackingPersistsWorkspaceToolCallsWithoutDuplicatingCommands(t 
 	require.Len(t, recorder.inputs, 1)
 	require.Contains(t, recorder.inputs[0], `"process_id":"process-123"`)
 	require.Contains(t, recorder.inputs[0], `"wait_timeout_ms":10000`)
-	require.Contains(t, recorder.inputs[0], `"stdin":"<redacted 18 bytes>"`)
-	require.NotContains(t, recorder.inputs[0], "never persist this")
+	require.Contains(t, recorder.inputs[0], `"stdin":"never persist this"`)
 	require.Equal(t, []PersistentActivityStatus{PersistentActivityStatusSucceeded}, recorder.finishes)
+	require.Equal(t, []string{""}, recorder.outputs)
 	require.Equal(t, []string{""}, recorder.correlations)
 
 	execRequest := mcpgo.CallToolRequest{Params: mcpgo.CallToolParams{Arguments: map[string]any{
@@ -131,6 +134,47 @@ func TestActivityTrackingPersistsWorkspaceToolCallsWithoutDuplicatingCommands(t 
 	require.Equal(t, []bool{true, false}, recorder.persistTools, "command tools need an MCP request span but no duplicate user-facing tool row")
 	require.Equal(t, []string{"", toolsdk.CommandActivityCorrelation("", []string{"echo", "hello"})}, recorder.correlations)
 	require.Len(t, recorder.finishes, 2)
+	require.Equal(t, []string{"", "ok"}, recorder.outputs)
+}
+
+func TestPersistentActivityContentIsCompleteAndSecretsAreRedacted(t *testing.T) {
+	t.Parallel()
+
+	large := strings.Repeat("activity-content-", 6_000)
+	input := persistentActivityInput(map[string]any{
+		"workspace": "owner/workspace",
+		"stdin":     large,
+		"search":    "literal search value",
+		"replace":   "literal replacement value",
+		"data":      "literal data value",
+		"content":   "literal content value",
+		"nested": map[string]any{
+			"level2": map[string]any{
+				"level3": map[string]any{
+					"level4": map[string]any{"value": "deep value"},
+				},
+			},
+		},
+		"token": "top-secret",
+		"env": map[string]any{
+			"SAFE_FLAG": "visible",
+			"API_TOKEN": "raw-secret",
+		},
+	})
+	require.Contains(t, input, large)
+	require.Contains(t, input, `"search":"literal search value"`)
+	require.Contains(t, input, `"replace":"literal replacement value"`)
+	require.Contains(t, input, `"data":"literal data value"`)
+	require.Contains(t, input, `"content":"literal content value"`)
+	require.Contains(t, input, `"value":"deep value"`)
+	require.NotContains(t, input, "top-secret")
+	require.NotContains(t, input, "raw-secret")
+	require.Contains(t, input, `"SAFE_FLAG":"visible"`)
+	require.Contains(t, input, `"API_TOKEN":"***REDACTED***"`)
+
+	result := mcpgo.NewToolResultText(large)
+	require.Equal(t, large, persistentActivityOutput("read_file", result))
+	require.Empty(t, persistentActivityOutput("process_output", result))
 }
 
 func TestPersistAsToolActivity(t *testing.T) {

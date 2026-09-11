@@ -261,6 +261,137 @@ export const TextColumnFilter: FC<{
 	);
 };
 
+export type InputOutputDisplayOptions = {
+	showInput: boolean;
+	showOutput: boolean;
+	showEnvironment: boolean;
+	showFullContent: boolean;
+	useColors: boolean;
+};
+
+export const InputOutputColumnFilter: FC<{
+	value: string;
+	placeholder: string;
+	summary?: string;
+	active?: boolean;
+	options: InputOutputDisplayOptions;
+	onApply: (value: string, options: InputOutputDisplayOptions) => void;
+}> = ({ value, placeholder, summary, active, options, onApply }) => {
+	const inputID = useId();
+	const optionIDPrefix = useId();
+	const [open, setOpen] = useState(false);
+	const [draftValue, setDraftValue] = useState(value);
+	const [draftOptions, setDraftOptions] = useState(options);
+	const openChanged = (nextOpen: boolean) => {
+		if (nextOpen) {
+			setDraftValue(value);
+			setDraftOptions(options);
+		}
+		setOpen(nextOpen);
+	};
+	const apply = () => {
+		onApply(draftValue.trim(), draftOptions);
+		setOpen(false);
+	};
+	const toggle = (key: keyof InputOutputDisplayOptions) => {
+		setDraftOptions((current) => {
+			if (
+				(key === "showInput" && current.showInput && !current.showOutput) ||
+				(key === "showOutput" && current.showOutput && !current.showInput)
+			) {
+				return current;
+			}
+			return { ...current, [key]: !current[key] };
+		});
+	};
+	const optionRows: Array<{
+		key: keyof InputOutputDisplayOptions;
+		label: string;
+		disabled?: boolean;
+	}> = [
+		{ key: "showInput", label: "Input" },
+		{ key: "showOutput", label: "Output" },
+		{
+			key: "showEnvironment",
+			label: "Show environment variables",
+			disabled: !draftOptions.showInput,
+		},
+		{ key: "showFullContent", label: "Show full content" },
+		{ key: "useColors", label: "Use colors" },
+	];
+
+	return (
+		<Popover open={open} onOpenChange={openChanged}>
+			<PopoverTrigger asChild>
+				<FilterTrigger
+					label="Input / Output"
+					summary={summary}
+					active={active}
+				/>
+			</PopoverTrigger>
+			<PopoverContent
+				align="start"
+				className="w-80 border-surface-quaternary bg-surface-secondary p-3"
+			>
+				<label
+					htmlFor={inputID}
+					className="mb-2 block text-xs font-medium text-content-secondary"
+				>
+					Search input / output
+				</label>
+				<Input
+					id={inputID}
+					autoFocus
+					value={draftValue}
+					onChange={(event) => setDraftValue(event.currentTarget.value)}
+					placeholder={placeholder}
+					onKeyDown={(event) => {
+						if (event.key === "Enter") apply();
+					}}
+				/>
+				<div className="mt-3 space-y-2 border-t border-border pt-3">
+					{optionRows.map((option) => (
+						<label
+							key={option.key}
+							htmlFor={`${optionIDPrefix}-${option.key}`}
+							className={cn(
+								"flex items-center gap-2 text-sm text-content-primary",
+								option.disabled && "opacity-50",
+							)}
+						>
+							<Checkbox
+								id={`${optionIDPrefix}-${option.key}`}
+								checked={draftOptions[option.key]}
+								disabled={option.disabled}
+								onCheckedChange={() => toggle(option.key)}
+							/>
+							<span>{option.label}</span>
+						</label>
+					))}
+				</div>
+				<div className="mt-3 flex items-center justify-between gap-2">
+					<Button
+						variant="subtle"
+						size="sm"
+						className="min-w-0"
+						onClick={() => setDraftValue("")}
+					>
+						Clear search
+					</Button>
+					<div className="flex gap-2">
+						<Button variant="subtle" size="sm" onClick={() => setOpen(false)}>
+							Cancel
+						</Button>
+						<Button size="sm" onClick={apply}>
+							Apply
+						</Button>
+					</div>
+				</div>
+			</PopoverContent>
+		</Popover>
+	);
+};
+
 export const RangeColumnFilter: FC<{
 	label: string;
 	firstLabel: string;

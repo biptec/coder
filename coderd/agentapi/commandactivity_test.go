@@ -49,6 +49,7 @@ func TestCommandActivity(t *testing.T) {
 			Tool:        "exec",
 			Command:     "echo hello",
 			Argv:        []string{},
+			Environment: []byte("{}"),
 			WorkDir:     "/workspace",
 			StartedAt:   activityTime,
 		}).Return(nil)
@@ -63,6 +64,24 @@ func TestCommandActivity(t *testing.T) {
 				Command:   "echo hello",
 				WorkDir:   "/workspace",
 				Timestamp: timestamppb.New(activityTime),
+			},
+		})
+		require.NoError(t, err)
+
+		mDB.EXPECT().AppendWorkspaceCommandActivityOutput(gomock.Any(), database.AppendWorkspaceCommandActivityOutputParams{
+			Output:      "hello from streamed output",
+			ID:          activityID,
+			WorkspaceID: workspaceID,
+			AgentID:     agentID,
+			SessionID:   sessionID,
+		}).Return(int64(1), nil)
+		_, err = api.ReportCommandActivity(context.Background(), &agentproto.ReportCommandActivityRequest{
+			Activity: &agentproto.CommandActivity{
+				Id:        activityID[:],
+				SessionId: sessionID[:],
+				Action:    agentproto.CommandActivity_OUTPUT,
+				Timestamp: timestamppb.New(activityTime),
+				Output:    "hello from streamed output",
 			},
 		})
 		require.NoError(t, err)
@@ -125,6 +144,7 @@ func TestCommandActivity(t *testing.T) {
 			Source:      "agentproc",
 			Command:     "legacy command",
 			Argv:        []string{},
+			Environment: []byte("{}"),
 			WorkDir:     "/workspace",
 			StartedAt:   activityTime,
 		}).Return(nil)
@@ -186,6 +206,7 @@ func TestCommandActivity(t *testing.T) {
 			Tool:        "bash",
 			Command:     "echo from old agent",
 			Argv:        []string{},
+			Environment: []byte("{}"),
 			WorkDir:     "/workspace",
 			StartedAt:   activityTime,
 		}).Return(nil)
@@ -225,6 +246,7 @@ func TestCommandActivity(t *testing.T) {
 			Tool:        "exec",
 			Command:     "echo unlimited",
 			Argv:        []string{},
+			Environment: []byte("{}"),
 			WorkDir:     "/workspace",
 			StartedAt:   activityTime,
 		}).Return(nil)

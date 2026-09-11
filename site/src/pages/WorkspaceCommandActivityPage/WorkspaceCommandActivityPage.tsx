@@ -1,6 +1,6 @@
 import dayjs from "dayjs";
 import { ChevronDownIcon, TrashIcon } from "lucide-react";
-import { type FC, useEffect, useMemo, useState } from "react";
+import { type FC, useEffect, useId, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "react-query";
 import { useParams } from "react-router";
 import { toast } from "sonner";
@@ -38,6 +38,7 @@ import {
 	DropdownMenuTrigger,
 } from "#/components/DropdownMenu/DropdownMenu";
 import { EmptyState } from "#/components/EmptyState/EmptyState";
+import { Input } from "#/components/Input/Input";
 import { Loader } from "#/components/Loader/Loader";
 import { Margins } from "#/components/Margins/Margins";
 import {
@@ -46,13 +47,6 @@ import {
 	PageHeaderTitle,
 } from "#/components/PageHeader/PageHeader";
 import { PaginationWidgetBase } from "#/components/PaginationWidget/PaginationWidgetBase";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "#/components/Select/Select";
 import {
 	Table,
 	TableBody,
@@ -65,6 +59,8 @@ import { TableToolbar } from "#/components/TableToolbar/TableToolbar";
 import { pageTitle } from "#/utils/page";
 import {
 	type ActivityFilterOption,
+	InputOutputColumnFilter,
+	type InputOutputDisplayOptions,
 	MultiSelectColumnFilter,
 	RangeColumnFilter,
 	TextColumnFilter,
@@ -75,7 +71,11 @@ import {
 	activitySourceLabel,
 	buildActivityDisplayRows,
 } from "./activityDisplay";
-import { getClampedActivityPage } from "./activityPagination";
+import {
+	getClampedActivityPage,
+	parseActivityPage,
+	parseActivityPageSize,
+} from "./activityPagination";
 import {
 	type ActivityDisplayStatus,
 	type ActivityVisibleSource,
@@ -84,7 +84,8 @@ import {
 	defaultRealActivityStatuses,
 	defaultWorkspaceActivityPreferences,
 	loadWorkspaceActivityPreferences,
-	activityPageSizeOptions as pageSizeOptions,
+	maxActivityPageSize,
+	minActivityPageSize,
 	saveWorkspaceActivityPreferences,
 } from "./activityPreferences";
 import {
@@ -153,6 +154,15 @@ const WorkspaceCommandActivityPage: FC = () => {
 		initialPreferences.durationMax,
 	);
 	const [exitCode, setExitCode] = useState(initialPreferences.exitCode);
+	const [showInput, setShowInput] = useState(initialPreferences.showInput);
+	const [showOutput, setShowOutput] = useState(initialPreferences.showOutput);
+	const [showEnvironment, setShowEnvironment] = useState(
+		initialPreferences.showEnvironment,
+	);
+	const [showFullContent, setShowFullContent] = useState(
+		initialPreferences.showFullContent,
+	);
+	const [useColors, setUseColors] = useState(initialPreferences.useColors);
 	const [sortBy, setSortBy] = useState<WorkspaceCommandActivitySort>(
 		initialPreferences.sortBy,
 	);
@@ -178,6 +188,11 @@ const WorkspaceCommandActivityPage: FC = () => {
 			durationMin,
 			durationMax,
 			exitCode,
+			showInput,
+			showOutput,
+			showEnvironment,
+			showFullContent,
+			useColors,
 			sortBy,
 			sortDirection,
 			pageSize,
@@ -193,6 +208,11 @@ const WorkspaceCommandActivityPage: FC = () => {
 		durationMin,
 		durationMax,
 		exitCode,
+		showInput,
+		showOutput,
+		showEnvironment,
+		showFullContent,
+		useColors,
 		sortBy,
 		sortDirection,
 		pageSize,
@@ -241,13 +261,17 @@ const WorkspaceCommandActivityPage: FC = () => {
 	const hasSourceSelection = sources.length > 0;
 	const showRealActivity =
 		realStatuses.length > 0 && hasToolSelection && hasSourceSelection;
-	const queryStatuses = useMemo<WorkspaceCommandActivityStatus[]>(() => {
-		if (realStatuses.length > 0) return realStatuses;
-		return includeIdle ? [...defaultRealActivityStatuses] : [];
-	}, [realStatuses, includeIdle]);
+	// If command rows cannot be displayed (for example all Tools or Sources were
+	// cleared), an Idle-inclusive view is semantically Idle-only as well. Its
+	// pagination must count the visible Idle intervals, not hidden command rows.
+	const idleOnly = includeIdle && !showRealActivity;
+	const queryStatuses = useMemo<WorkspaceCommandActivityStatus[]>(
+		() => (idleOnly ? [] : realStatuses),
+		[idleOnly, realStatuses],
+	);
 	const queryEnabled =
-		queryStatuses.length > 0 &&
-		(includeIdle || (hasToolSelection && hasSourceSelection)) &&
+		(idleOnly || queryStatuses.length > 0) &&
+		(idleOnly || includeIdle || (hasToolSelection && hasSourceSelection)) &&
 		!filterError;
 
 	const filter = useMemo<WorkspaceCommandActivityFilter>(
@@ -281,21 +305,14 @@ const WorkspaceCommandActivityPage: FC = () => {
 			...filter,
 			// Idle-only views are timelines even when a stored preference points at
 			// a command-only sort column such as Tool or Exit.
-			sort_by: showRealActivity ? sortBy : "started",
-			sort_direction: showRealActivity ? sortDirection : "desc",
+			sort_by: idleOnly ? "started" : sortBy,
+			sort_direction: idleOnly && sortBy !== "started" ? "desc" : sortDirection,
 			page,
 			page_size: pageSize,
 			include_idle: includeIdle,
+			idle_only: idleOnly,
 		}),
-		[
-			filter,
-			sortBy,
-			sortDirection,
-			showRealActivity,
-			page,
-			pageSize,
-			includeIdle,
-		],
+		[filter, sortBy, sortDirection, idleOnly, page, pageSize, includeIdle],
 	);
 
 	const commandQuery = useQuery({
@@ -348,22 +365,47 @@ const WorkspaceCommandActivityPage: FC = () => {
 		() => availableTools.map((tool) => ({ value: tool, label: tool })),
 		[availableTools],
 	);
+	const inputOutputOptions = useMemo<InputOutputDisplayOptions>(
+		() => ({
+			showInput,
+			showOutput,
+			showEnvironment,
+			showFullContent,
+			useColors,
+		}),
+		[showInput, showOutput, showEnvironment, showFullContent, useColors],
+	);
 
 	const realActivity = queryEnabled ? (commandQuery.data?.activity ?? []) : [];
 	const mcpRequests = queryEnabled
 		? (commandQuery.data?.mcp_requests ?? [])
 		: [];
+	const idleActivity = queryEnabled
+		? (commandQuery.data?.idle_activity ?? [])
+		: [];
 	const displayRows = useMemo(
 		() =>
-			buildActivityDisplayRows(
-				realActivity,
-				mcpRequests,
-				includeIdle,
-				showRealActivity,
-				sortBy,
-				sortDirection,
-			),
+			idleOnly
+				? idleActivity.map((idle) => ({
+						type: "idle" as const,
+						key: idle.finished_at
+							? `idle:server:${idle.started_at}:${idle.finished_at}`
+							: `idle:server:current:${idle.started_at}`,
+						startedAt: idle.started_at,
+						finishedAt: idle.finished_at,
+						current: !idle.finished_at,
+					}))
+				: buildActivityDisplayRows(
+						realActivity,
+						mcpRequests,
+						includeIdle,
+						showRealActivity,
+						sortBy,
+						sortDirection,
+					),
 		[
+			idleOnly,
+			idleActivity,
 			realActivity,
 			mcpRequests,
 			includeIdle,
@@ -441,6 +483,7 @@ const WorkspaceCommandActivityPage: FC = () => {
 			for (const [queryKey, data] of cached) {
 				if (!data || !Array.isArray(queryKey)) continue;
 				const request = (queryKey[3] ?? {}) as WorkspaceCommandActivityRequest;
+				if (request.idle_only) continue;
 				const update = updateCommandActivityCache(data, command, request);
 				if (update === undefined) {
 					needsResync = true;
@@ -460,6 +503,10 @@ const WorkspaceCommandActivityPage: FC = () => {
 			for (const [queryKey, data] of cached) {
 				if (!data || !Array.isArray(queryKey)) continue;
 				const request = (queryKey[3] ?? {}) as WorkspaceCommandActivityRequest;
+				if (request.idle_only) {
+					scheduleCommandResync();
+					continue;
+				}
 				const update = updateMCPRequestActivityCache(
 					data,
 					requestActivity,
@@ -653,6 +700,7 @@ const WorkspaceCommandActivityPage: FC = () => {
 						toolOptions={toolFilterOptions}
 						sources={sources}
 						inputFilter={inputFilter}
+						inputOutputOptions={inputOutputOptions}
 						exitCode={exitCode}
 						onSort={updateSort}
 						onID={(value) => {
@@ -681,9 +729,15 @@ const WorkspaceCommandActivityPage: FC = () => {
 							setSources(value);
 							filtersChanged();
 						}}
-						onInput={(value) => {
+						onInputOutput={(value, options) => {
+							const searchChanged = value !== inputFilter;
 							setInputFilter(value);
-							filtersChanged();
+							setShowInput(options.showInput);
+							setShowOutput(options.showOutput);
+							setShowEnvironment(options.showEnvironment);
+							setShowFullContent(options.showFullContent);
+							setUseColors(options.useColors);
+							if (searchChanged) filtersChanged();
 						}}
 						onExit={(value) => {
 							setExitCode(value);
@@ -782,6 +836,7 @@ type ActivityHistoryTableProps = {
 	toolOptions: readonly ActivityFilterOption[];
 	sources: readonly ActivityVisibleSource[];
 	inputFilter: string;
+	inputOutputOptions: InputOutputDisplayOptions;
 	exitCode: string;
 	onSort: (column: WorkspaceCommandActivitySort) => void;
 	onID: (value: string) => void;
@@ -790,7 +845,7 @@ type ActivityHistoryTableProps = {
 	onDuration: (min: string, max: string) => void;
 	onTools: (value: string[] | null) => void;
 	onSources: (value: ActivityVisibleSource[]) => void;
-	onInput: (value: string) => void;
+	onInputOutput: (value: string, options: InputOutputDisplayOptions) => void;
 	onExit: (value: string) => void;
 	onSelectPage: (checked: boolean) => void;
 	onSelect: (id: string, checked: boolean) => void;
@@ -813,6 +868,7 @@ const ActivityHistoryTable: FC<ActivityHistoryTableProps> = ({
 	toolOptions,
 	sources,
 	inputFilter,
+	inputOutputOptions,
 	exitCode,
 	onSort,
 	onID,
@@ -821,7 +877,7 @@ const ActivityHistoryTable: FC<ActivityHistoryTableProps> = ({
 	onDuration,
 	onTools,
 	onSources,
-	onInput,
+	onInputOutput,
 	onExit,
 	onSelectPage,
 	onSelect,
@@ -976,19 +1032,26 @@ const ActivityHistoryTable: FC<ActivityHistoryTableProps> = ({
 				</TableHead>
 				<TableHead className="px-2 text-content-primary">
 					<HeaderWithFilter
-						label="Input"
+						label="Input / Output"
 						column="command"
 						sortBy={sortBy}
 						direction={sortDirection}
 						onSort={onSort}
 						filter={
-							<TextColumnFilter
-								label="Input"
+							<InputOutputColumnFilter
 								value={inputFilter}
-								placeholder="Search input..."
+								placeholder="Search input / output..."
 								summary={inputFilter ? "Filtered" : undefined}
-								active={Boolean(inputFilter)}
-								onApply={onInput}
+								active={
+									Boolean(inputFilter) ||
+									!inputOutputOptions.showInput ||
+									!inputOutputOptions.showOutput ||
+									inputOutputOptions.showEnvironment ||
+									inputOutputOptions.showFullContent ||
+									inputOutputOptions.useColors
+								}
+								options={inputOutputOptions}
+								onApply={onInputOutput}
 							/>
 						}
 					/>
@@ -1031,6 +1094,7 @@ const ActivityHistoryTable: FC<ActivityHistoryTableProps> = ({
 							key={row.activity.id}
 							item={row.activity}
 							checked={selectedIds.has(row.activity.id)}
+							inputOutputOptions={inputOutputOptions}
 							onCheckedChange={(checked) => onSelect(row.activity.id, checked)}
 						/>
 					),
@@ -1082,8 +1146,9 @@ const SortHeader: FC<{
 const RealActivityRow: FC<{
 	item: WorkspaceCommandActivity;
 	checked: boolean;
+	inputOutputOptions: InputOutputDisplayOptions;
 	onCheckedChange: (checked: boolean) => void;
-}> = ({ item, checked, onCheckedChange }) => (
+}> = ({ item, checked, inputOutputOptions, onCheckedChange }) => (
 	<TableRow data-state={checked ? "selected" : undefined}>
 		<TableCell className="px-2">
 			<div className="flex min-w-0 items-center gap-2">
@@ -1120,9 +1185,7 @@ const RealActivityRow: FC<{
 			{activitySourceLabel(item.source)}
 		</TableCell>
 		<TableCell className="min-w-0 px-2">
-			<code className="block whitespace-pre-wrap break-words text-xs text-content-primary">
-				{activityInput(item) || "—"}
-			</code>
+			<ActivityInputOutput item={item} options={inputOutputOptions} />
 			{item.work_dir && (
 				<div
 					className="mt-1 truncate text-2xs text-content-secondary"
@@ -1135,6 +1198,74 @@ const RealActivityRow: FC<{
 		<TableCell className="px-2">{item.exit_code ?? ""}</TableCell>
 	</TableRow>
 );
+
+const ActivityInputOutput: FC<{
+	item: WorkspaceCommandActivity;
+	options: InputOutputDisplayOptions;
+}> = ({ item, options }) => {
+	const input = activityInput(item);
+	const output = item.output ?? "";
+	const environment = Object.entries(item.environment ?? {})
+		.sort(([a], [b]) => a.localeCompare(b))
+		.map(([key, value]) => `${key}=${value}`)
+		.join("\n");
+	const hasInput =
+		options.showInput &&
+		Boolean(input || (options.showEnvironment && environment));
+	const hasOutput = options.showOutput && Boolean(output);
+	const blockLayout = options.showFullContent
+		? "whitespace-pre-wrap break-words"
+		: "truncate whitespace-nowrap";
+	const colorClass = (kind: "environment" | "input" | "output") => {
+		if (!options.useColors) return "text-content-primary";
+		switch (kind) {
+			case "environment":
+				return "text-highlight-purple";
+			case "input":
+				return "text-content-link";
+			case "output":
+				return "text-highlight-sky";
+		}
+	};
+
+	if (!hasInput && !hasOutput) {
+		return <code className="text-xs text-content-primary">—</code>;
+	}
+
+	return (
+		<div className="min-w-0 text-xs">
+			{options.showInput && (
+				<div className="min-w-0">
+					{options.showEnvironment && environment && (
+						<code
+							className={`block min-w-0 ${blockLayout} ${colorClass("environment")}`}
+							title={!options.showFullContent ? environment : undefined}
+						>
+							{environment}
+						</code>
+					)}
+					{input && (
+						<code
+							className={`block min-w-0 ${blockLayout} ${colorClass("input")}`}
+							title={!options.showFullContent ? input : undefined}
+						>
+							{input}
+						</code>
+					)}
+				</div>
+			)}
+			{hasInput && hasOutput && <div className="h-3" aria-hidden />}
+			{hasOutput && (
+				<code
+					className={`block min-w-0 ${blockLayout} ${colorClass("output")}`}
+					title={!options.showFullContent ? output : undefined}
+				>
+					{output}
+				</code>
+			)}
+		</div>
+	);
+};
 
 const IdleActivityRow: FC<{
 	row: Extract<ActivityDisplayRow, { type: "idle" }>;
@@ -1219,30 +1350,74 @@ const ActivityPagination: FC<{
 }> = ({ page, pageSize, totalCount, totalPages, onPage, onPageSize }) => {
 	const first = totalCount === 0 ? 0 : (page - 1) * pageSize + 1;
 	const last = totalCount === 0 ? 0 : Math.min(page * pageSize, totalCount);
+	const [pageDraft, setPageDraft] = useState(String(page));
+	const [pageSizeDraft, setPageSizeDraft] = useState(String(pageSize));
+	const pageInputID = useId();
+	const pageSizeInputID = useId();
+
+	useEffect(() => setPageDraft(String(page)), [page]);
+	useEffect(() => setPageSizeDraft(String(pageSize)), [pageSize]);
+
+	const commitPage = () => {
+		const next = parseActivityPage(pageDraft, page, totalPages);
+		setPageDraft(String(next));
+		if (next !== page) onPage(next);
+	};
+	const commitPageSize = () => {
+		const next = parseActivityPageSize(pageSizeDraft, pageSize);
+		setPageSizeDraft(String(next));
+		if (next !== pageSize) onPageSize(next);
+	};
+	const commitOnEnter = (
+		event: React.KeyboardEvent<HTMLInputElement>,
+		commit: () => void,
+	) => {
+		if (event.key === "Enter") {
+			event.preventDefault();
+			commit();
+			event.currentTarget.blur();
+		}
+	};
+
 	return (
 		<div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-content-secondary">
 			<span>
-				{first}–{last} of {totalCount.toLocaleString()}
+				{first}–{last} of {totalCount.toLocaleString()} activity rows
 			</span>
 			<div className="ml-auto flex flex-wrap items-center gap-3">
-				<div className="flex items-center gap-2">
+				<label htmlFor={pageSizeInputID} className="flex items-center gap-2">
 					<span>Rows per page</span>
-					<Select
-						value={String(pageSize)}
-						onValueChange={(value) => onPageSize(Number(value))}
-					>
-						<SelectTrigger className="w-20">
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							{pageSizeOptions.map((value) => (
-								<SelectItem key={value} value={String(value)}>
-									{value}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-				</div>
+					<Input
+						id={pageSizeInputID}
+						type="number"
+						min={minActivityPageSize}
+						max={maxActivityPageSize}
+						step={1}
+						className="h-8 w-20"
+						value={pageSizeDraft}
+						onChange={(event) => setPageSizeDraft(event.currentTarget.value)}
+						onBlur={commitPageSize}
+						onKeyDown={(event) => commitOnEnter(event, commitPageSize)}
+						aria-label="Rows per page"
+					/>
+				</label>
+				<label htmlFor={pageInputID} className="flex items-center gap-2">
+					<span>Go to page</span>
+					<Input
+						id={pageInputID}
+						type="number"
+						min={1}
+						max={totalPages}
+						step={1}
+						className="h-8 w-20"
+						value={pageDraft}
+						onChange={(event) => setPageDraft(event.currentTarget.value)}
+						onBlur={commitPage}
+						onKeyDown={(event) => commitOnEnter(event, commitPage)}
+						aria-label={`Go to page, 1 to ${totalPages}`}
+					/>
+					<span>of {totalPages.toLocaleString()}</span>
+				</label>
 				<PaginationWidgetBase
 					currentPage={page}
 					pageSize={pageSize}

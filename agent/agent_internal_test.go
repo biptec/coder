@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -18,6 +19,29 @@ import (
 	agentsdk "github.com/coder/coder/v2/codersdk/agentsdk"
 	"github.com/coder/coder/v2/testutil"
 )
+
+func TestCommandActivityOutputWriter(t *testing.T) {
+	t.Parallel()
+
+	var chunks []string
+	writer := &commandActivityOutputWriter{emit: func(output string) {
+		chunks = append(chunks, output)
+	}}
+	_, err := writer.Write([]byte("before \xe2"))
+	require.NoError(t, err)
+	_, err = writer.Write([]byte("\x82"))
+	require.NoError(t, err)
+	_, err = writer.Write([]byte("\xac after \xff"))
+	require.NoError(t, err)
+	large := strings.Repeat("activity-output-", 8_000)
+	_, err = writer.Write([]byte(large))
+	require.NoError(t, err)
+	_, err = writer.Write([]byte("\xe2"))
+	require.NoError(t, err)
+	writer.Flush()
+
+	require.Equal(t, "before € after �"+large+"�", strings.Join(chunks, ""))
+}
 
 // platformAbsPath constructs an absolute path that is valid
 // on the current platform. On Windows, paths must include a

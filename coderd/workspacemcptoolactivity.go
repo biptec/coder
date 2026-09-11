@@ -113,10 +113,36 @@ func (r *workspaceMCPToolActivityRecorder) StartToolActivity(
 	return mcp.PersistentActivityHandle{ID: activityID, WorkspaceID: workspace.ID, PersistTool: persistTool}, nil
 }
 
+func (r *workspaceMCPToolActivityRecorder) HeartbeatToolActivity(
+	ctx context.Context,
+	handle mcp.PersistentActivityHandle,
+	heartbeatAt time.Time,
+) error {
+	if r == nil || handle.ID == uuid.Nil || handle.WorkspaceID == uuid.Nil {
+		return nil
+	}
+	updated, err := r.db.HeartbeatWorkspaceMCPRequestActivity(
+		dbauthz.AsSystemRestricted(context.WithoutCancel(ctx)),
+		database.HeartbeatWorkspaceMCPRequestActivityParams{
+			HeartbeatAt: heartbeatAt,
+			ID:          handle.ID,
+			WorkspaceID: handle.WorkspaceID,
+		},
+	)
+	if err != nil {
+		return xerrors.Errorf("heartbeat workspace MCP request activity: %w", err)
+	}
+	if updated == 0 {
+		return xerrors.Errorf("heartbeat workspace MCP request activity: row %s is no longer running", handle.ID)
+	}
+	return nil
+}
+
 func (r *workspaceMCPToolActivityRecorder) FinishToolActivity(
 	ctx context.Context,
 	handle mcp.PersistentActivityHandle,
 	status mcp.PersistentActivityStatus,
+	output string,
 	finishedAt time.Time,
 ) error {
 	if r == nil || handle.ID == uuid.Nil || handle.WorkspaceID == uuid.Nil {
@@ -145,6 +171,7 @@ func (r *workspaceMCPToolActivityRecorder) FinishToolActivity(
 				FinishedAt:  sql.NullTime{Time: finishedAt, Valid: true},
 				ID:          handle.ID,
 				WorkspaceID: handle.WorkspaceID,
+				Output:      output,
 			})
 			if err != nil {
 				return xerrors.Errorf("finish workspace MCP tool activity: %w", err)

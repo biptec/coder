@@ -4,6 +4,7 @@ import type {
 	WorkspaceCommandActivityResponse,
 	WorkspaceMCPRequestActivity,
 } from "#/api/typesGenerated";
+import { activityHistoricalRange } from "./activityDisplay";
 
 /**
  * Applies a single durable command delta to a cached REST page.
@@ -78,19 +79,47 @@ export const updateMCPRequestActivityCache = (
 			a.id.localeCompare(b.id),
 	);
 
-	// Long-lived browser tabs receive a delta for every MCP request. Keep all
-	// active spans plus a bounded recent completed window so live Idle remains
-	// exact without allowing the query cache to grow forever.
+	// Keep exactly the spans needed by the cached page instead of trimming to an
+	// arbitrary pageSize multiplier. Arbitrary trimming makes historical Idle
+	// disappear on every live MCP event and then reappear after REST resync.
 	const active = requests.filter((item) => !item.finished_at);
 	const completed = requests.filter((item) => item.finished_at);
-	const completedLimit = Math.max(
-		64,
-		(request.page_size ?? data.page_size) * 4,
-	);
-	const bounded = [
-		...completed.slice(Math.max(0, completed.length - completedLimit)),
-		...active,
-	].sort(
+	const latestFinished = completed.reduce<
+		WorkspaceMCPRequestActivity | undefined
+	>((latest, item) => {
+		if (!latest) return item;
+		return new Date(item.finished_at ?? 0).getTime() >
+			new Date(latest.finished_at ?? 0).getTime()
+			? item
+			: latest;
+	}, undefined);
+
+	const retained = new Map<string, WorkspaceMCPRequestActivity>();
+	for (const item of active) retained.set(item.id, item);
+	if (latestFinished) retained.set(latestFinished.id, latestFinished);
+
+	if ((request.sort_by ?? "started") === "started") {
+		const range = activityHistoricalRange(data.activity);
+		if (range) {
+			let previous: WorkspaceMCPRequestActivity | undefined;
+			let previousFinished = Number.NEGATIVE_INFINITY;
+			for (const item of completed) {
+				const started = new Date(item.started_at).getTime();
+				const finished = new Date(item.finished_at ?? 0).getTime();
+				if (started <= range.rangeEnd && finished >= range.rangeStart) {
+					retained.set(item.id, item);
+					continue;
+				}
+				if (finished < range.rangeStart && finished > previousFinished) {
+					previous = item;
+					previousFinished = finished;
+				}
+			}
+			if (previous) retained.set(previous.id, previous);
+		}
+	}
+
+	const bounded = [...retained.values()].sort(
 		(a, b) =>
 			new Date(a.started_at).getTime() - new Date(b.started_at).getTime() ||
 			a.id.localeCompare(b.id),
@@ -133,8 +162,11 @@ export const commandMatchesRequest = (
 	}
 	if (request.search) {
 		const needle = request.search.toLocaleLowerCase();
+		const environment = Object.entries(command.environment ?? {})
+			.map(([key, value]) => `${key}=${value}`)
+			.join(" ");
 		const haystack =
-			`${command.command} ${command.argv?.join(" ") ?? ""}`.toLocaleLowerCase();
+			`${command.command} ${command.argv?.join(" ") ?? ""} ${environment} ${command.output ?? ""}`.toLocaleLowerCase();
 		if (!haystack.includes(needle)) return false;
 	}
 

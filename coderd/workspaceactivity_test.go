@@ -31,6 +31,7 @@ func TestParseWorkspaceCommandActivityQuery(t *testing.T) {
 		"page":            {"3"},
 		"page_size":       {"100"},
 		"include_idle":    {"true"},
+		"idle_only":       {"true"},
 	}
 
 	req, err := parseWorkspaceCommandActivityQuery(values)
@@ -56,6 +57,7 @@ func TestParseWorkspaceCommandActivityQuery(t *testing.T) {
 	require.Equal(t, 3, req.Page)
 	require.Equal(t, 100, req.PageSize)
 	require.True(t, req.IncludeIdle)
+	require.True(t, req.IdleOnly)
 }
 
 func TestParseWorkspaceCommandActivityQueryRejectsInvalidIdleFlag(t *testing.T) {
@@ -63,6 +65,18 @@ func TestParseWorkspaceCommandActivityQueryRejectsInvalidIdleFlag(t *testing.T) 
 
 	_, err := parseWorkspaceCommandActivityQuery(url.Values{"include_idle": {"sometimes"}})
 	require.ErrorContains(t, err, "include_idle must be a boolean")
+
+	_, err = parseWorkspaceCommandActivityQuery(url.Values{"idle_only": {"sometimes"}})
+	require.ErrorContains(t, err, "idle_only must be a boolean")
+}
+
+func TestParseWorkspaceCommandActivityQueryIdleOnlyImpliesIdle(t *testing.T) {
+	t.Parallel()
+
+	req, err := parseWorkspaceCommandActivityQuery(url.Values{"idle_only": {"true"}})
+	require.NoError(t, err)
+	require.True(t, req.IdleOnly)
+	require.True(t, req.IncludeIdle)
 }
 
 func TestParseWorkspaceCommandActivityQueryLegacyQAlias(t *testing.T) {

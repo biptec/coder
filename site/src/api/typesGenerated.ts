@@ -4285,6 +4285,9 @@ export const DefaultChatDebugRetentionDays = 30;
 export const DefaultChatWorkspaceTTL = 0;
 
 // From codersdk/deployment.go
+export const DefaultMCPTraceRetentionHours = 24;
+
+// From codersdk/deployment.go
 export const DefaultWorkspaceCommandActivityHistoryLimit = 0;
 
 // From codersdk/externalauth.go
@@ -4389,6 +4392,8 @@ export interface DeploymentValues {
 	readonly agent_stat_refresh_interval?: number;
 	readonly workspace_activity_now_threshold?: number;
 	readonly workspace_command_activity_history_limit?: number;
+	readonly mcp_trace_enabled?: boolean;
+	readonly mcp_trace_retention_hours?: number;
 	readonly workspace_volume_copy_enabled?: boolean;
 	readonly workspace_volume_copy_namespace?: string;
 	readonly workspace_volume_copy_image?: string;
@@ -10765,6 +10770,8 @@ export interface WorkspaceCommandActivity {
 	readonly tool?: string;
 	readonly command?: string;
 	readonly argv?: readonly string[];
+	readonly environment?: Record<string, string>;
+	readonly output?: string;
 	readonly work_dir?: string;
 	readonly status: WorkspaceCommandActivityStatus;
 	readonly started_at: string;
@@ -10808,6 +10815,7 @@ export interface WorkspaceCommandActivityRequest
 	readonly page?: number;
 	readonly page_size?: number;
 	readonly include_idle?: boolean;
+	readonly idle_only?: boolean;
 }
 
 // From codersdk/workspacecommandactivity.go
@@ -10821,6 +10829,7 @@ export interface WorkspaceCommandActivityResponse {
 	readonly total_pages: number;
 	readonly history_limit: number;
 	readonly mcp_requests?: readonly WorkspaceMCPRequestActivity[];
+	readonly idle_activity?: readonly WorkspaceIdleActivity[];
 }
 
 // From codersdk/workspacecommandactivity.go
@@ -10938,6 +10947,17 @@ export interface WorkspaceGroup extends Group {
 export interface WorkspaceHealth {
 	readonly healthy: boolean; // Healthy is true if the workspace is healthy.
 	readonly failing_agents: readonly string[]; // FailingAgents lists the IDs of the agents that are failing, if any.
+}
+
+// From codersdk/workspacecommandactivity.go
+/**
+ * WorkspaceIdleActivity is a computed gap in the workspace-wide union of MCP
+ * request spans. It is never persisted as a row. A nil FinishedAt represents
+ * the current Idle interval after the most recently finished MCP request.
+ */
+export interface WorkspaceIdleActivity {
+	readonly started_at: string;
+	readonly finished_at?: string;
 }
 
 // From codersdk/workspacecommandactivity.go

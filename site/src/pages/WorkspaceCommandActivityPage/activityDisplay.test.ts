@@ -3,7 +3,11 @@ import type {
 	WorkspaceCommandActivity,
 	WorkspaceMCPRequestActivity,
 } from "#/api/typesGenerated";
-import { buildActivityDisplayRows } from "./activityDisplay";
+import {
+	activityHistoricalRange,
+	activityInput,
+	buildActivityDisplayRows,
+} from "./activityDisplay";
 
 const activity = (
 	id: string,
@@ -34,6 +38,25 @@ const request = (
 	status: finishedAt ? "succeeded" : "running",
 	started_at: startedAt,
 	finished_at: finishedAt,
+});
+
+describe("activityInput", () => {
+	it("preserves argv boundaries including spaces and empty arguments", () => {
+		const item: WorkspaceCommandActivity = {
+			...activity(
+				"00000000-0000-0000-0000-000000000001",
+				"2026-09-09T10:00:00Z",
+				"2026-09-09T10:00:01Z",
+				"exec",
+			),
+			command: "printf",
+			argv: ["hello world", "", "--flag=value"],
+		};
+
+		expect(activityInput(item)).toBe(
+			'printf\nargv: ["hello world","","--flag=value"]',
+		);
+	});
 });
 
 describe("buildActivityDisplayRows", () => {
@@ -135,6 +158,34 @@ describe("buildActivityDisplayRows", () => {
 				finishedAt: "2026-09-09T10:07:00.000Z",
 			}),
 		]);
+	});
+
+	it("does not let an old pinned running process expand the historical Idle range", () => {
+		const oldRunning = activity(
+			"00000000-0000-0000-0000-000000000201",
+			"2026-09-09T03:00:00Z",
+			undefined,
+			"process_start",
+			"running",
+		);
+		const firstCompleted = activity(
+			"00000000-0000-0000-0000-000000000202",
+			"2026-09-09T10:00:00Z",
+			"2026-09-09T10:00:01Z",
+			"read_file",
+		);
+		const lastCompleted = activity(
+			"00000000-0000-0000-0000-000000000203",
+			"2026-09-09T10:05:00Z",
+			"2026-09-09T10:05:01Z",
+			"search_results",
+		);
+		expect(
+			activityHistoricalRange([oldRunning, firstCompleted, lastCompleted]),
+		).toEqual({
+			rangeStart: Date.parse("2026-09-09T10:00:00Z"),
+			rangeEnd: Date.parse("2026-09-09T10:05:01Z"),
+		});
 	});
 
 	it("puts current Idle above a background running process after process_start returned", () => {

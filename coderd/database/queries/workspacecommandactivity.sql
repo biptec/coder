@@ -8,6 +8,7 @@ INSERT INTO workspace_command_activity (
     tool,
     command,
     argv,
+    environment,
     work_dir,
     status,
     started_at
@@ -20,6 +21,7 @@ INSERT INTO workspace_command_activity (
     @tool,
     @command,
     @argv,
+    @environment::jsonb,
     @work_dir,
     'running',
     @started_at
@@ -60,7 +62,8 @@ ON CONFLICT (id) DO NOTHING;
 UPDATE workspace_command_activity
 SET status = @status,
     finished_at = @finished_at,
-    exit_code = NULL
+    exit_code = NULL,
+    output = @output
 WHERE id = @id
   AND workspace_id = @workspace_id
   AND kind = 'tool'
@@ -78,6 +81,15 @@ SELECT *
 FROM workspace_command_activity
 WHERE workspace_id = @workspace_id
   AND id = @id;
+
+-- name: AppendWorkspaceCommandActivityOutput :execrows
+UPDATE workspace_command_activity
+SET output = output || @output
+WHERE id = @id
+  AND workspace_id = @workspace_id
+  AND agent_id = @agent_id
+  AND session_id = @session_id
+  AND status = 'running';
 
 -- name: FinishWorkspaceCommandActivity :execrows
 UPDATE workspace_command_activity
@@ -133,6 +145,8 @@ WHERE workspace_id = sqlc.arg(workspace_id)
     sqlc.arg(search)::text = ''
     OR strpos(lower(command), lower(sqlc.arg(search)::text)) > 0
     OR strpos(lower(array_to_string(argv, ' ')), lower(sqlc.arg(search)::text)) > 0
+    OR strpos(lower(environment::text), lower(sqlc.arg(search)::text)) > 0
+    OR strpos(lower(output), lower(sqlc.arg(search)::text)) > 0
   )
   AND (
     sqlc.arg(started_after)::timestamptz = '0001-01-01 00:00:00Z'::timestamptz
@@ -230,6 +244,8 @@ WHERE workspace_id = sqlc.arg(workspace_id)
     sqlc.arg(search)::text = ''
     OR strpos(lower(command), lower(sqlc.arg(search)::text)) > 0
     OR strpos(lower(array_to_string(argv, ' ')), lower(sqlc.arg(search)::text)) > 0
+    OR strpos(lower(environment::text), lower(sqlc.arg(search)::text)) > 0
+    OR strpos(lower(output), lower(sqlc.arg(search)::text)) > 0
   )
   AND (
     sqlc.arg(started_after)::timestamptz = '0001-01-01 00:00:00Z'::timestamptz
@@ -284,6 +300,8 @@ WHERE workspace_id = sqlc.arg(workspace_id)
     sqlc.arg(search)::text = ''
     OR strpos(lower(command), lower(sqlc.arg(search)::text)) > 0
     OR strpos(lower(array_to_string(argv, ' ')), lower(sqlc.arg(search)::text)) > 0
+    OR strpos(lower(environment::text), lower(sqlc.arg(search)::text)) > 0
+    OR strpos(lower(output), lower(sqlc.arg(search)::text)) > 0
   )
   AND (
     sqlc.arg(started_after)::timestamptz = '0001-01-01 00:00:00Z'::timestamptz

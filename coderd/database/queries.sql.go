@@ -36748,6 +36748,38 @@ func (q *sqlQuerier) UpdateWorkspaceBuildProvisionerStateByID(ctx context.Contex
 	return err
 }
 
+const appendWorkspaceCommandActivityOutput = `-- name: AppendWorkspaceCommandActivityOutput :execrows
+UPDATE workspace_command_activity
+SET output = output || $1
+WHERE id = $2
+  AND workspace_id = $3
+  AND agent_id = $4
+  AND session_id = $5
+  AND status = 'running'
+`
+
+type AppendWorkspaceCommandActivityOutputParams struct {
+	Output      string    `db:"output" json:"output"`
+	ID          uuid.UUID `db:"id" json:"id"`
+	WorkspaceID uuid.UUID `db:"workspace_id" json:"workspace_id"`
+	AgentID     uuid.UUID `db:"agent_id" json:"agent_id"`
+	SessionID   uuid.UUID `db:"session_id" json:"session_id"`
+}
+
+func (q *sqlQuerier) AppendWorkspaceCommandActivityOutput(ctx context.Context, arg AppendWorkspaceCommandActivityOutputParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, appendWorkspaceCommandActivityOutput,
+		arg.Output,
+		arg.ID,
+		arg.WorkspaceID,
+		arg.AgentID,
+		arg.SessionID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const countWorkspaceCommandActivity = `-- name: CountWorkspaceCommandActivity :one
 SELECT COUNT(*)::bigint
 FROM workspace_command_activity
@@ -36781,6 +36813,8 @@ WHERE workspace_id = $1
     $6::text = ''
     OR strpos(lower(command), lower($6::text)) > 0
     OR strpos(lower(array_to_string(argv, ' ')), lower($6::text)) > 0
+    OR strpos(lower(environment::text), lower($6::text)) > 0
+    OR strpos(lower(output), lower($6::text)) > 0
   )
   AND (
     $7::timestamptz = '0001-01-01 00:00:00Z'::timestamptz
@@ -36869,6 +36903,8 @@ WHERE workspace_id = $1
     $6::text = ''
     OR strpos(lower(command), lower($6::text)) > 0
     OR strpos(lower(array_to_string(argv, ' ')), lower($6::text)) > 0
+    OR strpos(lower(environment::text), lower($6::text)) > 0
+    OR strpos(lower(output), lower($6::text)) > 0
   )
   AND (
     $7::timestamptz = '0001-01-01 00:00:00Z'::timestamptz
@@ -36985,9 +37021,10 @@ const finishWorkspaceToolActivity = `-- name: FinishWorkspaceToolActivity :execr
 UPDATE workspace_command_activity
 SET status = $1,
     finished_at = $2,
-    exit_code = NULL
-WHERE id = $3
-  AND workspace_id = $4
+    exit_code = NULL,
+    output = $3
+WHERE id = $4
+  AND workspace_id = $5
   AND kind = 'tool'
   AND status = 'running'
 `
@@ -36995,6 +37032,7 @@ WHERE id = $3
 type FinishWorkspaceToolActivityParams struct {
 	Status      string       `db:"status" json:"status"`
 	FinishedAt  sql.NullTime `db:"finished_at" json:"finished_at"`
+	Output      string       `db:"output" json:"output"`
 	ID          uuid.UUID    `db:"id" json:"id"`
 	WorkspaceID uuid.UUID    `db:"workspace_id" json:"workspace_id"`
 }
@@ -37003,6 +37041,7 @@ func (q *sqlQuerier) FinishWorkspaceToolActivity(ctx context.Context, arg Finish
 	result, err := q.db.ExecContext(ctx, finishWorkspaceToolActivity,
 		arg.Status,
 		arg.FinishedAt,
+		arg.Output,
 		arg.ID,
 		arg.WorkspaceID,
 	)
@@ -37013,7 +37052,7 @@ func (q *sqlQuerier) FinishWorkspaceToolActivity(ctx context.Context, arg Finish
 }
 
 const getWorkspaceCommandActivityByID = `-- name: GetWorkspaceCommandActivityByID :one
-SELECT id, workspace_id, agent_id, session_id, source, command, argv, work_dir, status, started_at, finished_at, exit_code, tool, kind
+SELECT id, workspace_id, agent_id, session_id, source, command, argv, work_dir, status, started_at, finished_at, exit_code, tool, kind, environment, output
 FROM workspace_command_activity
 WHERE workspace_id = $1
   AND id = $2
@@ -37042,6 +37081,8 @@ func (q *sqlQuerier) GetWorkspaceCommandActivityByID(ctx context.Context, arg Ge
 		&i.ExitCode,
 		&i.Tool,
 		&i.Kind,
+		&i.Environment,
+		&i.Output,
 	)
 	return i, err
 }
@@ -37056,6 +37097,7 @@ INSERT INTO workspace_command_activity (
     tool,
     command,
     argv,
+    environment,
     work_dir,
     status,
     started_at
@@ -37068,24 +37110,26 @@ INSERT INTO workspace_command_activity (
     $6,
     $7,
     $8,
-    $9,
+    $9::jsonb,
+    $10,
     'running',
-    $10
+    $11
 )
 ON CONFLICT (id) DO NOTHING
 `
 
 type InsertWorkspaceCommandActivityParams struct {
-	ID          uuid.UUID `db:"id" json:"id"`
-	WorkspaceID uuid.UUID `db:"workspace_id" json:"workspace_id"`
-	AgentID     uuid.UUID `db:"agent_id" json:"agent_id"`
-	SessionID   uuid.UUID `db:"session_id" json:"session_id"`
-	Source      string    `db:"source" json:"source"`
-	Tool        string    `db:"tool" json:"tool"`
-	Command     string    `db:"command" json:"command"`
-	Argv        []string  `db:"argv" json:"argv"`
-	WorkDir     string    `db:"work_dir" json:"work_dir"`
-	StartedAt   time.Time `db:"started_at" json:"started_at"`
+	ID          uuid.UUID       `db:"id" json:"id"`
+	WorkspaceID uuid.UUID       `db:"workspace_id" json:"workspace_id"`
+	AgentID     uuid.UUID       `db:"agent_id" json:"agent_id"`
+	SessionID   uuid.UUID       `db:"session_id" json:"session_id"`
+	Source      string          `db:"source" json:"source"`
+	Tool        string          `db:"tool" json:"tool"`
+	Command     string          `db:"command" json:"command"`
+	Argv        []string        `db:"argv" json:"argv"`
+	Environment json.RawMessage `db:"environment" json:"environment"`
+	WorkDir     string          `db:"work_dir" json:"work_dir"`
+	StartedAt   time.Time       `db:"started_at" json:"started_at"`
 }
 
 func (q *sqlQuerier) InsertWorkspaceCommandActivity(ctx context.Context, arg InsertWorkspaceCommandActivityParams) error {
@@ -37098,6 +37142,7 @@ func (q *sqlQuerier) InsertWorkspaceCommandActivity(ctx context.Context, arg Ins
 		arg.Tool,
 		arg.Command,
 		pq.Array(arg.Argv),
+		arg.Environment,
 		arg.WorkDir,
 		arg.StartedAt,
 	)
@@ -37186,7 +37231,7 @@ func (q *sqlQuerier) InterruptWorkspaceCommandActivityByAgentSession(ctx context
 }
 
 const listWorkspaceCommandActivity = `-- name: ListWorkspaceCommandActivity :many
-SELECT id, workspace_id, agent_id, session_id, source, command, argv, work_dir, status, started_at, finished_at, exit_code, tool, kind
+SELECT id, workspace_id, agent_id, session_id, source, command, argv, work_dir, status, started_at, finished_at, exit_code, tool, kind, environment, output
 FROM workspace_command_activity
 WHERE workspace_id = $1
   AND (
@@ -37218,6 +37263,8 @@ WHERE workspace_id = $1
     $6::text = ''
     OR strpos(lower(command), lower($6::text)) > 0
     OR strpos(lower(array_to_string(argv, ' ')), lower($6::text)) > 0
+    OR strpos(lower(environment::text), lower($6::text)) > 0
+    OR strpos(lower(output), lower($6::text)) > 0
   )
   AND (
     $7::timestamptz = '0001-01-01 00:00:00Z'::timestamptz
@@ -37341,6 +37388,8 @@ func (q *sqlQuerier) ListWorkspaceCommandActivity(ctx context.Context, arg ListW
 			&i.ExitCode,
 			&i.Tool,
 			&i.Kind,
+			&i.Environment,
+			&i.Output,
 		); err != nil {
 			return nil, err
 		}
@@ -37692,6 +37741,90 @@ func (q *sqlQuerier) ResetWorkspaceActiveConnectionsByAgentID(ctx context.Contex
 	return err
 }
 
+const countWorkspaceIdleActivity = `-- name: CountWorkspaceIdleActivity :one
+WITH ordered AS (
+    SELECT
+        request.id,
+        request.started_at,
+        COALESCE(request.finished_at, 'infinity'::timestamptz) AS finished_at,
+        MAX(COALESCE(request.finished_at, 'infinity'::timestamptz)) OVER (
+            ORDER BY request.started_at ASC, request.id ASC
+            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+        ) AS previous_max_finished_at
+    FROM workspace_mcp_request_activity AS request
+    WHERE request.workspace_id = $1
+), marked AS (
+    SELECT
+        ordered.id, ordered.started_at, ordered.finished_at, ordered.previous_max_finished_at,
+        CASE
+            WHEN previous_max_finished_at IS NULL OR started_at > previous_max_finished_at THEN 1
+            ELSE 0
+        END AS starts_group
+    FROM ordered
+), grouped AS (
+    SELECT
+        marked.id, marked.started_at, marked.finished_at, marked.previous_max_finished_at, marked.starts_group,
+        SUM(starts_group) OVER (ORDER BY started_at ASC, id ASC) AS group_id
+    FROM marked
+), busy AS (
+    SELECT
+        group_id,
+        MIN(started_at) AS started_at,
+        MAX(finished_at) AS finished_at
+    FROM grouped
+    GROUP BY group_id
+), idle AS (
+    SELECT
+        finished_at AS started_at,
+        LEAD(started_at) OVER (ORDER BY started_at ASC, group_id ASC) AS finished_at
+    FROM busy
+), filtered AS (
+    SELECT started_at, finished_at
+    FROM idle
+    WHERE started_at < 'infinity'::timestamptz
+      AND COALESCE(finished_at, NOW()) > started_at
+      AND (
+        $2::timestamptz = '0001-01-01 00:00:00Z'::timestamptz
+        OR started_at >= $2::timestamptz
+      )
+      AND (
+        $3::timestamptz = '0001-01-01 00:00:00Z'::timestamptz
+        OR started_at <= $3::timestamptz
+      )
+      AND (
+        $4::bigint < 0
+        OR EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - started_at)) * 1000 >= $4::bigint
+      )
+      AND (
+        $5::bigint < 0
+        OR EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - started_at)) * 1000 <= $5::bigint
+      )
+)
+SELECT COUNT(*)::bigint
+FROM filtered
+`
+
+type CountWorkspaceIdleActivityParams struct {
+	WorkspaceID   uuid.UUID `db:"workspace_id" json:"workspace_id"`
+	StartedAfter  time.Time `db:"started_after" json:"started_after"`
+	StartedBefore time.Time `db:"started_before" json:"started_before"`
+	DurationMinMs int64     `db:"duration_min_ms" json:"duration_min_ms"`
+	DurationMaxMs int64     `db:"duration_max_ms" json:"duration_max_ms"`
+}
+
+func (q *sqlQuerier) CountWorkspaceIdleActivity(ctx context.Context, arg CountWorkspaceIdleActivityParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countWorkspaceIdleActivity,
+		arg.WorkspaceID,
+		arg.StartedAfter,
+		arg.StartedBefore,
+		arg.DurationMinMs,
+		arg.DurationMaxMs,
+	)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const finishWorkspaceMCPRequestActivity = `-- name: FinishWorkspaceMCPRequestActivity :execrows
 UPDATE workspace_mcp_request_activity
 SET status = $1,
@@ -37722,7 +37855,7 @@ func (q *sqlQuerier) FinishWorkspaceMCPRequestActivity(ctx context.Context, arg 
 }
 
 const getWorkspaceMCPRequestActivityByID = `-- name: GetWorkspaceMCPRequestActivityByID :one
-SELECT id, workspace_id, replica_id, tool, input, correlation_hash, status, started_at, finished_at
+SELECT id, workspace_id, replica_id, tool, input, correlation_hash, status, started_at, finished_at, heartbeat_at
 FROM workspace_mcp_request_activity
 WHERE workspace_id = $1
   AND id = $2
@@ -37746,8 +37879,31 @@ func (q *sqlQuerier) GetWorkspaceMCPRequestActivityByID(ctx context.Context, arg
 		&i.Status,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.HeartbeatAt,
 	)
 	return i, err
+}
+
+const heartbeatWorkspaceMCPRequestActivity = `-- name: HeartbeatWorkspaceMCPRequestActivity :execrows
+UPDATE workspace_mcp_request_activity
+SET heartbeat_at = $1::timestamptz
+WHERE id = $2
+  AND workspace_id = $3
+  AND status = 'running'
+`
+
+type HeartbeatWorkspaceMCPRequestActivityParams struct {
+	HeartbeatAt time.Time `db:"heartbeat_at" json:"heartbeat_at"`
+	ID          uuid.UUID `db:"id" json:"id"`
+	WorkspaceID uuid.UUID `db:"workspace_id" json:"workspace_id"`
+}
+
+func (q *sqlQuerier) HeartbeatWorkspaceMCPRequestActivity(ctx context.Context, arg HeartbeatWorkspaceMCPRequestActivityParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, heartbeatWorkspaceMCPRequestActivity, arg.HeartbeatAt, arg.ID, arg.WorkspaceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const insertWorkspaceMCPRequestActivity = `-- name: InsertWorkspaceMCPRequestActivity :exec
@@ -37759,7 +37915,8 @@ INSERT INTO workspace_mcp_request_activity (
     input,
     correlation_hash,
     status,
-    started_at
+    started_at,
+    heartbeat_at
 ) VALUES (
     $1,
     $2,
@@ -37768,6 +37925,7 @@ INSERT INTO workspace_mcp_request_activity (
     $5,
     $6,
     'running',
+    $7,
     $7
 )
 ON CONFLICT (id) DO NOTHING
@@ -37796,8 +37954,176 @@ func (q *sqlQuerier) InsertWorkspaceMCPRequestActivity(ctx context.Context, arg 
 	return err
 }
 
+const interruptStaleWorkspaceMCPRequestActivity = `-- name: InterruptStaleWorkspaceMCPRequestActivity :execrows
+UPDATE workspace_mcp_request_activity AS request
+SET status = 'interrupted',
+    -- The last request heartbeat is the last point at which MCP work is known
+    -- to have been active. Using cleanup time would hide at least one full
+    -- stale-grace interval from the computed Idle timeline.
+    finished_at = request.heartbeat_at
+WHERE request.workspace_id = $1
+  AND request.status = 'running'
+  AND request.heartbeat_at < $2::timestamptz
+  AND (
+    -- The current replica can safely recover its own orphaned requests because
+    -- every live long-running request refreshes heartbeat_at. This also repairs
+    -- a failed final DB write without waiting for coderd to restart.
+    request.replica_id = $3::uuid
+    OR EXISTS (
+      SELECT 1
+      FROM replicas AS replica
+      WHERE replica.id = request.replica_id
+        AND (
+          replica.stopped_at IS NOT NULL
+          OR replica.updated_at < $2::timestamptz
+        )
+    )
+    OR NOT EXISTS (
+      SELECT 1
+      FROM replicas AS replica
+      WHERE replica.id = request.replica_id
+    )
+  )
+`
+
+type InterruptStaleWorkspaceMCPRequestActivityParams struct {
+	WorkspaceID      uuid.UUID `db:"workspace_id" json:"workspace_id"`
+	StaleBefore      time.Time `db:"stale_before" json:"stale_before"`
+	CurrentReplicaID uuid.UUID `db:"current_replica_id" json:"current_replica_id"`
+}
+
+func (q *sqlQuerier) InterruptStaleWorkspaceMCPRequestActivity(ctx context.Context, arg InterruptStaleWorkspaceMCPRequestActivityParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, interruptStaleWorkspaceMCPRequestActivity, arg.WorkspaceID, arg.StaleBefore, arg.CurrentReplicaID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const listWorkspaceIdleActivity = `-- name: ListWorkspaceIdleActivity :many
+WITH ordered AS (
+    SELECT
+        request.id,
+        request.started_at,
+        COALESCE(request.finished_at, 'infinity'::timestamptz) AS finished_at,
+        MAX(COALESCE(request.finished_at, 'infinity'::timestamptz)) OVER (
+            ORDER BY request.started_at ASC, request.id ASC
+            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+        ) AS previous_max_finished_at
+    FROM workspace_mcp_request_activity AS request
+    WHERE request.workspace_id = $4
+), marked AS (
+    SELECT
+        ordered.id, ordered.started_at, ordered.finished_at, ordered.previous_max_finished_at,
+        CASE
+            WHEN previous_max_finished_at IS NULL OR started_at > previous_max_finished_at THEN 1
+            ELSE 0
+        END AS starts_group
+    FROM ordered
+), grouped AS (
+    SELECT
+        marked.id, marked.started_at, marked.finished_at, marked.previous_max_finished_at, marked.starts_group,
+        SUM(starts_group) OVER (ORDER BY started_at ASC, id ASC) AS group_id
+    FROM marked
+), busy AS (
+    SELECT
+        group_id,
+        MIN(started_at) AS started_at,
+        MAX(finished_at) AS finished_at
+    FROM grouped
+    GROUP BY group_id
+), idle AS (
+    SELECT
+        finished_at AS started_at,
+        LEAD(started_at) OVER (ORDER BY started_at ASC, group_id ASC) AS finished_at
+    FROM busy
+), filtered AS (
+    SELECT started_at, finished_at
+    FROM idle
+    WHERE started_at < 'infinity'::timestamptz
+      AND COALESCE(finished_at, NOW()) > started_at
+      AND (
+        $5::timestamptz = '0001-01-01 00:00:00Z'::timestamptz
+        OR started_at >= $5::timestamptz
+      )
+      AND (
+        $6::timestamptz = '0001-01-01 00:00:00Z'::timestamptz
+        OR started_at <= $6::timestamptz
+      )
+      AND (
+        $7::bigint < 0
+        OR EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - started_at)) * 1000 >= $7::bigint
+      )
+      AND (
+        $8::bigint < 0
+        OR EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - started_at)) * 1000 <= $8::bigint
+      )
+)
+SELECT
+    started_at::timestamptz AS started_at,
+    COALESCE(finished_at, NOW())::timestamptz AS finished_at,
+    (finished_at IS NULL)::boolean AS is_current
+FROM filtered
+ORDER BY
+    is_current DESC,
+    CASE WHEN $1::text = 'asc' THEN started_at END ASC,
+    CASE WHEN $1::text = 'desc' THEN started_at END DESC,
+    started_at DESC
+LIMIT $3
+OFFSET $2
+`
+
+type ListWorkspaceIdleActivityParams struct {
+	SortDirection string    `db:"sort_direction" json:"sort_direction"`
+	PageOffset    int32     `db:"page_offset" json:"page_offset"`
+	PageLimit     int32     `db:"page_limit" json:"page_limit"`
+	WorkspaceID   uuid.UUID `db:"workspace_id" json:"workspace_id"`
+	StartedAfter  time.Time `db:"started_after" json:"started_after"`
+	StartedBefore time.Time `db:"started_before" json:"started_before"`
+	DurationMinMs int64     `db:"duration_min_ms" json:"duration_min_ms"`
+	DurationMaxMs int64     `db:"duration_max_ms" json:"duration_max_ms"`
+}
+
+type ListWorkspaceIdleActivityRow struct {
+	StartedAt  time.Time `db:"started_at" json:"started_at"`
+	FinishedAt time.Time `db:"finished_at" json:"finished_at"`
+	IsCurrent  bool      `db:"is_current" json:"is_current"`
+}
+
+func (q *sqlQuerier) ListWorkspaceIdleActivity(ctx context.Context, arg ListWorkspaceIdleActivityParams) ([]ListWorkspaceIdleActivityRow, error) {
+	rows, err := q.db.QueryContext(ctx, listWorkspaceIdleActivity,
+		arg.SortDirection,
+		arg.PageOffset,
+		arg.PageLimit,
+		arg.WorkspaceID,
+		arg.StartedAfter,
+		arg.StartedBefore,
+		arg.DurationMinMs,
+		arg.DurationMaxMs,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListWorkspaceIdleActivityRow
+	for rows.Next() {
+		var i ListWorkspaceIdleActivityRow
+		if err := rows.Scan(&i.StartedAt, &i.FinishedAt, &i.IsCurrent); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listWorkspaceMCPRequestActivityCandidates = `-- name: ListWorkspaceMCPRequestActivityCandidates :many
-SELECT request.id, request.workspace_id, request.replica_id, request.tool, request.input, request.correlation_hash, request.status, request.started_at, request.finished_at
+SELECT request.id, request.workspace_id, request.replica_id, request.tool, request.input, request.correlation_hash, request.status, request.started_at, request.finished_at, request.heartbeat_at
 FROM workspace_mcp_request_activity AS request
 WHERE request.workspace_id = $1
   AND request.correlation_hash = $2
@@ -37839,6 +38165,7 @@ func (q *sqlQuerier) ListWorkspaceMCPRequestActivityCandidates(ctx context.Conte
 			&i.Status,
 			&i.StartedAt,
 			&i.FinishedAt,
+			&i.HeartbeatAt,
 		); err != nil {
 			return nil, err
 		}
@@ -37862,7 +38189,7 @@ WITH latest_finished AS (
     ORDER BY request.finished_at DESC, request.id DESC
     LIMIT 1
 )
-SELECT request.id, request.workspace_id, request.replica_id, request.tool, request.input, request.correlation_hash, request.status, request.started_at, request.finished_at
+SELECT request.id, request.workspace_id, request.replica_id, request.tool, request.input, request.correlation_hash, request.status, request.started_at, request.finished_at, request.heartbeat_at
 FROM workspace_mcp_request_activity AS request
 WHERE request.workspace_id = $1
   AND (
@@ -37891,6 +38218,7 @@ func (q *sqlQuerier) ListWorkspaceMCPRequestActivityCurrent(ctx context.Context,
 			&i.Status,
 			&i.StartedAt,
 			&i.FinishedAt,
+			&i.HeartbeatAt,
 		); err != nil {
 			return nil, err
 		}
@@ -37915,7 +38243,7 @@ WITH previous AS (
     ORDER BY request.finished_at DESC, request.id DESC
     LIMIT 1
 )
-SELECT request.id, request.workspace_id, request.replica_id, request.tool, request.input, request.correlation_hash, request.status, request.started_at, request.finished_at
+SELECT request.id, request.workspace_id, request.replica_id, request.tool, request.input, request.correlation_hash, request.status, request.started_at, request.finished_at, request.heartbeat_at
 FROM workspace_mcp_request_activity AS request
 WHERE request.workspace_id = $1
   AND (
@@ -37953,6 +38281,7 @@ func (q *sqlQuerier) ListWorkspaceMCPRequestActivityForRange(ctx context.Context
 			&i.Status,
 			&i.StartedAt,
 			&i.FinishedAt,
+			&i.HeartbeatAt,
 		); err != nil {
 			return nil, err
 		}

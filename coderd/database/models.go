@@ -6548,6 +6548,8 @@ type WorkspaceCommandActivity struct {
 	ExitCode    sql.NullInt32 `db:"exit_code" json:"exit_code"`
 	Tool        string        `db:"tool" json:"tool"`
 	Kind        string        `db:"kind" json:"kind"`
+	Environment StringMap     `db:"environment" json:"environment"`
+	Output      string        `db:"output" json:"output"`
 }
 
 type WorkspaceConnectionActivity struct {
@@ -6580,6 +6582,7 @@ type WorkspaceMcpRequestActivity struct {
 	Status          string       `db:"status" json:"status"`
 	StartedAt       time.Time    `db:"started_at" json:"started_at"`
 	FinishedAt      sql.NullTime `db:"finished_at" json:"finished_at"`
+	HeartbeatAt     time.Time    `db:"heartbeat_at" json:"heartbeat_at"`
 }
 
 type WorkspaceModule struct {

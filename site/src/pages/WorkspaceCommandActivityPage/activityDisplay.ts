@@ -16,8 +16,11 @@ export type ActivityDisplayRow =
 	  };
 
 export const activityInput = (activity: WorkspaceCommandActivity): string => {
-	if (activity.command?.trim()) return activity.command.trim();
-	return activity.argv?.join(" ").trim() ?? "";
+	const command = activity.command ?? "";
+	const argv = activity.argv ?? [];
+	const formattedArgv = argv.length > 0 ? JSON.stringify(argv) : "";
+	if (command && formattedArgv) return `${command}\nargv: ${formattedArgv}`;
+	return command || formattedArgv;
 };
 
 export const activitySourceLabel = (source: string): string => {
@@ -98,22 +101,33 @@ const currentIdleRow = (
 	};
 };
 
+export const activityHistoricalRange = (
+	activity: readonly WorkspaceCommandActivity[],
+): { rangeStart: number; rangeEnd: number } | undefined => {
+	let rangeStart = Number.POSITIVE_INFINITY;
+	let rangeEnd = Number.NEGATIVE_INFINITY;
+	for (const item of activity) {
+		// Running rows are pinned independently of chronological pagination and
+		// therefore must never stretch the historical Idle range.
+		const finishedAt = timestamp(item.finished_at);
+		if (finishedAt === undefined) continue;
+		const startedAt = timestamp(item.started_at);
+		if (startedAt === undefined) continue;
+		rangeStart = Math.min(rangeStart, startedAt);
+		rangeEnd = Math.max(rangeEnd, finishedAt);
+	}
+	return Number.isFinite(rangeStart) && Number.isFinite(rangeEnd)
+		? { rangeStart, rangeEnd }
+		: undefined;
+};
+
 const historicalIdleRows = (
 	requests: readonly WorkspaceMCPRequestActivity[],
 	activity: readonly WorkspaceCommandActivity[],
 ): ActivityDisplayRow[] => {
-	if (activity.length === 0) return [];
-
-	let rangeStart = Number.POSITIVE_INFINITY;
-	let rangeEnd = Number.NEGATIVE_INFINITY;
-	for (const item of activity) {
-		const startedAt = timestamp(item.started_at);
-		if (startedAt === undefined) continue;
-		rangeStart = Math.min(rangeStart, startedAt);
-		const finishedAt = timestamp(item.finished_at) ?? startedAt;
-		rangeEnd = Math.max(rangeEnd, finishedAt);
-	}
-	if (!Number.isFinite(rangeStart) || !Number.isFinite(rangeEnd)) return [];
+	const range = activityHistoricalRange(activity);
+	if (!range) return [];
+	const { rangeStart, rangeEnd } = range;
 
 	const overlapping: WorkspaceMCPRequestActivity[] = [];
 	let previous: WorkspaceMCPRequestActivity | undefined;

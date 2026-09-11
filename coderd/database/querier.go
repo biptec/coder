@@ -56,6 +56,7 @@ type sqlcQuerier interface {
 	ActivityBumpWorkspace(ctx context.Context, arg ActivityBumpWorkspaceParams) error
 	// AllUserIDs returns all UserIDs regardless of user status or deletion.
 	AllUserIDs(ctx context.Context, includeSystem bool) ([]uuid.UUID, error)
+	AppendWorkspaceCommandActivityOutput(ctx context.Context, arg AppendWorkspaceCommandActivityOutputParams) (int64, error)
 	ArchiveChatByID(ctx context.Context, id uuid.UUID) ([]Chat, error)
 	// Archiving templates is a soft delete action, so is reversible.
 	// Archiving prevents the version from being used and discovered
@@ -111,6 +112,7 @@ type sqlcQuerier interface {
 	CountPendingNonActivePrebuilds(ctx context.Context) ([]CountPendingNonActivePrebuildsRow, error)
 	CountUnreadInboxNotificationsByUserID(ctx context.Context, userID uuid.UUID) (int64, error)
 	CountWorkspaceCommandActivity(ctx context.Context, arg CountWorkspaceCommandActivityParams) (int64, error)
+	CountWorkspaceIdleActivity(ctx context.Context, arg CountWorkspaceIdleActivityParams) (int64, error)
 	CreateUserSecret(ctx context.Context, arg CreateUserSecretParams) (UserSecret, error)
 	CustomRoles(ctx context.Context, arg CustomRolesParams) ([]CustomRole, error)
 	DeleteAIGatewayKey(ctx context.Context, id uuid.UUID) (DeleteAIGatewayKeyRow, error)
@@ -1006,6 +1008,7 @@ type sqlcQuerier interface {
 	// module-file downloads so a daemon cannot read another organization's cached
 	// Terraform module source.
 	HasTemplateVersionsUsingCachedModuleFileInOrg(ctx context.Context, arg HasTemplateVersionsUsingCachedModuleFileInOrgParams) (bool, error)
+	HeartbeatWorkspaceMCPRequestActivity(ctx context.Context, arg HeartbeatWorkspaceMCPRequestActivityParams) (int64, error)
 	// Stamps the pinned hash and error on every not-yet-hydrated chat for
 	// an agent (context_aggregate_hash IS NULL) and copies the agent's
 	// current context resources onto those chats in the same statement, so
@@ -1148,6 +1151,7 @@ type sqlcQuerier interface {
 	InsertWorkspaceToolActivity(ctx context.Context, arg InsertWorkspaceToolActivityParams) error
 	InsertWorkspaceVolumeCopyLock(ctx context.Context, arg InsertWorkspaceVolumeCopyLockParams) error
 	InsertWorkspaceVolumeCopyOperation(ctx context.Context, arg InsertWorkspaceVolumeCopyOperationParams) (WorkspaceVolumeCopyOperation, error)
+	InterruptStaleWorkspaceMCPRequestActivity(ctx context.Context, arg InterruptStaleWorkspaceMCPRequestActivityParams) (int64, error)
 	InterruptWorkspaceCommandActivityByAgentSession(ctx context.Context, arg InterruptWorkspaceCommandActivityByAgentSessionParams) (int64, error)
 	// Returns true when there is no heartbeat row for (chat_id, runner_id)
 	// or the existing row is older than @stale_seconds seconds by database
@@ -1210,6 +1214,7 @@ type sqlcQuerier interface {
 	ListWorkspaceAgentPortShares(ctx context.Context, workspaceID uuid.UUID) ([]WorkspaceAgentPortShare, error)
 	ListWorkspaceCommandActivity(ctx context.Context, arg ListWorkspaceCommandActivityParams) ([]WorkspaceCommandActivity, error)
 	ListWorkspaceCommandActivityTools(ctx context.Context, workspaceID uuid.UUID) ([]string, error)
+	ListWorkspaceIdleActivity(ctx context.Context, arg ListWorkspaceIdleActivityParams) ([]ListWorkspaceIdleActivityRow, error)
 	ListWorkspaceMCPRequestActivityCandidates(ctx context.Context, arg ListWorkspaceMCPRequestActivityCandidatesParams) ([]WorkspaceMcpRequestActivity, error)
 	ListWorkspaceMCPRequestActivityCurrent(ctx context.Context, workspaceID uuid.UUID) ([]WorkspaceMcpRequestActivity, error)
 	ListWorkspaceMCPRequestActivityForRange(ctx context.Context, arg ListWorkspaceMCPRequestActivityForRangeParams) ([]WorkspaceMcpRequestActivity, error)

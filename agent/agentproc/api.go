@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strconv"
@@ -31,9 +32,17 @@ const (
 	maxWaitDuration = 5 * time.Minute
 )
 
-// CommandActivityReporter records a process after it has started. The returned
-// function is called exactly once when the process exits.
-type CommandActivityReporter func(source, command string, argv []string, workDir, tool string) func(exitCode int)
+// CommandActivity is the reporting handle for a started process. Output receives
+// the complete stdout/stderr stream while Finish is called exactly once after
+// the process exits.
+type CommandActivity struct {
+	Output io.Writer
+	Finish func(exitCode int)
+}
+
+// CommandActivityReporter records a process after it has started and returns a
+// handle used to stream output and report final status.
+type CommandActivityReporter func(source, command string, argv []string, environment map[string]string, workDir, tool string) CommandActivity
 
 // Option configures the process API.
 type Option func(*manager)
