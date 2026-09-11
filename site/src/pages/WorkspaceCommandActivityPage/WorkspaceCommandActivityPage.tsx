@@ -75,6 +75,7 @@ import {
 	activitySourceLabel,
 	buildActivityDisplayRows,
 } from "./activityDisplay";
+import { getClampedActivityPage } from "./activityPagination";
 import {
 	type ActivityDisplayStatus,
 	type ActivityVisibleSource,
@@ -410,8 +411,13 @@ const WorkspaceCommandActivityPage: FC = () => {
 		showRealActivity && deletableCount > 0 && !filterError && queryEnabled;
 
 	useEffect(() => {
-		if (page > totalPages) setPage(totalPages);
-	}, [page, totalPages]);
+		const clampedPage = getClampedActivityPage(
+			page,
+			totalPages,
+			commandQuery.isPlaceholderData,
+		);
+		if (clampedPage !== undefined) setPage(clampedPage);
+	}, [page, totalPages, commandQuery.isPlaceholderData]);
 
 	useEffect(() => {
 		if (!workspaceId) return;

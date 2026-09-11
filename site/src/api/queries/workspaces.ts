@@ -6,6 +6,7 @@ import type {
 	UseMutationOptions,
 	UseQueryOptions,
 } from "react-query";
+import { keepPreviousData } from "react-query";
 import { API, type DeleteWorkspaceOptions } from "#/api/api";
 import { DetailedError, isApiValidationError } from "#/api/errors";
 import type {
@@ -71,6 +72,7 @@ export const workspaceCommandActivity = (
 		}
 		return API.getWorkspaceCommandActivity(workspaceId, request);
 	},
+	placeholderData: keepPreviousData,
 	enabled: Boolean(workspaceId),
 });
 
