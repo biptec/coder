@@ -1,4 +1,4 @@
-import { QueryClient } from "react-query";
+import { keepPreviousData, QueryClient } from "react-query";
 import { describe, expect, it } from "vitest";
 import type { WorkspacesResponse } from "#/api/typesGenerated";
 import { getWorkspaceQuotaQueryKey } from "./workspaceQuota";
@@ -96,6 +96,7 @@ describe("workspace activity queries", () => {
 		const connection = workspaceConnectionActivity("workspace-1");
 
 		expect(command).not.toHaveProperty("refetchInterval");
+		expect(command.placeholderData).toBe(keepPreviousData);
 		expect(connection).not.toHaveProperty("refetchInterval");
 	});
 });
