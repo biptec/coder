@@ -3952,6 +3952,8 @@ CREATE TABLE workspace_command_activity (
     exit_code integer,
     tool text DEFAULT ''::text NOT NULL,
     kind text DEFAULT 'command'::text NOT NULL,
+    environment jsonb DEFAULT '{}'::jsonb NOT NULL,
+    output text DEFAULT ''::text NOT NULL,
     CONSTRAINT workspace_command_activity_kind_check CHECK ((kind = ANY (ARRAY['command'::text, 'tool'::text]))),
     CONSTRAINT workspace_command_activity_source_check CHECK ((source = ANY (ARRAY['agentproc'::text, 'mcp'::text, 'ssh'::text, 'reconnecting_pty'::text, 'vscode'::text, 'jetbrains'::text, 'chat'::text]))),
     CONSTRAINT workspace_command_activity_status_check CHECK ((status = ANY (ARRAY['running'::text, 'succeeded'::text, 'failed'::text, 'interrupted'::text])))
@@ -4002,6 +4004,7 @@ CREATE TABLE workspace_mcp_request_activity (
     status text NOT NULL,
     started_at timestamp with time zone NOT NULL,
     finished_at timestamp with time zone,
+    heartbeat_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT workspace_mcp_request_activity_status_check CHECK ((status = ANY (ARRAY['running'::text, 'succeeded'::text, 'failed'::text, 'interrupted'::text])))
 );
 

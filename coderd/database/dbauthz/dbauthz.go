@@ -1759,6 +1759,13 @@ func (q *querier) AllUserIDs(ctx context.Context, includeSystem bool) ([]uuid.UU
 	return q.db.AllUserIDs(ctx, includeSystem)
 }
 
+func (q *querier) AppendWorkspaceCommandActivityOutput(ctx context.Context, arg database.AppendWorkspaceCommandActivityOutputParams) (int64, error) {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionUpdate); err != nil {
+		return 0, err
+	}
+	return q.db.AppendWorkspaceCommandActivityOutput(ctx, arg)
+}
+
 func (q *querier) ArchiveChatByID(ctx context.Context, id uuid.UUID) ([]database.Chat, error) {
 	chat, err := q.db.GetChatByID(ctx, id)
 	if err != nil {
@@ -2013,6 +2020,13 @@ func (q *querier) CountWorkspaceCommandActivity(ctx context.Context, arg databas
 		return 0, err
 	}
 	return q.db.CountWorkspaceCommandActivity(ctx, arg)
+}
+
+func (q *querier) CountWorkspaceIdleActivity(ctx context.Context, arg database.CountWorkspaceIdleActivityParams) (int64, error) {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionRead); err != nil {
+		return 0, err
+	}
+	return q.db.CountWorkspaceIdleActivity(ctx, arg)
 }
 
 func (q *querier) CreateUserSecret(ctx context.Context, arg database.CreateUserSecretParams) (database.UserSecret, error) {
@@ -5919,6 +5933,13 @@ func (q *querier) HasTemplateVersionsUsingCachedModuleFileInOrg(ctx context.Cont
 	return q.db.HasTemplateVersionsUsingCachedModuleFileInOrg(ctx, arg)
 }
 
+func (q *querier) HeartbeatWorkspaceMCPRequestActivity(ctx context.Context, arg database.HeartbeatWorkspaceMCPRequestActivityParams) (int64, error) {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionUpdate); err != nil {
+		return 0, err
+	}
+	return q.db.HeartbeatWorkspaceMCPRequestActivity(ctx, arg)
+}
+
 func (q *querier) HydrateAgentChatsContext(ctx context.Context, arg database.HydrateAgentChatsContextParams) error {
 	// System-level operation: an agent context push fans hydration out
 	// across every not-yet-pinned chat for the agent, so it authorizes at
@@ -6751,6 +6772,13 @@ func (q *querier) InsertWorkspaceVolumeCopyOperation(ctx context.Context, arg da
 	return q.db.InsertWorkspaceVolumeCopyOperation(ctx, arg)
 }
 
+func (q *querier) InterruptStaleWorkspaceMCPRequestActivity(ctx context.Context, arg database.InterruptStaleWorkspaceMCPRequestActivityParams) (int64, error) {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionUpdate); err != nil {
+		return 0, err
+	}
+	return q.db.InterruptStaleWorkspaceMCPRequestActivity(ctx, arg)
+}
+
 func (q *querier) InterruptWorkspaceCommandActivityByAgentSession(ctx context.Context, arg database.InterruptWorkspaceCommandActivityByAgentSessionParams) (int64, error) {
 	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionUpdate); err != nil {
 		return 0, err
@@ -6980,6 +7008,13 @@ func (q *querier) ListWorkspaceCommandActivityTools(ctx context.Context, workspa
 		return nil, err
 	}
 	return q.db.ListWorkspaceCommandActivityTools(ctx, workspaceID)
+}
+
+func (q *querier) ListWorkspaceIdleActivity(ctx context.Context, arg database.ListWorkspaceIdleActivityParams) ([]database.ListWorkspaceIdleActivityRow, error) {
+	if err := q.authorizeWorkspaceActivity(ctx, arg.WorkspaceID, policy.ActionRead); err != nil {
+		return nil, err
+	}
+	return q.db.ListWorkspaceIdleActivity(ctx, arg)
 }
 
 func (q *querier) ListWorkspaceMCPRequestActivityCandidates(ctx context.Context, arg database.ListWorkspaceMCPRequestActivityCandidatesParams) ([]database.WorkspaceMcpRequestActivity, error) {

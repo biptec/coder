@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -452,7 +453,8 @@ func (a *agent) init() {
 			default:
 				source = proto.CommandActivity_SSH
 			}
-			return a.startCommandActivity(source, command, argv, workDir, tool)
+			activity := a.startCommandActivity(source, command, argv, nil, workDir, tool)
+			return activity.Finish
 		},
 		ReportConnection: func(id uuid.UUID, magicType agentssh.MagicSessionType, ip string) func(code int, reason string) {
 			var connectionType proto.Connection_Type
@@ -511,7 +513,7 @@ func (a *agent) init() {
 			return m.Directory
 		}
 		return ""
-	}, agentproc.WithCommandActivityReporter(func(source, command string, argv []string, workDir, tool string) func(int) {
+	}, agentproc.WithCommandActivityReporter(func(source, command string, argv []string, environment map[string]string, workDir, tool string) agentproc.CommandActivity {
 		activitySource := proto.CommandActivity_AGENTPROC
 		switch source {
 		case "mcp":
@@ -519,7 +521,7 @@ func (a *agent) init() {
 		case "chat":
 			activitySource = proto.CommandActivity_CHAT
 		}
-		return a.startCommandActivity(activitySource, command, argv, workDir, tool)
+		return a.startCommandActivity(activitySource, command, argv, environment, workDir, tool)
 	}))
 	gitOpts := append([]agentgit.Option{
 		agentgit.WithClock(a.clock),
@@ -590,7 +592,8 @@ func (a *agent) init() {
 			s.ExperimentalContainers = a.devcontainers
 		},
 		reconnectingpty.WithCommandActivityReporter(func(command, workDir string) func(int) {
-			return a.startCommandActivity(proto.CommandActivity_RECONNECTING_PTY, command, nil, workDir, "")
+			activity := a.startCommandActivity(proto.CommandActivity_RECONNECTING_PTY, command, nil, nil, workDir, "")
+			return activity.Finish
 		}),
 	)
 
@@ -1192,7 +1195,21 @@ func (a *agent) reportConnection(id uuid.UUID, connectionType proto.Connection_T
 	}
 }
 
-const reportCommandActivityBufferLimit = 8192
+const (
+	reportCommandActivityBufferLimit = 8192
+	commandActivityOutputChunkSize   = 32 << 10
+)
+
+func cloneCommandActivityEnvironment(environment map[string]string) map[string]string {
+	if len(environment) == 0 {
+		return nil
+	}
+	cloned := make(map[string]string, len(environment))
+	for key, value := range environment {
+		cloned[key] = value
+	}
+	return cloned
+}
 
 func (a *agent) queueCommandActivity(req *proto.ReportCommandActivityRequest) bool {
 	if a.commandActivityReportingOff.Load() {
@@ -1215,41 +1232,119 @@ func (a *agent) queueCommandActivity(req *proto.ReportCommandActivityRequest) bo
 	return true
 }
 
-func (a *agent) startCommandActivity(source proto.CommandActivity_Source, command string, argv []string, workDir, tool string) func(int) {
+type commandActivityOutputWriter struct {
+	mu      sync.Mutex
+	pending []byte
+	emit    func(string)
+}
+
+func (w *commandActivityOutputWriter) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.pending = append(w.pending, p...)
+	for len(w.pending) >= commandActivityOutputChunkSize {
+		w.flushLocked(false)
+	}
+	return len(p), nil
+}
+
+func (w *commandActivityOutputWriter) Flush() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.flushLocked(true)
+}
+
+func (w *commandActivityOutputWriter) flushLocked(final bool) {
+	if len(w.pending) == 0 {
+		return
+	}
+	limit := len(w.pending)
+	if !final {
+		limit = completeUTF8Prefix(w.pending[:commandActivityOutputChunkSize])
+		if limit == 0 {
+			return
+		}
+	}
+	output := strings.ToValidUTF8(string(w.pending[:limit]), "\uFFFD")
+	remaining := append([]byte(nil), w.pending[limit:]...)
+	w.pending = remaining
+	if output != "" && w.emit != nil {
+		w.emit(output)
+	}
+}
+
+func completeUTF8Prefix(data []byte) int {
+	for offset := 0; offset < len(data); {
+		if data[offset] < utf8.RuneSelf {
+			offset++
+			continue
+		}
+		if !utf8.FullRune(data[offset:]) {
+			return offset
+		}
+		_, size := utf8.DecodeRune(data[offset:])
+		offset += size
+	}
+	return len(data)
+}
+
+func (a *agent) startCommandActivity(source proto.CommandActivity_Source, command string, argv []string, environment map[string]string, workDir, tool string) agentproc.CommandActivity {
+	noop := agentproc.CommandActivity{Output: io.Discard, Finish: func(int) {}}
 	if a.commandActivityReportingOff.Load() {
-		return func(int) {}
+		return noop
 	}
 
 	id := uuid.New()
 	startedAt := a.clock.Now()
 	if !a.queueCommandActivity(&proto.ReportCommandActivityRequest{
 		Activity: &proto.CommandActivity{
-			Id:        append([]byte(nil), id[:]...),
-			SessionId: append([]byte(nil), a.commandActivitySessionID[:]...),
-			Action:    proto.CommandActivity_STARTED,
-			Source:    source,
-			Command:   command,
-			Argv:      append([]string(nil), argv...),
-			WorkDir:   workDir,
-			Tool:      tool,
-			Timestamp: timestamppb.New(startedAt),
+			Id:          append([]byte(nil), id[:]...),
+			SessionId:   append([]byte(nil), a.commandActivitySessionID[:]...),
+			Action:      proto.CommandActivity_STARTED,
+			Source:      source,
+			Command:     command,
+			Argv:        append([]string(nil), argv...),
+			Environment: cloneCommandActivityEnvironment(environment),
+			WorkDir:     workDir,
+			Tool:        tool,
+			Timestamp:   timestamppb.New(startedAt),
 		},
 	}) {
-		return func(int) {}
+		return noop
 	}
 
-	return func(exitCode int) {
-		code := int32(exitCode) //nolint:gosec // Process exit codes fit in int32.
+	outputWriter := &commandActivityOutputWriter{emit: func(output string) {
 		a.queueCommandActivity(&proto.ReportCommandActivityRequest{
 			Activity: &proto.CommandActivity{
 				Id:        append([]byte(nil), id[:]...),
 				SessionId: append([]byte(nil), a.commandActivitySessionID[:]...),
-				Action:    proto.CommandActivity_FINISHED,
-				Source:    source,
+				Action:    proto.CommandActivity_OUTPUT,
 				Timestamp: timestamppb.New(a.clock.Now()),
-				ExitCode:  &code,
+				Output:    output,
 			},
 		})
+	}}
+	return agentproc.CommandActivity{
+		Output: outputWriter,
+		Finish: func(exitCode int) {
+			// cmd.Wait returns only after its stdout/stderr copier goroutines finish,
+			// so flushing here orders every OUTPUT event before FINISHED.
+			outputWriter.Flush()
+			code := int32(exitCode) //nolint:gosec // Process exit codes fit in int32.
+			a.queueCommandActivity(&proto.ReportCommandActivityRequest{
+				Activity: &proto.CommandActivity{
+					Id:        append([]byte(nil), id[:]...),
+					SessionId: append([]byte(nil), a.commandActivitySessionID[:]...),
+					Action:    proto.CommandActivity_FINISHED,
+					Source:    source,
+					Timestamp: timestamppb.New(a.clock.Now()),
+					ExitCode:  &code,
+				},
+			})
+		},
 	}
 }
 

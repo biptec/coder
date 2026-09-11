@@ -27,6 +27,7 @@ import (
 const (
 	defaultWorkspaceCommandActivityPageSize = 50
 	maxWorkspaceCommandActivityPageSize     = 500
+	staleWorkspaceMCPRequestHeartbeatGrace  = time.Minute
 )
 
 type workspaceCommandActivityDBFilter struct {
@@ -97,6 +98,91 @@ func (api *API) workspaceCommandActivity(rw http.ResponseWriter, r *http.Request
 	}
 	if sortDirection != codersdk.WorkspaceCommandActivitySortAscending && sortDirection != codersdk.WorkspaceCommandActivitySortDescending {
 		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: fmt.Sprintf("unsupported sort_direction %q", sortDirection)})
+		return
+	}
+
+	if req.IdleOnly {
+		if sortBy != codersdk.WorkspaceCommandActivitySortStarted {
+			httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: "idle_only supports sort_by=started only"})
+			return
+		}
+		if err := api.interruptStaleWorkspaceMCPRequestActivity(ctx, workspace.ID); err != nil {
+			if dbauthz.IsNotAuthorizedError(err) {
+				httpapi.Forbidden(rw)
+				return
+			}
+			httpapi.InternalServerError(rw, err)
+			return
+		}
+		totalCount, err := api.Database.CountWorkspaceIdleActivity(ctx, database.CountWorkspaceIdleActivityParams{
+			WorkspaceID:   workspace.ID,
+			StartedAfter:  filter.startedAfter,
+			StartedBefore: filter.startedBefore,
+			DurationMinMs: filter.durationMinMS,
+			DurationMaxMs: filter.durationMaxMS,
+		})
+		if dbauthz.IsNotAuthorizedError(err) {
+			httpapi.Forbidden(rw)
+			return
+		}
+		if err != nil {
+			httpapi.InternalServerError(rw, err)
+			return
+		}
+		rows, err := api.Database.ListWorkspaceIdleActivity(ctx, database.ListWorkspaceIdleActivityParams{
+			SortDirection: string(sortDirection),
+			PageOffset:    int32(offset64), // #nosec G115 -- bounded above by MaxInt32.
+			PageLimit:     int32(pageSize), // #nosec G115 -- bounded above by 500.
+			WorkspaceID:   workspace.ID,
+			StartedAfter:  filter.startedAfter,
+			StartedBefore: filter.startedBefore,
+			DurationMinMs: filter.durationMinMS,
+			DurationMaxMs: filter.durationMaxMS,
+		})
+		if dbauthz.IsNotAuthorizedError(err) {
+			httpapi.Forbidden(rw)
+			return
+		}
+		if err != nil {
+			httpapi.InternalServerError(rw, err)
+			return
+		}
+		idleActivity := make([]codersdk.WorkspaceIdleActivity, 0, len(rows))
+		for _, row := range rows {
+			var finishedAt *time.Time
+			if !row.IsCurrent {
+				value := row.FinishedAt
+				finishedAt = &value
+			}
+			idleActivity = append(idleActivity, codersdk.WorkspaceIdleActivity{
+				StartedAt:  row.StartedAt,
+				FinishedAt: finishedAt,
+			})
+		}
+		availableTools, err := api.workspaceActivityToolNames(ctx, r, workspace.ID)
+		if dbauthz.IsNotAuthorizedError(err) {
+			httpapi.Forbidden(rw)
+			return
+		}
+		if err != nil {
+			httpapi.InternalServerError(rw, err)
+			return
+		}
+		totalPages := 0
+		if totalCount > 0 {
+			totalPages = int((totalCount + int64(pageSize) - 1) / int64(pageSize))
+		}
+		httpapi.Write(ctx, rw, http.StatusOK, codersdk.WorkspaceCommandActivityResponse{
+			Activity:       []codersdk.WorkspaceCommandActivity{},
+			TotalCount:     totalCount,
+			DeletableCount: 0,
+			AvailableTools: availableTools,
+			Page:           page,
+			PageSize:       pageSize,
+			TotalPages:     totalPages,
+			HistoryLimit:   api.DeploymentValues.WorkspaceCommandActivityHistoryLimit.Value(),
+			IdleActivity:   idleActivity,
+		})
 		return
 	}
 
@@ -308,6 +394,15 @@ func parseWorkspaceCommandActivityQuery(values url.Values) (codersdk.WorkspaceCo
 		req.IncludeIdle, err = strconv.ParseBool(raw)
 		if err != nil {
 			return req, fmt.Errorf("include_idle must be a boolean: %w", err)
+		}
+	}
+	if raw := strings.TrimSpace(values.Get("idle_only")); raw != "" {
+		req.IdleOnly, err = strconv.ParseBool(raw)
+		if err != nil {
+			return req, fmt.Errorf("idle_only must be a boolean: %w", err)
+		}
+		if req.IdleOnly {
+			req.IncludeIdle = true
 		}
 	}
 	return req, nil
@@ -554,12 +649,34 @@ func workspaceMCPRequestActivityFromDatabase(row database.WorkspaceMcpRequestAct
 	return item
 }
 
+func (api *API) interruptStaleWorkspaceMCPRequestActivity(ctx context.Context, workspaceID uuid.UUID) error {
+	now := time.Now().UTC()
+	interrupted, err := api.Database.InterruptStaleWorkspaceMCPRequestActivity(dbauthz.AsSystemRestricted(ctx), database.InterruptStaleWorkspaceMCPRequestActivityParams{
+		WorkspaceID:      workspaceID,
+		CurrentReplicaID: api.ID,
+		StaleBefore:      now.Add(-staleWorkspaceMCPRequestHeartbeatGrace),
+	})
+	if err != nil {
+		return err
+	}
+	if interrupted > 0 {
+		if err := coderdpubsub.PublishWorkspaceActivityEvent(api.Pubsub, workspaceID, coderdpubsub.WorkspaceActivityEvent{Type: coderdpubsub.WorkspaceActivityEventCommandResync}); err != nil {
+			api.Logger.Debug(ctx, "publish stale MCP request activity resync", slog.Error(err), slog.F("workspace_id", workspaceID))
+		}
+	}
+	return nil
+}
+
 func (api *API) workspaceMCPRequestActivityForResponse(
 	ctx context.Context,
 	workspaceID uuid.UUID,
 	sortBy codersdk.WorkspaceCommandActivitySort,
 	activity []codersdk.WorkspaceCommandActivity,
 ) ([]codersdk.WorkspaceMCPRequestActivity, error) {
+	if err := api.interruptStaleWorkspaceMCPRequestActivity(ctx, workspaceID); err != nil {
+		return nil, err
+	}
+
 	current, err := api.Database.ListWorkspaceMCPRequestActivityCurrent(ctx, workspaceID)
 	if err != nil {
 		return nil, err
@@ -574,32 +691,33 @@ func (api *API) workspaceMCPRequestActivityForResponse(
 	// other sorts we still return current request state so the live Idle row stays
 	// correct without loading a potentially enormous unrelated time range.
 	if sortBy == codersdk.WorkspaceCommandActivitySortStarted && len(activity) > 0 {
-		rangeStart := activity[0].StartedAt
-		rangeEnd := activity[0].StartedAt
+		var rangeStart, rangeEnd time.Time
 		for _, item := range activity {
-			if item.StartedAt.Before(rangeStart) {
+			// Running activity is pinned above historical rows and can be hours or
+			// days older than the chronological page. Idle is derived only from MCP
+			// request spans, so a pinned process must not expand the history range.
+			if item.FinishedAt == nil {
+				continue
+			}
+			if rangeStart.IsZero() || item.StartedAt.Before(rangeStart) {
 				rangeStart = item.StartedAt
 			}
-			itemEnd := item.StartedAt
-			if item.FinishedAt != nil {
-				itemEnd = *item.FinishedAt
-			} else {
-				itemEnd = time.Now().UTC()
-			}
-			if itemEnd.After(rangeEnd) {
-				rangeEnd = itemEnd
+			if rangeEnd.IsZero() || item.FinishedAt.After(rangeEnd) {
+				rangeEnd = *item.FinishedAt
 			}
 		}
-		rows, err := api.Database.ListWorkspaceMCPRequestActivityForRange(ctx, database.ListWorkspaceMCPRequestActivityForRangeParams{
-			WorkspaceID: workspaceID,
-			RangeStart:  rangeStart,
-			RangeEnd:    rangeEnd,
-		})
-		if err != nil {
-			return nil, err
-		}
-		for _, row := range rows {
-			rowsByID[row.ID] = row
+		if !rangeStart.IsZero() {
+			rows, err := api.Database.ListWorkspaceMCPRequestActivityForRange(ctx, database.ListWorkspaceMCPRequestActivityForRangeParams{
+				WorkspaceID: workspaceID,
+				RangeStart:  rangeStart,
+				RangeEnd:    rangeEnd,
+			})
+			if err != nil {
+				return nil, err
+			}
+			for _, row := range rows {
+				rowsByID[row.ID] = row
+			}
 		}
 	}
 
@@ -618,17 +736,19 @@ func (api *API) workspaceMCPRequestActivityForResponse(
 
 func workspaceCommandActivityFromDatabase(row database.WorkspaceCommandActivity) codersdk.WorkspaceCommandActivity {
 	item := codersdk.WorkspaceCommandActivity{
-		ID:        row.ID,
-		AgentID:   row.AgentID,
-		SessionID: row.SessionID,
-		Source:    normalizedWorkspaceCommandActivitySource(row.Source, row.Tool),
-		Kind:      codersdk.WorkspaceCommandActivityKind(row.Kind),
-		Tool:      row.Tool,
-		Command:   row.Command,
-		Argv:      append([]string(nil), row.Argv...),
-		WorkDir:   row.WorkDir,
-		Status:    codersdk.WorkspaceCommandActivityStatus(row.Status),
-		StartedAt: row.StartedAt,
+		ID:          row.ID,
+		AgentID:     row.AgentID,
+		SessionID:   row.SessionID,
+		Source:      normalizedWorkspaceCommandActivitySource(row.Source, row.Tool),
+		Kind:        codersdk.WorkspaceCommandActivityKind(row.Kind),
+		Tool:        row.Tool,
+		Command:     row.Command,
+		Argv:        append([]string(nil), row.Argv...),
+		Environment: map[string]string(row.Environment),
+		Output:      row.Output,
+		WorkDir:     row.WorkDir,
+		Status:      codersdk.WorkspaceCommandActivityStatus(row.Status),
+		StartedAt:   row.StartedAt,
 	}
 	if row.FinishedAt.Valid {
 		finishedAt := row.FinishedAt.Time

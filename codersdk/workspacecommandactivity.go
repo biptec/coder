@@ -61,19 +61,21 @@ const (
 )
 
 type WorkspaceCommandActivity struct {
-	ID         uuid.UUID                      `json:"id" format:"uuid"`
-	AgentID    uuid.UUID                      `json:"agent_id" format:"uuid"`
-	SessionID  uuid.UUID                      `json:"session_id" format:"uuid"`
-	Source     WorkspaceCommandActivitySource `json:"source"`
-	Kind       WorkspaceCommandActivityKind   `json:"kind,omitempty"`
-	Tool       string                         `json:"tool,omitempty"`
-	Command    string                         `json:"command,omitempty"`
-	Argv       []string                       `json:"argv,omitempty"`
-	WorkDir    string                         `json:"work_dir,omitempty"`
-	Status     WorkspaceCommandActivityStatus `json:"status"`
-	StartedAt  time.Time                      `json:"started_at" format:"date-time"`
-	FinishedAt *time.Time                     `json:"finished_at,omitempty" format:"date-time"`
-	ExitCode   *int                           `json:"exit_code,omitempty"`
+	ID          uuid.UUID                      `json:"id" format:"uuid"`
+	AgentID     uuid.UUID                      `json:"agent_id" format:"uuid"`
+	SessionID   uuid.UUID                      `json:"session_id" format:"uuid"`
+	Source      WorkspaceCommandActivitySource `json:"source"`
+	Kind        WorkspaceCommandActivityKind   `json:"kind,omitempty"`
+	Tool        string                         `json:"tool,omitempty"`
+	Command     string                         `json:"command,omitempty"`
+	Argv        []string                       `json:"argv,omitempty"`
+	Environment map[string]string              `json:"environment,omitempty"`
+	Output      string                         `json:"output,omitempty"`
+	WorkDir     string                         `json:"work_dir,omitempty"`
+	Status      WorkspaceCommandActivityStatus `json:"status"`
+	StartedAt   time.Time                      `json:"started_at" format:"date-time"`
+	FinishedAt  *time.Time                     `json:"finished_at,omitempty" format:"date-time"`
+	ExitCode    *int                           `json:"exit_code,omitempty"`
 }
 
 // WorkspaceMCPRequestActivity is the minimal MCP request lifecycle exposed to
@@ -84,6 +86,14 @@ type WorkspaceMCPRequestActivity struct {
 	Status     WorkspaceCommandActivityStatus `json:"status"`
 	StartedAt  time.Time                      `json:"started_at" format:"date-time"`
 	FinishedAt *time.Time                     `json:"finished_at,omitempty" format:"date-time"`
+}
+
+// WorkspaceIdleActivity is a computed gap in the workspace-wide union of MCP
+// request spans. It is never persisted as a row. A nil FinishedAt represents
+// the current Idle interval after the most recently finished MCP request.
+type WorkspaceIdleActivity struct {
+	StartedAt  time.Time  `json:"started_at" format:"date-time"`
+	FinishedAt *time.Time `json:"finished_at,omitempty" format:"date-time"`
 }
 
 type WorkspaceCommandActivityFilter struct {
@@ -106,6 +116,7 @@ type WorkspaceCommandActivityRequest struct {
 	Page          int                                   `json:"page,omitempty"`
 	PageSize      int                                   `json:"page_size,omitempty"`
 	IncludeIdle   bool                                  `json:"include_idle,omitempty"`
+	IdleOnly      bool                                  `json:"idle_only,omitempty"`
 }
 
 type WorkspaceCommandActivityResponse struct {
@@ -118,6 +129,7 @@ type WorkspaceCommandActivityResponse struct {
 	TotalPages     int                           `json:"total_pages"`
 	HistoryLimit   int64                         `json:"history_limit"`
 	MCPRequests    []WorkspaceMCPRequestActivity `json:"mcp_requests,omitempty"`
+	IdleActivity   []WorkspaceIdleActivity       `json:"idle_activity,omitempty"`
 }
 
 type WorkspaceActivityWatchEventType string
@@ -200,6 +212,9 @@ func (r WorkspaceCommandActivityRequest) queryValues() url.Values {
 	}
 	if r.IncludeIdle {
 		q.Set("include_idle", "true")
+	}
+	if r.IdleOnly {
+		q.Set("idle_only", "true")
 	}
 	return q
 }

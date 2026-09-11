@@ -1,6 +1,7 @@
 package agentproc
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -37,6 +38,50 @@ func normalizeCommandActivityTool(tool string) string {
 		return tool
 	default:
 		return ""
+	}
+}
+
+type processActivityWriter struct {
+	mu       sync.Mutex
+	process  io.Writer
+	activity io.Writer
+}
+
+func (w *processActivityWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	_, _ = w.process.Write(p)
+	_, _ = w.activity.Write(p)
+	return len(p), nil
+}
+
+type deferredActivityWriter struct {
+	mu      sync.Mutex
+	pending bytes.Buffer
+	sink    io.Writer
+}
+
+func (w *deferredActivityWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.sink == nil {
+		_, _ = w.pending.Write(p)
+		return len(p), nil
+	}
+	_, _ = w.sink.Write(p)
+	return len(p), nil
+}
+
+func (w *deferredActivityWriter) setSink(sink io.Writer) {
+	if sink == nil {
+		sink = io.Discard
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.sink = sink
+	if w.pending.Len() > 0 {
+		_, _ = w.sink.Write(w.pending.Bytes())
+		w.pending.Reset()
 	}
 }
 
@@ -197,8 +242,10 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 	cmd.WaitDelay = 5 * time.Second
 
 	buf := NewHeadTailBuffer()
-	cmd.Stdout = buf
-	cmd.Stderr = buf
+	activityOutput := &deferredActivityWriter{}
+	combinedOutput := &processActivityWriter{process: buf, activity: activityOutput}
+	cmd.Stdout = combinedOutput
+	cmd.Stderr = combinedOutput
 
 	// Build the process environment. If the manager has an
 	// updateEnv hook (provided by the agent), use it to get the
@@ -276,10 +323,23 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 	m.procs[id] = proc
 	m.mu.Unlock()
 
-	finishActivity := func(int) {}
-	if m.reportCommandActivity != nil {
-		finishActivity = m.reportCommandActivity(source, req.Command, req.Argv, cmd.Dir, tool)
+	activity := CommandActivity{
+		Output: io.Discard,
+		Finish: func(int) {},
 	}
+	if m.reportCommandActivity != nil {
+		activity = m.reportCommandActivity(source, req.Command, req.Argv, req.Env, cmd.Dir, tool)
+		if activity.Output == nil {
+			activity.Output = io.Discard
+		}
+		if activity.Finish == nil {
+			activity.Finish = func(int) {}
+		}
+	}
+	// cmd.Start can begin copying output before it returns. Attach the activity
+	// sink only after the STARTED event has been created; the deferred writer
+	// flushes any bytes produced in that tiny window in the correct order.
+	activityOutput.setSink(activity.Output)
 
 	go func() {
 		err := cmd.Wait()
@@ -307,7 +367,7 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 		}
 		proc.exitCode = &code
 		proc.mu.Unlock()
-		finishActivity(code)
+		activity.Finish(code)
 		_ = proc.closeInput()
 
 		// Wake any waiters blocked on new output or

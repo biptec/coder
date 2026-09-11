@@ -51,10 +51,33 @@ describe("activity history preferences", () => {
 			durationMin: "1s",
 			durationMax: "2m",
 			exitCode: "1",
+			showInput: true,
+			showOutput: true,
+			showEnvironment: false,
+			showFullContent: false,
+			useColors: false,
 			sortBy: "tool",
 			sortDirection: "asc",
 			pageSize: 250,
 		});
+	});
+
+	it("restores v3 display options and arbitrary page sizes", () => {
+		const preferences = parseWorkspaceActivityPreferences({
+			version: 3,
+			showInput: false,
+			showOutput: true,
+			showEnvironment: true,
+			showFullContent: true,
+			useColors: true,
+			pageSize: 137,
+		});
+		expect(preferences.showInput).toBe(false);
+		expect(preferences.showOutput).toBe(true);
+		expect(preferences.showEnvironment).toBe(true);
+		expect(preferences.showFullContent).toBe(true);
+		expect(preferences.useColors).toBe(true);
+		expect(preferences.pageSize).toBe(137);
 	});
 
 	it("migrates the first browser-only preference format", () => {
@@ -76,6 +99,9 @@ describe("activity history preferences", () => {
 		expect(preferences.sources).toEqual(["mcp"]);
 		expect(preferences.id).toBe("");
 		expect(preferences.exitCode).toBe("");
+		expect(preferences.showInput).toBe(true);
+		expect(preferences.showOutput).toBe(true);
+		expect(preferences.showEnvironment).toBe(false);
 	});
 
 	it("sanitizes malformed stored preferences", () => {

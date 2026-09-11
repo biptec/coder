@@ -163,6 +163,21 @@ func (mr *MockStoreMockRecorder) AllUserIDs(ctx, includeSystem any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AllUserIDs", reflect.TypeOf((*MockStore)(nil).AllUserIDs), ctx, includeSystem)
 }
 
+// AppendWorkspaceCommandActivityOutput mocks base method.
+func (m *MockStore) AppendWorkspaceCommandActivityOutput(ctx context.Context, arg database.AppendWorkspaceCommandActivityOutputParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AppendWorkspaceCommandActivityOutput", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AppendWorkspaceCommandActivityOutput indicates an expected call of AppendWorkspaceCommandActivityOutput.
+func (mr *MockStoreMockRecorder) AppendWorkspaceCommandActivityOutput(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendWorkspaceCommandActivityOutput", reflect.TypeOf((*MockStore)(nil).AppendWorkspaceCommandActivityOutput), ctx, arg)
+}
+
 // ArchiveChatByID mocks base method.
 func (m *MockStore) ArchiveChatByID(ctx context.Context, id uuid.UUID) ([]database.Chat, error) {
 	m.ctrl.T.Helper()
@@ -630,6 +645,21 @@ func (m *MockStore) CountWorkspaceCommandActivity(ctx context.Context, arg datab
 func (mr *MockStoreMockRecorder) CountWorkspaceCommandActivity(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountWorkspaceCommandActivity", reflect.TypeOf((*MockStore)(nil).CountWorkspaceCommandActivity), ctx, arg)
+}
+
+// CountWorkspaceIdleActivity mocks base method.
+func (m *MockStore) CountWorkspaceIdleActivity(ctx context.Context, arg database.CountWorkspaceIdleActivityParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountWorkspaceIdleActivity", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountWorkspaceIdleActivity indicates an expected call of CountWorkspaceIdleActivity.
+func (mr *MockStoreMockRecorder) CountWorkspaceIdleActivity(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountWorkspaceIdleActivity", reflect.TypeOf((*MockStore)(nil).CountWorkspaceIdleActivity), ctx, arg)
 }
 
 // CreateUserSecret mocks base method.
@@ -7569,6 +7599,21 @@ func (mr *MockStoreMockRecorder) HasTemplateVersionsUsingCachedModuleFileInOrg(c
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasTemplateVersionsUsingCachedModuleFileInOrg", reflect.TypeOf((*MockStore)(nil).HasTemplateVersionsUsingCachedModuleFileInOrg), ctx, arg)
 }
 
+// HeartbeatWorkspaceMCPRequestActivity mocks base method.
+func (m *MockStore) HeartbeatWorkspaceMCPRequestActivity(ctx context.Context, arg database.HeartbeatWorkspaceMCPRequestActivityParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HeartbeatWorkspaceMCPRequestActivity", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HeartbeatWorkspaceMCPRequestActivity indicates an expected call of HeartbeatWorkspaceMCPRequestActivity.
+func (mr *MockStoreMockRecorder) HeartbeatWorkspaceMCPRequestActivity(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HeartbeatWorkspaceMCPRequestActivity", reflect.TypeOf((*MockStore)(nil).HeartbeatWorkspaceMCPRequestActivity), ctx, arg)
+}
+
 // HydrateAgentChatsContext mocks base method.
 func (m *MockStore) HydrateAgentChatsContext(ctx context.Context, arg database.HydrateAgentChatsContextParams) error {
 	m.ctrl.T.Helper()
@@ -8955,6 +9000,21 @@ func (mr *MockStoreMockRecorder) InsertWorkspaceVolumeCopyOperation(ctx, arg any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertWorkspaceVolumeCopyOperation", reflect.TypeOf((*MockStore)(nil).InsertWorkspaceVolumeCopyOperation), ctx, arg)
 }
 
+// InterruptStaleWorkspaceMCPRequestActivity mocks base method.
+func (m *MockStore) InterruptStaleWorkspaceMCPRequestActivity(ctx context.Context, arg database.InterruptStaleWorkspaceMCPRequestActivityParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InterruptStaleWorkspaceMCPRequestActivity", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// InterruptStaleWorkspaceMCPRequestActivity indicates an expected call of InterruptStaleWorkspaceMCPRequestActivity.
+func (mr *MockStoreMockRecorder) InterruptStaleWorkspaceMCPRequestActivity(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InterruptStaleWorkspaceMCPRequestActivity", reflect.TypeOf((*MockStore)(nil).InterruptStaleWorkspaceMCPRequestActivity), ctx, arg)
+}
+
 // InterruptWorkspaceCommandActivityByAgentSession mocks base method.
 func (m *MockStore) InterruptWorkspaceCommandActivityByAgentSession(ctx context.Context, arg database.InterruptWorkspaceCommandActivityByAgentSessionParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -9448,6 +9508,21 @@ func (m *MockStore) ListWorkspaceCommandActivityTools(ctx context.Context, works
 func (mr *MockStoreMockRecorder) ListWorkspaceCommandActivityTools(ctx, workspaceID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWorkspaceCommandActivityTools", reflect.TypeOf((*MockStore)(nil).ListWorkspaceCommandActivityTools), ctx, workspaceID)
+}
+
+// ListWorkspaceIdleActivity mocks base method.
+func (m *MockStore) ListWorkspaceIdleActivity(ctx context.Context, arg database.ListWorkspaceIdleActivityParams) ([]database.ListWorkspaceIdleActivityRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListWorkspaceIdleActivity", ctx, arg)
+	ret0, _ := ret[0].([]database.ListWorkspaceIdleActivityRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListWorkspaceIdleActivity indicates an expected call of ListWorkspaceIdleActivity.
+func (mr *MockStoreMockRecorder) ListWorkspaceIdleActivity(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWorkspaceIdleActivity", reflect.TypeOf((*MockStore)(nil).ListWorkspaceIdleActivity), ctx, arg)
 }
 
 // ListWorkspaceMCPRequestActivityCandidates mocks base method.

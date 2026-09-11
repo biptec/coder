@@ -6,6 +6,8 @@ import type {
 } from "#/api/typesGenerated";
 
 export const activityPreferencesStorageKey =
+	"coder.activity-history.preferences.v3";
+const previousActivityPreferencesStorageKey =
 	"coder.activity-history.preferences.v2";
 const legacyActivityPreferencesStorageKey =
 	"coder.workspace-activity.preferences.v1";
@@ -31,7 +33,8 @@ export const activitySourceOptions = [
 ] as const satisfies readonly WorkspaceCommandActivitySource[];
 export type ActivityVisibleSource = (typeof activitySourceOptions)[number];
 
-export const activityPageSizeOptions = [25, 50, 100, 250, 500] as const;
+export const minActivityPageSize = 1;
+export const maxActivityPageSize = 500;
 
 const activitySortOptions: readonly WorkspaceCommandActivitySort[] = [
 	"id",
@@ -58,6 +61,11 @@ export type WorkspaceActivityPreferences = {
 	durationMin: string;
 	durationMax: string;
 	exitCode: string;
+	showInput: boolean;
+	showOutput: boolean;
+	showEnvironment: boolean;
+	showFullContent: boolean;
+	useColors: boolean;
 	sortBy: WorkspaceCommandActivitySort;
 	sortDirection: WorkspaceCommandActivitySortDirection;
 	pageSize: number;
@@ -75,13 +83,18 @@ export const defaultWorkspaceActivityPreferences =
 		durationMin: "",
 		durationMax: "",
 		exitCode: "",
+		showInput: true,
+		showOutput: true,
+		showEnvironment: false,
+		showFullContent: false,
+		useColors: false,
 		sortBy: "started",
 		sortDirection: "desc",
 		pageSize: 50,
 	});
 
 type StoredWorkspaceActivityPreferences = WorkspaceActivityPreferences & {
-	version: 2;
+	version: 3;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -89,6 +102,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const stringValue = (value: unknown, fallback: string): string =>
 	typeof value === "string" ? value : fallback;
+
+const booleanValue = (value: unknown, fallback: boolean): boolean =>
+	typeof value === "boolean" ? value : fallback;
 
 const uniqueStrings = (value: unknown): string[] | undefined => {
 	if (
@@ -147,9 +163,9 @@ const parseCommon = (
 			: defaults.sortDirection;
 	const pageSize =
 		typeof value.pageSize === "number" &&
-		activityPageSizeOptions.includes(
-			value.pageSize as (typeof activityPageSizeOptions)[number],
-		)
+		Number.isInteger(value.pageSize) &&
+		value.pageSize >= minActivityPageSize &&
+		value.pageSize <= maxActivityPageSize
 			? value.pageSize
 			: defaults.pageSize;
 	return { tools: tools ?? defaults.tools, sortBy, sortDirection, pageSize };
@@ -162,7 +178,7 @@ export const parseWorkspaceActivityPreferences = (
 	if (!isRecord(value)) return defaults;
 
 	const common = parseCommon(value, defaults);
-	if (value.version === 2) {
+	if (value.version === 3 || value.version === 2) {
 		return {
 			id: stringValue(value.id, defaults.id),
 			input: stringValue(value.input, defaults.input),
@@ -174,6 +190,17 @@ export const parseWorkspaceActivityPreferences = (
 			durationMin: stringValue(value.durationMin, defaults.durationMin),
 			durationMax: stringValue(value.durationMax, defaults.durationMax),
 			exitCode: stringValue(value.exitCode, defaults.exitCode),
+			showInput: booleanValue(value.showInput, defaults.showInput),
+			showOutput: booleanValue(value.showOutput, defaults.showOutput),
+			showEnvironment: booleanValue(
+				value.showEnvironment,
+				defaults.showEnvironment,
+			),
+			showFullContent: booleanValue(
+				value.showFullContent,
+				defaults.showFullContent,
+			),
+			useColors: booleanValue(value.useColors, defaults.useColors),
 			sortBy: common.sortBy,
 			sortDirection: common.sortDirection,
 			pageSize: common.pageSize,
@@ -199,6 +226,11 @@ export const parseWorkspaceActivityPreferences = (
 			durationMin: stringValue(value.durationMin, defaults.durationMin),
 			durationMax: stringValue(value.durationMax, defaults.durationMax),
 			exitCode: "",
+			showInput: defaults.showInput,
+			showOutput: defaults.showOutput,
+			showEnvironment: defaults.showEnvironment,
+			showFullContent: defaults.showFullContent,
+			useColors: defaults.useColors,
 			sortBy: common.sortBy,
 			sortDirection: common.sortDirection,
 			pageSize: common.pageSize,
@@ -218,6 +250,11 @@ export const loadWorkspaceActivityPreferences =
 			);
 			if (current)
 				return parseWorkspaceActivityPreferences(JSON.parse(current));
+			const previous = window.localStorage.getItem(
+				previousActivityPreferencesStorageKey,
+			);
+			if (previous)
+				return parseWorkspaceActivityPreferences(JSON.parse(previous));
 			const legacy = window.localStorage.getItem(
 				legacyActivityPreferencesStorageKey,
 			);
@@ -234,7 +271,7 @@ export const saveWorkspaceActivityPreferences = (
 ): void => {
 	if (typeof window === "undefined") return;
 	const stored: StoredWorkspaceActivityPreferences = {
-		version: 2,
+		version: 3,
 		...preferences,
 	};
 	try {

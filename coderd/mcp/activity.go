@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -17,10 +16,15 @@ import (
 	"golang.org/x/xerrors"
 
 	"cdr.dev/slog/v3"
+	"github.com/coder/coder/v2/coderd/workspaceactivityredact"
 	"github.com/coder/coder/v2/codersdk/toolsdk"
 )
 
-const defaultActivityLimit = 20
+const (
+	defaultActivityLimit                = 20
+	persistentActivityHeartbeatInterval = 10 * time.Second
+	persistentActivityHeartbeatTimeout  = 2 * time.Second
+)
 
 type PersistentActivityStatus string
 
@@ -41,7 +45,15 @@ type PersistentActivityRecorder interface {
 	// whether the same invocation also receives a user-facing tool row; command
 	// tools (exec/bash/process_start) are represented by the Agent command row.
 	StartToolActivity(ctx context.Context, userID, toolName, workspace, input, correlationHash string, startedAt time.Time, persistTool bool) (PersistentActivityHandle, error)
-	FinishToolActivity(ctx context.Context, handle PersistentActivityHandle, status PersistentActivityStatus, finishedAt time.Time) error
+	FinishToolActivity(ctx context.Context, handle PersistentActivityHandle, status PersistentActivityStatus, output string, finishedAt time.Time) error
+}
+
+// PersistentActivityHeartbeater is optional so alternate/test recorders do not
+// need to implement periodic persistence. The production recorder implements it
+// to distinguish a genuinely long-running MCP request from an orphaned running
+// row left behind by a panic, process loss, or failed final write.
+type PersistentActivityHeartbeater interface {
+	HeartbeatToolActivity(ctx context.Context, handle PersistentActivityHandle, heartbeatAt time.Time) error
 }
 
 type ActivityRecord struct {
@@ -253,8 +265,17 @@ func (s *Server) withActivityTracking(tool server.ServerTool, toolName string) s
 			}
 		}
 
+		stopHeartbeat := func() {}
+		if persistent.ID != uuid.Nil {
+			stopHeartbeat = s.startPersistentActivityHeartbeat(persistent, toolName)
+			defer stopHeartbeat()
+		}
+
 		ctx = toolsdk.WithInvocationTool(ctx, toolName)
 		result, err := original(ctx, request)
+		// Stop heartbeats before finalizing. The returned cancel function is
+		// idempotent and is also deferred so a panic cannot leave it running.
+		stopHeartbeat()
 
 		memoryStatus := "success"
 		persistentStatus := PersistentActivityStatusSucceeded
@@ -271,7 +292,7 @@ func (s *Server) withActivityTracking(tool server.ServerTool, toolName string) s
 		}
 		if s.activityRecorder != nil && persistent.ID != uuid.Nil {
 			finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-			finishErr := s.activityRecorder.FinishToolActivity(finishCtx, persistent, persistentStatus, time.Now().UTC())
+			finishErr := s.activityRecorder.FinishToolActivity(finishCtx, persistent, persistentStatus, persistentActivityOutput(toolName, result), time.Now().UTC())
 			cancel()
 			if finishErr != nil {
 				s.Logger.Debug(context.Background(), "finish persistent MCP request activity", slog.Error(finishErr), slog.F("tool", toolName), slog.F("workspace_id", persistent.WorkspaceID))
@@ -282,7 +303,32 @@ func (s *Server) withActivityTracking(tool server.ServerTool, toolName string) s
 	return tool
 }
 
-const maxPersistentActivityInputBytes = 4096
+func (s *Server) startPersistentActivityHeartbeat(handle PersistentActivityHandle, toolName string) func() {
+	heartbeater, ok := s.activityRecorder.(PersistentActivityHeartbeater)
+	if !ok || handle.ID == uuid.Nil || handle.WorkspaceID == uuid.Nil {
+		return func() {}
+	}
+
+	heartbeatCtx, stop := context.WithCancel(context.Background())
+	go func() {
+		ticker := time.NewTicker(persistentActivityHeartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-heartbeatCtx.Done():
+				return
+			case heartbeatAt := <-ticker.C:
+				ctx, cancel := context.WithTimeout(heartbeatCtx, persistentActivityHeartbeatTimeout)
+				err := heartbeater.HeartbeatToolActivity(ctx, handle, heartbeatAt.UTC())
+				cancel()
+				if err != nil && heartbeatCtx.Err() == nil {
+					s.Logger.Debug(context.Background(), "heartbeat persistent MCP request activity", slog.Error(err), slog.F("tool", toolName), slog.F("workspace_id", handle.WorkspaceID), slog.F("request_id", handle.ID))
+				}
+			}
+		}
+	}()
+	return stop
+}
 
 func persistentActivityInput(args map[string]any) string {
 	if len(args) == 0 {
@@ -298,7 +344,63 @@ func persistentActivityInput(args map[string]any) string {
 	if err := encoder.Encode(sanitized); err != nil {
 		return "{}"
 	}
-	return truncatePersistentActivityInput(strings.TrimSuffix(buffer.String(), "\n"), maxPersistentActivityInputBytes)
+	return strings.TrimSuffix(buffer.String(), "\n")
+}
+
+func persistentActivityOutput(toolName string, result *mcp.CallToolResult) string {
+	// process_output returns stdout/stderr that already belongs to the canonical
+	// command activity row. Keeping a second copy on every observation call both
+	// bloats history and makes the same process output appear multiple times.
+	if toolName == "process_output" || toolName == toolsdk.ToolNameWorkspaceProcessOutput {
+		return ""
+	}
+	if result == nil {
+		return ""
+	}
+	parts := make([]string, 0, len(result.Content)+1)
+	for _, content := range result.Content {
+		switch typed := content.(type) {
+		case mcp.TextContent:
+			parts = append(parts, strings.ToValidUTF8(typed.Text, "\uFFFD"))
+		case mcp.ImageContent:
+			parts = append(parts, fmt.Sprintf("[image content omitted: %s]", typed.MIMEType))
+		case mcp.AudioContent:
+			parts = append(parts, fmt.Sprintf("[audio content omitted: %s]", typed.MIMEType))
+		case mcp.EmbeddedResource:
+			switch resource := typed.Resource.(type) {
+			case mcp.TextResourceContents:
+				parts = append(parts, strings.ToValidUTF8(resource.Text, "\uFFFD"))
+			case mcp.BlobResourceContents:
+				parts = append(parts, fmt.Sprintf("[embedded binary content omitted: %s]", resource.MIMEType))
+			default:
+				parts = append(parts, fmt.Sprintf("[embedded content omitted: %T]", resource))
+			}
+		case mcp.ResourceLink:
+			label := typed.URI
+			if typed.Name != "" {
+				label = fmt.Sprintf("%s (%s)", typed.Name, typed.URI)
+			}
+			parts = append(parts, "[resource: "+label+"]")
+		default:
+			parts = append(parts, fmt.Sprintf("[content omitted: %T]", content))
+		}
+	}
+	if result.StructuredContent != nil {
+		if data, err := json.Marshal(result.StructuredContent); err == nil {
+			structured := strings.ToValidUTF8(string(data), "\uFFFD")
+			duplicate := false
+			for _, part := range parts {
+				if part == structured {
+					duplicate = true
+					break
+				}
+			}
+			if !duplicate {
+				parts = append(parts, structured)
+			}
+		}
+	}
+	return workspaceactivityredact.Text(strings.Join(parts, "\n"))
 }
 
 func persistentActivityCorrelation(toolName string, args map[string]any) string {
@@ -337,16 +439,15 @@ func persistentActivityStringSlice(value any) ([]string, bool) {
 
 func sanitizePersistentActivityValue(key string, value any, depth int) any {
 	lowerKey := strings.ToLower(key)
+	if lowerKey == "env" || lowerKey == "environment" {
+		return sanitizePersistentActivityEnvironment(value)
+	}
 	if isSensitiveActivityInputKey(lowerKey) {
 		if text, ok := value.(string); ok {
 			return fmt.Sprintf("<redacted %d bytes>", len(text))
 		}
 		return "<redacted>"
 	}
-	if depth >= 4 {
-		return "<nested value omitted>"
-	}
-
 	switch typed := value.(type) {
 	case map[string]any:
 		out := make(map[string]any, len(typed))
@@ -365,24 +466,35 @@ func sanitizePersistentActivityValue(key string, value any, depth int) any {
 	}
 }
 
+func sanitizePersistentActivityEnvironment(value any) any {
+	environment := map[string]string{}
+	switch typed := value.(type) {
+	case map[string]string:
+		for key, item := range typed {
+			environment[key] = item
+		}
+	case map[string]any:
+		for key, item := range typed {
+			text, ok := item.(string)
+			if !ok {
+				environment[key] = "<redacted non-string value>"
+				continue
+			}
+			environment[key] = text
+		}
+	default:
+		return "<redacted>"
+	}
+	return workspaceactivityredact.Environment(environment)
+}
+
 func isSensitiveActivityInputKey(key string) bool {
 	switch key {
-	case "authorization", "content", "contents", "data", "env", "password", "private_key", "replace", "search", "secret", "stdin", "token", "api_key", "apikey":
+	case "authorization", "password", "private_key", "secret", "token", "api_key", "apikey", "access_key", "credential", "cookie":
 		return true
 	default:
 		return false
 	}
-}
-
-func truncatePersistentActivityInput(value string, maxBytes int) string {
-	if maxBytes <= 3 || len(value) <= maxBytes {
-		return value
-	}
-	end := maxBytes - 3
-	for end > 0 && !utf8.RuneStart(value[end]) {
-		end--
-	}
-	return value[:end] + "..."
 }
 
 func persistAsToolActivity(toolName string) bool {
