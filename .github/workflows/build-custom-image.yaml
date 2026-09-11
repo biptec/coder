@@ -87,9 +87,11 @@ jobs:
             -count=1
 
           go test ./codersdk/toolsdk \
-            -run '^(TestCommandInvokesSudo|TestCommandAdvisories|TestAdvisoryIsSeparateFromCommandOutput|TestProcessListAdvisoryPreservesFlatJSONShape|TestWorkspaceExecObservationContract|TestWorkspaceBashObservationContract|TestInvocationToolContext|TestObserveWorkspaceProcessKeepsWaitingAcrossOutput|TestObserveWorkspaceProcessReturnsLastSnapshotAtObservationBoundary|TestStartWorkspaceProcessObservationDeadlineIsRecoverable|TestWorkspaceProcessToolsValidateArgs|TestWorkspaceProcessToolInstructions|TestProvisionerLogToolSchemasExposeBoundedObservation|TestProvisionerLogObservationValidation)$'
+            -run '^(TestCommandInvokesSudo|TestCommandAdvisories|TestAdvisoryIsSeparateFromCommandOutput|TestProcessListAdvisoryPreservesFlatJSONShape|TestWorkspaceExecObservationContract|TestWorkspaceBashObservationContract|TestInvocationToolContext|TestObserveWorkspaceProcessKeepsWaitingAcrossOutput|TestObserveWorkspaceProcessReturnsLastSnapshotAtObservationBoundary|TestStartWorkspaceProcessObservationDeadlineIsRecoverable|TestWorkspaceProcessToolsValidateArgs|TestWorkspaceProcessToolInstructions|TestProvisionerLogToolSchemasExposeBoundedObservation|TestProvisionerLogObservationValidation|TestReadWorkspaceCapabilities)$'
           go test ./codersdk/toolsdk -run '^TestWorkspaceProcessIntegration/CommandActivityToolAttribution$' -count=1
-          go test ./coderd/mcp -run '^TestActivityTrackingPropagatesInvocationTool$'
+          go test ./coderd/mcp \
+            -run '^(TestActivityTrackingPropagatesInvocationTool|TestDeveloperToolAliases|TestReadonlyToolAliases|TestServerInstructionsPointToDynamicCapabilities|TestActivityToolNames|TestMCPHTTP_E2E_UserToolsets)$' \
+            -count=1
           go test ./agent/agentproc -run '^TestListProcesses/IncludesValidatedToolAttribution$'
           go test ./agent/agentssh -run '^TestExtractCommandActivityTool$'
           go test ./coderd/agentapi -run '^(TestCommandActivity|TestUpdateStartup)$'

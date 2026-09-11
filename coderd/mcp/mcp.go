@@ -24,8 +24,12 @@ import (
 const (
 	// MCPServerName is the name used for the MCP server.
 	MCPServerName = "Coder"
-	// MCPServerInstructions is the instructions text for the MCP server.
-	MCPServerInstructions = "Coder MCP Server providing workspace and template management tools"
+	// MCPServerInstructions is intentionally generic. Concrete image capabilities
+	// evolve independently and are discovered through the capabilities tool.
+	MCPServerInstructions = `Developer Workspaces include a preinstalled development toolchain.
+Before installing software, inspect the available capabilities with capabilities.
+Prefer preinstalled capabilities when available.
+Capability information is workspace-specific; normally inspect it once per workspace and refresh it only after the workspace environment changes.`
 
 	// Used in tests and aibridge.
 	MCPEndpoint = "/api/experimental/mcp/http"
@@ -183,6 +187,16 @@ func (s *Server) RegisterTools(client *codersdk.Client, opts ...func(*toolsdk.De
 		serverTool = s.withTraceTracking(serverTool, tool.Name)
 		s.mcpServer.AddTools(serverTool)
 	}
+
+	// capabilities is an assistant-facing MCP tool rather than part of the legacy
+	// toolsdk catalog, so every Remote MCP toolset exposes the same concise name.
+	capabilitiesTool := mcpFromSDK(toolsdk.WorkspaceCapabilities.Generic(), toolDeps)
+	capabilitiesTool.Tool.Name = "capabilities"
+	rewriteAssistantWorkspaceDescriptions(capabilitiesTool.Tool.InputSchema.Properties)
+	capabilitiesTool = withSharedWorkspaceResolution(capabilitiesTool, client)
+	capabilitiesTool = s.withActivityTracking(capabilitiesTool, "capabilities")
+	capabilitiesTool = s.withTraceTracking(capabilitiesTool, "capabilities")
+	s.mcpServer.AddTools(capabilitiesTool)
 	s.registerRecentActivityTool()
 	return nil
 }
@@ -216,6 +230,7 @@ var developerToolAliases = []toolAlias{
 	{SDKName: toolsdk.ToolNameWorkspaceProcessInput, MCPName: "process_input"},
 	{SDKName: toolsdk.ToolNameWorkspaceProcessSignal, MCPName: "process_signal"},
 	{SDKName: toolsdk.ToolNameWorkspaceListApps, MCPName: "list_apps"},
+	{SDKName: toolsdk.ToolNameWorkspaceCapabilities, MCPName: "capabilities"},
 }
 
 var readonlyToolAliases = []toolAlias{
@@ -232,6 +247,7 @@ var readonlyToolAliases = []toolAlias{
 	{SDKName: toolsdk.ToolNameWorkspaceProcessOutput, MCPName: "process_output"},
 	{SDKName: toolsdk.ToolNameWorkspaceProcessList, MCPName: "process_list"},
 	{SDKName: toolsdk.ToolNameWorkspaceListApps, MCPName: "list_apps"},
+	{SDKName: toolsdk.ToolNameWorkspaceCapabilities, MCPName: "capabilities"},
 }
 
 // ActivityToolNames returns the assistant-facing tool names exposed by the
@@ -250,6 +266,7 @@ func ActivityToolNames(toolset codersdk.MCPToolset) []string {
 	case codersdk.MCPToolsetReadonly:
 		addAliases(readonlyToolAliases)
 	case codersdk.MCPToolsetAdmin:
+		toolNames["capabilities"] = struct{}{}
 		for _, tool := range toolsdk.All {
 			if tool.Name == toolsdk.ToolNameReportTask ||
 				tool.Name == toolsdk.ToolNameChatGPTSearch || tool.Name == toolsdk.ToolNameChatGPTFetch {
@@ -312,6 +329,7 @@ func (s *Server) registerAliasedTools(client *codersdk.Client, aliases []toolAli
 	toolsByName[toolsdk.ToolNameWorkspaceSearchResults] = toolsdk.WorkspaceSearchResults.Generic()
 	toolsByName[toolsdk.ToolNameWorkspaceSearchList] = toolsdk.WorkspaceSearchList.Generic()
 	toolsByName[toolsdk.ToolNameWorkspaceSearchStop] = toolsdk.WorkspaceSearchStop.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceCapabilities] = toolsdk.WorkspaceCapabilities.Generic()
 
 	replacements := make([]string, 0, len(aliases)*2)
 	for _, alias := range aliases {

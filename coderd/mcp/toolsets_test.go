@@ -35,6 +35,7 @@ func TestDeveloperToolAliases(t *testing.T) {
 		toolsdk.ToolNameWorkspaceProcessInput:    "process_input",
 		toolsdk.ToolNameWorkspaceProcessSignal:   "process_signal",
 		toolsdk.ToolNameWorkspaceListApps:        "list_apps",
+		toolsdk.ToolNameWorkspaceCapabilities:    "capabilities",
 	}
 
 	require.Len(t, developerToolAliases, len(expected))
@@ -43,6 +44,16 @@ func TestDeveloperToolAliases(t *testing.T) {
 		require.Equal(t, expected[alias.SDKName], alias.MCPName)
 		require.NotContains(t, seenNames, alias.MCPName)
 		seenNames[alias.MCPName] = struct{}{}
+	}
+}
+
+func TestServerInstructionsPointToDynamicCapabilities(t *testing.T) {
+	t.Parallel()
+
+	require.Contains(t, MCPServerInstructions, "inspect the available capabilities with capabilities")
+	require.Contains(t, MCPServerInstructions, "refresh it only after the workspace environment changes")
+	for _, concreteTool := range []string{"Chromium", "Playwright", "Firefox", "PostgreSQL", "MySQL", "kubectl"} {
+		require.NotContains(t, MCPServerInstructions, concreteTool)
 	}
 }
 
@@ -63,6 +74,7 @@ func TestReadonlyToolAliases(t *testing.T) {
 		toolsdk.ToolNameWorkspaceProcessOutput:   {},
 		toolsdk.ToolNameWorkspaceProcessList:     {},
 		toolsdk.ToolNameWorkspaceListApps:        {},
+		toolsdk.ToolNameWorkspaceCapabilities:    {},
 	}
 
 	developer := make(map[string]string, len(developerToolAliases))

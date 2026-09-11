@@ -207,13 +207,14 @@ func TestActivityToolNames(t *testing.T) {
 
 	developer := ActivityToolNames(codersdk.MCPToolsetDeveloper)
 	require.True(t, sort.StringsAreSorted(developer))
-	for _, toolName := range []string{"exec", "process_output", "read_file", "recent_activity"} {
+	for _, toolName := range []string{"exec", "process_output", "read_file", "capabilities", "recent_activity"} {
 		require.Contains(t, developer, toolName)
 	}
 
 	readonly := ActivityToolNames(codersdk.MCPToolsetReadonly)
 	require.Contains(t, readonly, "process_output")
 	require.Contains(t, readonly, "read_file")
+	require.Contains(t, readonly, "capabilities")
 	require.Contains(t, readonly, "recent_activity")
 	require.NotContains(t, readonly, "exec")
 	require.NotContains(t, readonly, "write_file")

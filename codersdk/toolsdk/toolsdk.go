@@ -88,6 +88,7 @@ const (
 	ToolNameWorkspaceEditFiles          = "coder_workspace_edit_files"
 	ToolNameWorkspacePortForward        = "coder_workspace_port_forward"
 	ToolNameWorkspaceListApps           = "coder_workspace_list_apps"
+	ToolNameWorkspaceCapabilities       = "coder_workspace_capabilities"
 	ToolNameCreateTask                  = "coder_create_task"
 	ToolNameDeleteTask                  = "coder_delete_task"
 	ToolNameListTasks                   = "coder_list_tasks"
