@@ -19,21 +19,12 @@ type WorkspaceBashArgs struct {
 }
 
 type WorkspaceBashResult struct {
-	Output     string         `json:"output"`
-	ExitCode   int            `json:"exit_code"`
-	Advisories []ToolAdvisory `json:"advisories,omitempty"`
-}
-
-func waitForBashCompletion(ctx context.Context, conn workspacesdk.AgentConn, processID string) (workspacesdk.ProcessOutputResponse, error) {
-	for {
-		resp, err := conn.ProcessOutput(ctx, processID, &workspacesdk.ProcessOutputOptions{Wait: true})
-		if err != nil {
-			return workspacesdk.ProcessOutputResponse{}, xerrors.Errorf("wait for workspace bash: %w", err)
-		}
-		if !resp.Running {
-			return resp, nil
-		}
-	}
+	Output     string                          `json:"output"`
+	ExitCode   int                             `json:"exit_code"`
+	ProcessID  string                          `json:"process_id,omitempty"`
+	Running    bool                            `json:"running,omitempty"`
+	Truncated  *workspacesdk.ProcessTruncation `json:"truncated,omitempty"`
+	Advisories []ToolAdvisory                  `json:"advisories,omitempty"`
 }
 
 var WorkspaceBash = Tool[WorkspaceBashArgs, WorkspaceBashResult]{
@@ -41,9 +32,9 @@ var WorkspaceBash = Tool[WorkspaceBashArgs, WorkspaceBashResult]{
 		Name: ToolNameWorkspaceBash,
 		Description: `Execute a bash command in a Coder workspace.
 
-Use this convenience tool for short, ordinary commands where repeating the command after a failed request would be safe. For long-running, expensive, side-effectful, or non-idempotent commands, use coder_workspace_process_start instead so the execution can be recovered by process_id after a timeout, 502, or disconnect.
+Use this convenience tool for short shell commands. Bash has no process execution timeout. One MCP call uses a single shared 60-second observation budget across workspace readiness, process-start acknowledgement, and process observation. If the process finishes within the remaining budget, the tool returns its final output and exit code. If it is still running when the budget is exhausted, the tool returns process_id, running=true, and the latest available output while the same durable process continues independently on the workspace Agent. While running=true, exit_code is only a legacy placeholder and MUST be ignored; it is not the process exit status, timeout, or failure. exit_code is meaningful only when running=false. Continue observing it with coder_workspace_process_output; do not start the command again. If process-start acknowledgement is lost, use coder_workspace_process_list before retrying because the process may already exist.
 
-Bash has no execution timeout. It waits until the process exits or the MCP caller cancels the request. If shell syntax is not required, prefer coder_workspace_exec.
+For commands that are expected to be long-running, expensive, side-effectful, or non-idempotent, prefer coder_workspace_process_start so process_id is returned without waiting for process completion. If shell syntax is not required, prefer coder_workspace_exec.
 
 In the standard Developer Workspace, only /home/coder is persistent across workspace recreation. The system filesystem outside /home/coder is ephemeral. Prefer durable tools and dependencies under $HOME. sudo is available for temporary system changes and diagnostics, but changes made with sudo outside /home/coder can disappear when the workspace is recreated. When a command invokes sudo, this tool returns a structured advisory separately from command output; stdout/stderr are not modified.
 
@@ -94,31 +85,38 @@ Examples:
 			return WorkspaceBashResult{}, xerrors.New("command cannot be empty")
 		}
 
-		conn, err := openAgentConn(ctx, deps, args.Workspace)
+		budget := newMCPObservationBudget()
+		conn, err := openAgentConnWithBudget(ctx, deps, args.Workspace, budget)
 		if err != nil {
 			return WorkspaceBashResult{}, err
 		}
 		defer conn.Close()
 
-		started, err := conn.StartProcess(ctx, workspacesdk.StartProcessRequest{
+		started, err := startWorkspaceProcessWithinObservation(ctx, conn, workspacesdk.StartProcessRequest{
 			Command: args.Command,
 			Tool:    InvocationToolFromContext(ctx),
-		})
+		}, budget)
 		if err != nil {
 			return WorkspaceBashResult{}, xerrors.Errorf("start workspace bash: %w", err)
 		}
 
-		resp, err := waitForBashCompletion(ctx, conn, started.ID)
+		resp, err := observeWorkspaceProcess(ctx, conn, started.ID, budget)
 		if err != nil {
 			return WorkspaceBashResult{}, err
 		}
 
 		result := workspaceProcessResult(started.ID, resp, commandAdvisories(args.Command))
-		return WorkspaceBashResult{
+		bashResult := WorkspaceBashResult{
 			Output:     result.Output,
 			ExitCode:   result.ExitCode,
+			Running:    result.Running,
+			Truncated:  result.Truncated,
 			Advisories: result.Advisories,
-		}, nil
+		}
+		if result.Running {
+			bashResult.ProcessID = result.ProcessID
+		}
+		return bashResult, nil
 	},
 }
 
@@ -138,36 +136,41 @@ func findWorkspaceAndAgent(ctx context.Context, client *codersdk.Client, workspa
 		return codersdk.Workspace{}, codersdk.WorkspaceAgent{}, err
 	}
 
-	// Auto-start workspace if needed
-	if workspace.LatestBuild.Transition != codersdk.WorkspaceTransitionStart {
-		if workspace.LatestBuild.Transition == codersdk.WorkspaceTransitionDelete {
+	// Auto-start workspace if needed. If a previous MCP call already submitted
+	// the start and returned at its observation boundary, resume waiting for that
+	// same build instead of trying to create another one.
+	build := workspace.LatestBuild
+	if build.Transition != codersdk.WorkspaceTransitionStart {
+		if build.Transition == codersdk.WorkspaceTransitionDelete {
 			return codersdk.Workspace{}, codersdk.WorkspaceAgent{}, xerrors.Errorf("workspace %q is deleted", workspace.Name)
 		}
-		if workspace.LatestBuild.Job.Status == codersdk.ProvisionerJobFailed {
+		if build.Job.Status == codersdk.ProvisionerJobFailed {
 			return codersdk.Workspace{}, codersdk.WorkspaceAgent{}, xerrors.Errorf("workspace %q is in failed state", workspace.Name)
 		}
-		if workspace.LatestBuild.Status != codersdk.WorkspaceStatusStopped {
+		if build.Status != codersdk.WorkspaceStatusStopped {
 			return codersdk.Workspace{}, codersdk.WorkspaceAgent{}, xerrors.Errorf("workspace must be started; was unable to autostart as the last build job is %q, expected %q",
-				workspace.LatestBuild.Status, codersdk.WorkspaceStatusStopped)
+				build.Status, codersdk.WorkspaceStatusStopped)
 		}
 
-		// Start workspace
-		build, err := client.CreateWorkspaceBuild(ctx, workspace.ID, codersdk.CreateWorkspaceBuildRequest{
+		var err error
+		build, err = client.CreateWorkspaceBuild(ctx, workspace.ID, codersdk.CreateWorkspaceBuildRequest{
 			Transition: codersdk.WorkspaceTransitionStart,
 		})
 		if err != nil {
 			return codersdk.Workspace{}, codersdk.WorkspaceAgent{}, xerrors.Errorf("failed to start workspace: %w", err)
 		}
+	}
 
-		// Wait for build to complete
-		if build.Job.CompletedAt == nil {
-			err := cliui.WorkspaceBuild(ctx, io.Discard, client, build.ID)
-			if err != nil {
-				return codersdk.Workspace{}, codersdk.WorkspaceAgent{}, xerrors.Errorf("failed to wait for build completion: %w", err)
-			}
+	if build.Job.Status == codersdk.ProvisionerJobFailed {
+		return codersdk.Workspace{}, codersdk.WorkspaceAgent{}, xerrors.Errorf("workspace %q start build %s is in failed state", workspace.Name, build.ID)
+	}
+
+	if build.Job.CompletedAt == nil {
+		if err := cliui.WorkspaceBuild(ctx, io.Discard, client, build.ID); err != nil {
+			return codersdk.Workspace{}, codersdk.WorkspaceAgent{}, xerrors.Errorf("failed to wait for workspace build %s completion: %w", build.ID, err)
 		}
 
-		// Refresh workspace after build completes
+		// Refresh workspace after the newly-created or already-running start build.
 		workspace, err = client.Workspace(ctx, workspace.ID)
 		if err != nil {
 			return codersdk.Workspace{}, codersdk.WorkspaceAgent{}, err

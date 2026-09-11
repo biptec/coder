@@ -26,18 +26,6 @@ type WorkspaceExecResult struct {
 	Advisories []ToolAdvisory                  `json:"advisories,omitempty"`
 }
 
-func waitForExecCompletion(ctx context.Context, conn workspacesdk.AgentConn, processID string) (workspacesdk.ProcessOutputResponse, error) {
-	for {
-		resp, err := conn.ProcessOutput(ctx, processID, &workspacesdk.ProcessOutputOptions{Wait: true})
-		if err != nil {
-			return workspacesdk.ProcessOutputResponse{}, xerrors.Errorf("wait for workspace exec: %w", err)
-		}
-		if !resp.Running {
-			return resp, nil
-		}
-	}
-}
-
 var WorkspaceExec = Tool[WorkspaceExecArgs, WorkspaceExecResult]{
 	Tool: aisdk.Tool{
 		Name: ToolNameWorkspaceExec,
@@ -47,9 +35,9 @@ argv[0] is the executable and every later element is passed as exactly one argum
 Use this tool instead of bash whenever shell syntax (pipes, redirects, &&, loops, expansions)
 is not intentionally required. This avoids JSON -> shell -> quoting ambiguity.
 
-Exec has no execution timeout. It waits until the process exits or the MCP caller cancels the request.
-For long-running, expensive, side-effectful, or non-idempotent commands, use
-coder_workspace_process_start_v2 with argv instead so execution can be recovered by process_id.`,
+Exec has no process execution timeout. One MCP call uses a single shared 60-second observation budget across workspace readiness, process-start acknowledgement, and process observation. If the process finishes within the remaining budget, the tool returns its final output and exit code. If it is still running when the budget is exhausted, the tool returns process_id, running=true, and the latest available output while the same durable process continues independently on the workspace Agent. While running=true, exit_code is only a legacy placeholder and MUST be ignored; it is not the process exit status, timeout, or failure. exit_code is meaningful only when running=false. Continue observing it with coder_workspace_process_output; do not start the command again. If process-start acknowledgement is lost, use coder_workspace_process_list before retrying because the process may already exist.
+
+For commands that are expected to be long-running, expensive, side-effectful, or non-idempotent, prefer coder_workspace_process_start_v2 with argv so process_id is returned without waiting for process completion.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
 				"workspace": map[string]any{
@@ -91,29 +79,27 @@ coder_workspace_process_start_v2 with argv instead so execution can be recovered
 		if len(args.Stdin) > workspacesdk.MaxProcessInputBytes {
 			return WorkspaceExecResult{}, xerrors.Errorf("stdin cannot exceed %d bytes", workspacesdk.MaxProcessInputBytes)
 		}
-		conn, err := openAgentConn(ctx, deps, args.Workspace)
+		budget := newMCPObservationBudget()
+		conn, err := openAgentConnWithBudget(ctx, deps, args.Workspace, budget)
 		if err != nil {
 			return WorkspaceExecResult{}, err
 		}
 		defer conn.Close()
 
-		started, err := conn.StartProcess(ctx, workspacesdk.StartProcessRequest{
+		started, err := startWorkspaceProcessWithinObservation(ctx, conn, workspacesdk.StartProcessRequest{
 			Argv:    args.Argv,
 			WorkDir: args.WorkDir,
 			Env:     args.Env,
 			Tool:    InvocationToolFromContext(ctx),
 			Stdin:   args.Stdin,
-		})
+		}, budget)
 		if err != nil {
 			return WorkspaceExecResult{}, xerrors.Errorf("start workspace exec: %w", err)
 		}
 
-		// ProcessOutput deliberately caps each individual blocking agent request
-		// so a stale transport cannot hold a server handler forever. Exec itself
-		// has no timeout: if the agent returns a still-running snapshot at that
-		// safety boundary, wait again until the process exits or the caller
-		// cancels the MCP request.
-		resp, waitErr := waitForExecCompletion(ctx, conn, started.ID)
+		// Bound only the MCP observation. The Agent-tracked process is durable and
+		// continues after this window if it has not exited yet.
+		resp, waitErr := observeWorkspaceProcess(ctx, conn, started.ID, budget)
 		if waitErr != nil {
 			return WorkspaceExecResult{}, waitErr
 		}
