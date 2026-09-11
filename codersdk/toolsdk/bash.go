@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"strings"
-	"time"
 
 	"golang.org/x/xerrors"
 
@@ -15,10 +14,8 @@ import (
 )
 
 type WorkspaceBashArgs struct {
-	Workspace  string `json:"workspace"`
-	Command    string `json:"command"`
-	TimeoutMs  int    `json:"timeout_ms,omitempty"`
-	Background bool   `json:"background,omitempty"`
+	Workspace string `json:"workspace"`
+	Command   string `json:"command"`
 }
 
 type WorkspaceBashResult struct {
@@ -27,12 +24,26 @@ type WorkspaceBashResult struct {
 	Advisories []ToolAdvisory `json:"advisories,omitempty"`
 }
 
+func waitForBashCompletion(ctx context.Context, conn workspacesdk.AgentConn, processID string) (workspacesdk.ProcessOutputResponse, error) {
+	for {
+		resp, err := conn.ProcessOutput(ctx, processID, &workspacesdk.ProcessOutputOptions{Wait: true})
+		if err != nil {
+			return workspacesdk.ProcessOutputResponse{}, xerrors.Errorf("wait for workspace bash: %w", err)
+		}
+		if !resp.Running {
+			return resp, nil
+		}
+	}
+}
+
 var WorkspaceBash = Tool[WorkspaceBashArgs, WorkspaceBashResult]{
 	Tool: aisdk.Tool{
 		Name: ToolNameWorkspaceBash,
 		Description: `Execute a bash command in a Coder workspace.
 
 Use this convenience tool for short, ordinary commands where repeating the command after a failed request would be safe. For long-running, expensive, side-effectful, or non-idempotent commands, use coder_workspace_process_start instead so the execution can be recovered by process_id after a timeout, 502, or disconnect.
+
+Bash has no execution timeout. It waits until the process exits or the MCP caller cancels the request. If shell syntax is not required, prefer coder_workspace_exec.
 
 In the standard Developer Workspace, only /home/coder is persistent across workspace recreation. The system filesystem outside /home/coder is ephemeral. Prefer durable tools and dependencies under $HOME. sudo is available for temporary system changes and diagnostics, but changes made with sudo outside /home/coder can disappear when the workspace is recreated. When a command invokes sudo, this tool returns a structured advisory separately from command output; stdout/stderr are not modified.
 
@@ -47,12 +58,6 @@ The workspace parameter supports various formats:
 - workspace.agent (specific agent)
 - owner/workspace.agent
 
-The timeout_ms parameter specifies the command timeout in milliseconds (defaults to 60000ms, maximum of 300000ms).
-If the command times out, all output captured up to that point is returned with a cancellation message.
-
-For background commands (background: true), output is captured until the timeout is reached, then the command
-continues running in the background. The captured output is returned as the result.
-
 For file operations (list, write, edit), always prefer the dedicated file tools.
 Do not use bash commands (ls, cat, echo, heredoc, etc.) to list, write, or read
 files when the file tools are available. The bash tool should be used for:
@@ -63,8 +68,8 @@ files when the file tools are available. The bash tool should be used for:
 	- Executing programs
 
 Examples:
-- workspace: "john/dev-env", command: "git status", timeout_ms: 30000
-- workspace: "my-workspace", command: "npm run dev", background: true, timeout_ms: 10000
+- workspace: "john/dev-env", command: "git status"
+- workspace: "my-workspace", command: "npm test"
 - workspace: "my-workspace.main", command: "docker ps"`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
@@ -75,16 +80,6 @@ Examples:
 				"command": map[string]any{
 					"type":        "string",
 					"description": "The bash command to execute in the workspace.",
-				},
-				"timeout_ms": map[string]any{
-					"type":        "integer",
-					"description": "Command timeout in milliseconds. Defaults to 60000ms (60 seconds) if not specified.",
-					"default":     60000,
-					"minimum":     1,
-				},
-				"background": map[string]any{
-					"type":        "boolean",
-					"description": "Whether to run the command in the background. Output is captured until timeout, then the command continues running in the background.",
 				},
 			},
 			Required: []string{"workspace", "command"},
@@ -99,9 +94,6 @@ Examples:
 			return WorkspaceBashResult{}, xerrors.New("command cannot be empty")
 		}
 
-		ctx, cancel := context.WithTimeoutCause(ctx, 5*time.Minute, xerrors.New("MCP handler timeout after 5 min"))
-		defer cancel()
-
 		conn, err := openAgentConn(ctx, deps, args.Workspace)
 		if err != nil {
 			return WorkspaceBashResult{}, err
@@ -109,39 +101,21 @@ Examples:
 		defer conn.Close()
 
 		started, err := conn.StartProcess(ctx, workspacesdk.StartProcessRequest{
-			Command:    args.Command,
-			Tool:       InvocationToolFromContext(ctx),
-			Background: args.Background,
+			Command: args.Command,
+			Tool:    InvocationToolFromContext(ctx),
 		})
 		if err != nil {
 			return WorkspaceBashResult{}, xerrors.Errorf("start workspace bash: %w", err)
 		}
 
-		timeoutMs := args.TimeoutMs
-		if timeoutMs <= 0 {
-			timeoutMs = 60_000
-		}
-		resp, err := waitForWorkspaceProcess(ctx, conn, started.ID, time.Duration(timeoutMs)*time.Millisecond)
+		resp, err := waitForBashCompletion(ctx, conn, started.ID)
 		if err != nil {
-			return WorkspaceBashResult{}, xerrors.Errorf("wait for workspace bash: %w", err)
+			return WorkspaceBashResult{}, err
 		}
 
 		result := workspaceProcessResult(started.ID, resp, commandAdvisories(args.Command))
-		output := result.Output
-		if resp.Running {
-			if args.Background {
-				output = strings.TrimSpace(output + "\nCommand continues running in background")
-			} else {
-				// Bash retains its bounded execution semantics. Agent-tracked processes are
-				// durable, so explicitly request termination rather than relying on closing
-				// an SSH transport to stop the command.
-				_ = conn.SignalProcess(ctx, started.ID, "terminate")
-				output = strings.TrimSpace(output + "\nCommand termination requested due to timeout")
-			}
-		}
-
 		return WorkspaceBashResult{
-			Output:     output,
+			Output:     result.Output,
 			ExitCode:   result.ExitCode,
 			Advisories: result.Advisories,
 		}, nil
