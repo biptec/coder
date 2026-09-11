@@ -35,6 +35,17 @@ func TestWorkspaceProcessWaitDuration(t *testing.T) {
 	require.ErrorContains(t, err, "cannot exceed")
 }
 
+func TestWorkspaceProcessWaitWithinBudget(t *testing.T) {
+	t.Parallel()
+
+	full := mcpObservationBudget{deadline: time.Now().Add(30 * time.Second)}
+	require.LessOrEqual(t, workspaceProcessWaitWithinBudget(60*time.Second, full), 25*time.Second)
+	require.Greater(t, workspaceProcessWaitWithinBudget(60*time.Second, full), 24*time.Second)
+
+	short := mcpObservationBudget{deadline: time.Now().Add(4 * time.Second)}
+	require.Zero(t, workspaceProcessWaitWithinBudget(10*time.Second, short))
+}
+
 func TestWorkspaceProcessResult(t *testing.T) {
 	t.Parallel()
 
@@ -91,6 +102,7 @@ func TestWorkspaceProcessConstants(t *testing.T) {
 	t.Parallel()
 
 	require.Equal(t, 10*time.Second, defaultWorkspaceProcessWait)
-	require.Equal(t, 60*time.Second, maxWorkspaceProcessWait)
+	require.Equal(t, 60*time.Second, mcpToolObservationWindow)
+	require.Equal(t, mcpToolObservationWindow, maxWorkspaceProcessWait)
 	require.Equal(t, 5*time.Second, processSnapshotTimeout)
 }

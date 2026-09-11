@@ -1479,7 +1479,7 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testutil.WaitLong)
 	defer cancel()
 
-	listTools := func(sessionToken string) []string {
+	listTools := func(sessionToken string) []mcp.Tool {
 		mcpURL := api.AccessURL.String() + mcpserver.MCPEndpoint
 		mcpClient := newIsolatedMCPClient(t, mcpURL,
 			transport.WithHTTPHeaders(map[string]string{
@@ -1503,15 +1503,28 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 
 		tools, err := mcpClient.ListTools(ctx, mcp.ListToolsRequest{})
 		require.NoError(t, err)
-		names := make([]string, 0, len(tools.Tools))
-		for _, tool := range tools.Tools {
+		return tools.Tools
+	}
+	toolNames := func(tools []mcp.Tool) []string {
+		names := make([]string, 0, len(tools))
+		for _, tool := range tools {
 			names = append(names, tool.Name)
 		}
 		return names
 	}
+	toolByName := func(tools []mcp.Tool, name string) mcp.Tool {
+		for _, tool := range tools {
+			if tool.Name == name {
+				return tool
+			}
+		}
+		t.Fatalf("MCP tool %q not found", name)
+		return mcp.Tool{}
+	}
 
 	// The first owner is migrated/created with the full admin toolset.
-	adminTools := listTools(coderClient.SessionToken())
+	adminToolSpecs := listTools(coderClient.SessionToken())
+	adminTools := toolNames(adminToolSpecs)
 	assert.Contains(t, adminTools, toolsdk.ToolNameGetAuthenticatedUser)
 	assert.Contains(t, adminTools, toolsdk.ToolNameListWorkspaces)
 	assert.Contains(t, adminTools, toolsdk.ToolNameWorkspaceReadFile)
@@ -1519,12 +1532,27 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 	assert.NotContains(t, adminTools, toolsdk.ToolNameListAccessibleWorkspaces)
 	assert.NotContains(t, adminTools, "read_file")
 
+	workspaceBuildLogsTool := toolByName(adminToolSpecs, toolsdk.ToolNameGetWorkspaceBuildLogs)
+	require.Contains(t, workspaceBuildLogsTool.Description, "at most a 60-second observation budget")
+	require.Contains(t, workspaceBuildLogsTool.Description, "has_more=true")
+	require.Contains(t, workspaceBuildLogsTool.Description, "cursor=next_cursor")
+	require.Contains(t, workspaceBuildLogsTool.InputSchema.Properties, "wait_timeout_ms")
+	require.Contains(t, workspaceBuildLogsTool.InputSchema.Properties, "cursor")
+
+	templateVersionLogsTool := toolByName(adminToolSpecs, toolsdk.ToolNameGetTemplateVersionLogs)
+	require.Contains(t, templateVersionLogsTool.Description, "at most a 60-second observation budget")
+	require.Contains(t, templateVersionLogsTool.Description, "has_more=true")
+	require.Contains(t, templateVersionLogsTool.Description, "cursor=next_cursor")
+	require.Contains(t, templateVersionLogsTool.InputSchema.Properties, "wait_timeout_ms")
+	require.Contains(t, templateVersionLogsTool.InputSchema.Properties, "cursor")
+
 	// Newly created users default to the curated developer toolset.
 	assigned, err := coderClient.UserMCPToolset(ctx, developerUser.ID.String())
 	require.NoError(t, err)
 	require.Equal(t, codersdk.MCPToolsetDeveloper, assigned.Toolset)
 
-	developerTools := listTools(developerClient.SessionToken())
+	developerToolSpecs := listTools(developerClient.SessionToken())
+	developerTools := toolNames(developerToolSpecs)
 	assert.ElementsMatch(t, []string{
 		"status", "list_workspaces",
 		"list_directory", "read_file", "read_files", "write_file", "file_info", "create_directory", "move_file",
@@ -1537,6 +1565,34 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 	assert.NotContains(t, developerTools, "port_forward")
 	assert.NotContains(t, developerTools, toolsdk.ToolNameWorkspaceReadFile)
 	assert.NotContains(t, developerTools, toolsdk.ToolNameCreateTemplate)
+
+	// The contract exposed to assistants must describe the bounded MCP
+	// observation model, not the historical process timeout model.
+	bashTool := toolByName(developerToolSpecs, "bash")
+	require.Contains(t, bashTool.Description, "single shared 60-second observation budget")
+	require.Contains(t, bashTool.Description, "process_id")
+	require.Contains(t, bashTool.Description, "running=true")
+	require.Contains(t, bashTool.Description, "process_output")
+	require.NotContains(t, bashTool.InputSchema.Properties, "timeout_ms")
+	require.NotContains(t, bashTool.InputSchema.Properties, "background")
+
+	execTool := toolByName(developerToolSpecs, "exec")
+	require.Contains(t, execTool.Description, "single shared 60-second observation budget")
+	require.Contains(t, execTool.Description, "process_id")
+	require.Contains(t, execTool.Description, "running=true")
+	require.Contains(t, execTool.Description, "process_output")
+	require.NotContains(t, execTool.InputSchema.Properties, "timeout_ms")
+
+	processStartTool := toolByName(developerToolSpecs, "process_start")
+	require.Contains(t, processStartTool.Description, "shared 60-second observation budget")
+	require.Contains(t, processStartTool.Description, "process_list")
+	require.Contains(t, processStartTool.Description, "lifetime is independent of the MCP connection")
+
+	processOutputTool := toolByName(developerToolSpecs, "process_output")
+	require.Contains(t, processOutputTool.Description, "shared 60-second observation budget")
+	waitTimeoutSchema := processOutputTool.InputSchema.Properties["wait_timeout_ms"].(map[string]any)
+	require.EqualValues(t, 60000, waitTimeoutSchema["maximum"])
+	require.Contains(t, waitTimeoutSchema["description"], "never limits the process lifetime")
 
 	// Users cannot raise or otherwise change their own MCP toolset.
 	_, err = developerClient.UpdateUserMCPToolset(ctx, codersdk.Me, codersdk.UpdateUserMCPToolsetRequest{
@@ -1551,7 +1607,7 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	readonlyTools := listTools(developerClient.SessionToken())
+	readonlyTools := toolNames(listTools(developerClient.SessionToken()))
 	assert.ElementsMatch(t, []string{
 		"status", "list_workspaces",
 		"list_directory", "read_file", "read_files", "file_info",
@@ -1576,7 +1632,7 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	promotedTools := listTools(developerClient.SessionToken())
+	promotedTools := toolNames(listTools(developerClient.SessionToken()))
 	assert.Contains(t, promotedTools, toolsdk.ToolNameGetAuthenticatedUser)
 	assert.Contains(t, promotedTools, toolsdk.ToolNameListWorkspaces)
 	assert.Contains(t, promotedTools, toolsdk.ToolNameWorkspaceReadFile)

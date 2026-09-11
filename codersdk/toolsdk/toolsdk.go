@@ -149,29 +149,41 @@ func WithAgentConnFunc(agentConnFn workspacesdk.AgentConnFunc) func(*Deps) {
 // openAgentConn opens a ready workspace agent session for workspace inputs in
 // [owner/]workspace[.agent] format.
 func openAgentConn(ctx context.Context, deps Deps, workspace string) (workspacesdk.AgentConn, error) {
+	return openAgentConnWithBudget(ctx, deps, workspace, newMCPObservationBudget())
+}
+
+func openAgentConnWithBudget(ctx context.Context, deps Deps, workspace string, budget mcpObservationBudget) (workspacesdk.AgentConn, error) {
 	if deps.coderClient == nil {
 		return nil, xerrors.New("workspace tools require an authenticated client")
 	}
 
+	// Workspace auto-start/build and Agent readiness are prerequisites, not the
+	// requested operation itself. They consume the same MCP observation budget as
+	// the eventual process submission/observation for execution tools.
+	// Any start/build already submitted to coderd continues after this context
+	// expires; the caller can retry the tool once the workspace is ready.
+	observationCtx, cancel := budget.context(ctx)
+	defer cancel()
+
 	workspaceName := NormalizeWorkspaceInput(workspace)
-	_, workspaceAgent, err := findWorkspaceAndAgent(ctx, deps.coderClient, workspaceName)
+	_, workspaceAgent, err := findWorkspaceAndAgent(observationCtx, deps.coderClient, workspaceName)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to find workspace: %w", err)
+		return nil, workspaceAgentObservationError(ctx, observationCtx, xerrors.Errorf("failed to find workspace: %w", err))
 	}
 
-	if err := cliui.Agent(ctx, io.Discard, workspaceAgent.ID, cliui.AgentOptions{
+	if err := cliui.Agent(observationCtx, io.Discard, workspaceAgent.ID, cliui.AgentOptions{
 		FetchInterval: 0,
 		Fetch:         deps.coderClient.WorkspaceAgent,
 		FetchLogs:     deps.coderClient.WorkspaceAgentLogsAfter,
 		// Always wait for startup scripts.
 		Wait: true,
 	}); err != nil {
-		return nil, xerrors.Errorf("agent not ready: %w", err)
+		return nil, workspaceAgentObservationError(ctx, observationCtx, xerrors.Errorf("agent not ready: %w", err))
 	}
 
-	conn, release, err := deps.agentConnFn(ctx, workspaceAgent.ID)
+	conn, release, err := deps.agentConnFn(observationCtx, workspaceAgent.ID)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to dial agent: %w", err)
+		return nil, workspaceAgentObservationError(ctx, observationCtx, xerrors.Errorf("failed to dial agent: %w", err))
 	}
 
 	wrappedConn := workspacesdk.WrapAgentConn(conn, func() error {
@@ -185,6 +197,13 @@ func openAgentConn(ctx context.Context, deps Deps, workspace string) (workspaces
 	}
 
 	return wrappedConn, nil
+}
+
+func workspaceAgentObservationError(parentCtx, observationCtx context.Context, err error) error {
+	if parentCtx.Err() == nil && errors.Is(observationCtx.Err(), context.DeadlineExceeded) {
+		return xerrors.Errorf("workspace readiness exceeded the %.0f-second MCP observation window; any workspace start/build already submitted continues independently. Retry the tool after the workspace is ready; the requested workspace operation itself was not submitted: %w", mcpToolObservationWindow.Seconds(), err)
+	}
+	return err
 }
 
 // HandlerFunc is a typed function that handles a tool call.
@@ -1525,76 +1544,131 @@ var GetWorkspaceAgentLogs = Tool[GetWorkspaceAgentLogsArgs, []string]{
 
 type GetWorkspaceBuildLogsArgs struct {
 	WorkspaceBuildID string `json:"workspace_build_id"`
+	Cursor           int64  `json:"cursor,omitempty"`
+	WaitTimeoutMs    *int   `json:"wait_timeout_ms,omitempty"`
+	Limit            int    `json:"limit,omitempty"`
 }
 
-var GetWorkspaceBuildLogs = Tool[GetWorkspaceBuildLogsArgs, []string]{
+var GetWorkspaceBuildLogs = Tool[GetWorkspaceBuildLogsArgs, ProvisionerLogObservationResult]{
 	Tool: aisdk.Tool{
 		Name: ToolNameGetWorkspaceBuildLogs,
-		Description: `Get the logs of a workspace build.
+		Description: `Get a bounded observation of workspace build logs.
 
-		Useful for checking whether a workspace builds successfully or not.`,
+A single MCP call uses at most a 60-second observation budget and never cancels the workspace build. The tool polls non-follow log snapshots, so cursor pagination is not dependent on a long-lived WebSocket. wait_timeout_ms controls only how long this observation waits for new logs (default 10000ms, maximum 60000ms). job_status reports the observed provisioner state. complete=true only when the job is terminal and the current snapshot after this cursor fits within the response limit. has_more=true means the response limit was reached and another cursor read is required. If complete=false or has_more=true, call this tool again with cursor=next_cursor to continue without duplicating earlier logs.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
 				"workspace_build_id": map[string]any{
 					"type": "string",
+				},
+				"cursor": map[string]any{
+					"type":        "integer",
+					"description": "Provisioner log ID cursor. Use 0 initially, then continue with next_cursor.",
+					"minimum":     0,
+				},
+				"wait_timeout_ms": map[string]any{
+					"type":        "integer",
+					"description": "How long this observation may wait for new logs. Defaults to 10000ms. Use 0 for an immediate snapshot. Maximum 60000ms. This never limits the build itself.",
+					"default":     10000,
+					"minimum":     0,
+					"maximum":     60000,
+				},
+				"limit": map[string]any{
+					"type":        "integer",
+					"description": "Maximum log entries returned in one observation. Defaults to 200, maximum 1000.",
+					"minimum":     1,
+					"maximum":     1000,
 				},
 			},
 			Required: []string{"workspace_build_id"},
 		},
 	},
 	MCPAnnotations: mcpReadOnlyAnnotations,
-	Handler: func(ctx context.Context, deps Deps, args GetWorkspaceBuildLogsArgs) ([]string, error) {
+	Handler: func(ctx context.Context, deps Deps, args GetWorkspaceBuildLogsArgs) (ProvisionerLogObservationResult, error) {
 		workspaceBuildID, err := uuid.Parse(args.WorkspaceBuildID)
 		if err != nil {
-			return nil, xerrors.Errorf("workspace_build_id must be a valid UUID: %w", err)
+			return ProvisionerLogObservationResult{}, xerrors.Errorf("workspace_build_id must be a valid UUID: %w", err)
 		}
-		logs, closer, err := deps.coderClient.WorkspaceBuildLogsAfter(ctx, workspaceBuildID, 0)
+		budget := newMCPObservationBudget()
+		result, err := observeProvisionerLogs(ctx, budget, args.Cursor, args.WaitTimeoutMs, args.Limit, func(snapshotCtx context.Context, after int64) ([]codersdk.ProvisionerJobLog, error) {
+			return fetchProvisionerLogSnapshot(snapshotCtx, deps.coderClient, fmt.Sprintf("/api/v2/workspacebuilds/%s/logs", workspaceBuildID), after)
+		})
 		if err != nil {
-			return nil, err
+			return ProvisionerLogObservationResult{}, err
 		}
-		defer closer.Close()
-		var acc []string
-		for log := range logs {
-			acc = append(acc, log.Output)
+		if budget.remaining() > 0 {
+			statusCtx, cancel := budget.context(ctx)
+			build, statusErr := deps.coderClient.WorkspaceBuild(statusCtx, workspaceBuildID)
+			cancel()
+			if statusErr == nil {
+				setProvisionerLogJobState(&result, build.Job)
+			}
 		}
-		return acc, nil
+		return result, nil
 	},
 }
 
 type GetTemplateVersionLogsArgs struct {
 	TemplateVersionID string `json:"template_version_id"`
+	Cursor            int64  `json:"cursor,omitempty"`
+	WaitTimeoutMs     *int   `json:"wait_timeout_ms,omitempty"`
+	Limit             int    `json:"limit,omitempty"`
 }
 
-var GetTemplateVersionLogs = Tool[GetTemplateVersionLogsArgs, []string]{
+var GetTemplateVersionLogs = Tool[GetTemplateVersionLogsArgs, ProvisionerLogObservationResult]{
 	Tool: aisdk.Tool{
-		Name:        ToolNameGetTemplateVersionLogs,
-		Description: "Get the logs of a template version. This is useful to check whether a template version successfully imports or not.",
+		Name: ToolNameGetTemplateVersionLogs,
+		Description: `Get a bounded observation of template-version provisioner logs.
+
+A single MCP call uses at most a 60-second observation budget and never cancels the template import/provisioner job. The tool polls non-follow log snapshots, so cursor pagination is not dependent on a long-lived WebSocket. wait_timeout_ms controls only how long this observation waits for new logs (default 10000ms, maximum 60000ms). job_status reports the observed provisioner state. complete=true only when the job is terminal and the current snapshot after this cursor fits within the response limit. has_more=true means the response limit was reached and another cursor read is required. If complete=false or has_more=true, call this tool again with cursor=next_cursor to continue without duplicating earlier logs.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
 				"template_version_id": map[string]any{
 					"type": "string",
+				},
+				"cursor": map[string]any{
+					"type":        "integer",
+					"description": "Provisioner log ID cursor. Use 0 initially, then continue with next_cursor.",
+					"minimum":     0,
+				},
+				"wait_timeout_ms": map[string]any{
+					"type":        "integer",
+					"description": "How long this observation may wait for new logs. Defaults to 10000ms. Use 0 for an immediate snapshot. Maximum 60000ms. This never limits the template job itself.",
+					"default":     10000,
+					"minimum":     0,
+					"maximum":     60000,
+				},
+				"limit": map[string]any{
+					"type":        "integer",
+					"description": "Maximum log entries returned in one observation. Defaults to 200, maximum 1000.",
+					"minimum":     1,
+					"maximum":     1000,
 				},
 			},
 			Required: []string{"template_version_id"},
 		},
 	},
 	MCPAnnotations: mcpReadOnlyAnnotations,
-	Handler: func(ctx context.Context, deps Deps, args GetTemplateVersionLogsArgs) ([]string, error) {
+	Handler: func(ctx context.Context, deps Deps, args GetTemplateVersionLogsArgs) (ProvisionerLogObservationResult, error) {
 		templateVersionID, err := uuid.Parse(args.TemplateVersionID)
 		if err != nil {
-			return nil, xerrors.Errorf("template_version_id must be a valid UUID: %w", err)
+			return ProvisionerLogObservationResult{}, xerrors.Errorf("template_version_id must be a valid UUID: %w", err)
 		}
-
-		logs, closer, err := deps.coderClient.TemplateVersionLogsAfter(ctx, templateVersionID, 0)
+		budget := newMCPObservationBudget()
+		result, err := observeProvisionerLogs(ctx, budget, args.Cursor, args.WaitTimeoutMs, args.Limit, func(snapshotCtx context.Context, after int64) ([]codersdk.ProvisionerJobLog, error) {
+			return fetchProvisionerLogSnapshot(snapshotCtx, deps.coderClient, fmt.Sprintf("/api/v2/templateversions/%s/logs", templateVersionID), after)
+		})
 		if err != nil {
-			return nil, err
+			return ProvisionerLogObservationResult{}, err
 		}
-		defer closer.Close()
-		var acc []string
-		for log := range logs {
-			acc = append(acc, log.Output)
+		if budget.remaining() > 0 {
+			statusCtx, cancel := budget.context(ctx)
+			version, statusErr := deps.coderClient.TemplateVersion(statusCtx, templateVersionID)
+			cancel()
+			if statusErr == nil {
+				setProvisionerLogJobState(&result, version.Job)
+			}
 		}
-		return acc, nil
+		return result, nil
 	},
 }
 

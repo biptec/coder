@@ -118,22 +118,25 @@ func TestAllToolsIncludesBash(t *testing.T) {
 	require.True(t, found, "WorkspaceBash tool should be included in toolsdk.All")
 }
 
-func TestWorkspaceBashHasNoExecutionTimeout(t *testing.T) {
+func TestWorkspaceBashObservationContract(t *testing.T) {
 	t.Parallel()
 
 	argsType := reflect.TypeOf(toolsdk.WorkspaceBashArgs{})
 	_, hasTimeout := argsType.FieldByName("TimeoutMs")
-	require.False(t, hasTimeout, "bash args must not expose a command timeout")
+	require.False(t, hasTimeout, "bash args must not expose a process execution timeout")
 	_, hasBackground := argsType.FieldByName("Background")
-	require.False(t, hasBackground, "bash background mode depended on timeout semantics and must use process_start instead")
+	require.False(t, hasBackground, "bash background mode must use process_start instead")
 
 	tool := toolsdk.WorkspaceBash
 	require.NotContains(t, tool.Schema.Properties, "timeout_ms")
 	require.NotContains(t, tool.Schema.Properties, "background")
-	require.Contains(t, tool.Description, "no execution timeout")
-	require.Contains(t, tool.Description, "process exits or the MCP caller cancels the request")
+	require.Contains(t, tool.Description, "no process execution timeout")
+	require.Contains(t, tool.Description, "single shared 60-second observation budget")
+	require.Contains(t, tool.Description, "process_id")
+	require.Contains(t, tool.Description, "running=true")
+	require.Contains(t, tool.Description, "continues independently")
+	require.Contains(t, tool.Description, "coder_workspace_process_output")
 	require.Contains(t, tool.Description, "coder_workspace_process_start")
-	require.NotContains(t, tool.Description, "defaults to 60000ms")
 	require.NotContains(t, tool.Description, "background: true")
 }
 
@@ -157,4 +160,6 @@ func TestWorkspaceBashIntegration(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 0, result.ExitCode)
 	require.Equal(t, "before\\nafter", result.Output)
+	require.Empty(t, result.ProcessID)
+	require.False(t, result.Running)
 }

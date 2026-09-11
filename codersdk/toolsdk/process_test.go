@@ -54,8 +54,16 @@ func TestWorkspaceProcessToolInstructions(t *testing.T) {
 	require.Contains(t, toolsdk.WorkspaceProcessOutput.Description, "structured persistence advisory")
 	require.Contains(t, toolsdk.WorkspaceProcessList.Description, "structured persistence advisory")
 
-	// Keep the legacy bash execution contract, but make tool selection explicit.
-	require.Contains(t, toolsdk.WorkspaceBash.Description, "short, ordinary commands")
+	require.Contains(t, toolsdk.WorkspaceProcessStartV2.Description, "shared 60-second observation budget")
+	require.Contains(t, toolsdk.WorkspaceProcessStartV2.Description, "process lifetime is independent of the MCP connection")
+	require.Contains(t, toolsdk.WorkspaceProcessOutput.Description, "single shared 60-second observation budget")
+	require.Contains(t, toolsdk.WorkspaceProcessOutput.Description, "capped at 60000ms")
+	require.Contains(t, toolsdk.WorkspaceProcessOutput.Description, "never terminates the durable process")
+
+	// Bash remains a convenience wrapper, but its MCP observation is bounded and
+	// long-running work is recoverable through the durable process API.
+	require.Contains(t, toolsdk.WorkspaceBash.Description, "short shell commands")
+	require.Contains(t, toolsdk.WorkspaceBash.Description, "single shared 60-second observation budget")
 	require.Contains(t, toolsdk.WorkspaceBash.Description, "coder_workspace_process_start")
 	require.Contains(t, toolsdk.WorkspaceBash.Description, "non-idempotent")
 	require.Contains(t, toolsdk.WorkspaceBash.Description, "only /home/coder is persistent")

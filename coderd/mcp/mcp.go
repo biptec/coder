@@ -29,6 +29,12 @@ const (
 
 	// Used in tests and aibridge.
 	MCPEndpoint = "/api/experimental/mcp/http"
+
+	// Long-running tools have an assistant-visible 60-second observation
+	// contract. Keep a small server-side grace period so those handlers can
+	// serialize a recoverable result, while ensuring no forgotten MCP handler
+	// can drift anywhere near the upstream ~5-minute request deadline.
+	mcpToolHandlerSafetyDeadline = 75 * time.Second
 )
 
 // Server represents an MCP HTTP server instance
@@ -517,7 +523,13 @@ func mcpFromSDK(sdkTool toolsdk.GenericTool, tb toolsdk.Deps) server.ServerTool 
 			if err := json.NewEncoder(&buf).Encode(request.Params.Arguments); err != nil {
 				return nil, xerrors.Errorf("failed to encode request arguments: %w", err)
 			}
-			result, err := sdkTool.Handler(ctx, tb, buf.Bytes())
+
+			// This is a last-resort MCP transport safeguard, not a process/job
+			// lifetime limit. Durable work already submitted to an Agent or
+			// provisioner continues independently if this context expires.
+			handlerCtx, cancel := context.WithTimeout(ctx, mcpToolHandlerSafetyDeadline)
+			defer cancel()
+			result, err := sdkTool.Handler(handlerCtx, tb, buf.Bytes())
 			if err != nil {
 				return nil, err
 			}

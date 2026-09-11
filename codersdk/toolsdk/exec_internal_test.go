@@ -3,6 +3,7 @@ package toolsdk
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -11,7 +12,7 @@ import (
 	"github.com/coder/coder/v2/codersdk/workspacesdk/agentconnmock"
 )
 
-func TestWaitForExecCompletionRepeatsWhileRunning(t *testing.T) {
+func TestObserveWorkspaceProcessKeepsWaitingAcrossOutput(t *testing.T) {
 	t.Parallel()
 
 	ctrl := gomock.NewController(t)
@@ -27,13 +28,13 @@ func TestWaitForExecCompletionRepeatsWhileRunning(t *testing.T) {
 			require.True(t, opts.Wait)
 			calls++
 			if calls == 1 {
-				return workspacesdk.ProcessOutputResponse{Running: true}, nil
+				return workspacesdk.ProcessOutputResponse{Running: true, Output: "partial"}, nil
 			}
 			return workspacesdk.ProcessOutputResponse{Running: false, ExitCode: &exitCode, Output: "done"}, nil
 		}).
 		Times(2)
 
-	resp, err := waitForExecCompletion(context.Background(), conn, processID)
+	resp, err := observeWorkspaceProcess(context.Background(), conn, processID, mcpObservationBudget{deadline: time.Now().Add(time.Second)})
 	require.NoError(t, err)
 	require.False(t, resp.Running)
 	require.NotNil(t, resp.ExitCode)

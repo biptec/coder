@@ -87,7 +87,7 @@ jobs:
             -count=1
 
           go test ./codersdk/toolsdk \
-            -run '^(TestCommandInvokesSudo|TestCommandAdvisories|TestAdvisoryIsSeparateFromCommandOutput|TestProcessListAdvisoryPreservesFlatJSONShape|TestWorkspaceExecHasNoExecutionTimeout|TestInvocationToolContext|TestWaitForExecCompletionRepeatsWhileRunning|TestWorkspaceProcessToolsValidateArgs|TestWorkspaceProcessToolInstructions)$'
+            -run '^(TestCommandInvokesSudo|TestCommandAdvisories|TestAdvisoryIsSeparateFromCommandOutput|TestProcessListAdvisoryPreservesFlatJSONShape|TestWorkspaceExecObservationContract|TestWorkspaceBashObservationContract|TestInvocationToolContext|TestObserveWorkspaceProcessKeepsWaitingAcrossOutput|TestObserveWorkspaceProcessReturnsLastSnapshotAtObservationBoundary|TestStartWorkspaceProcessObservationDeadlineIsRecoverable|TestWorkspaceProcessToolsValidateArgs|TestWorkspaceProcessToolInstructions|TestProvisionerLogToolSchemasExposeBoundedObservation|TestProvisionerLogObservationValidation)$'
           go test ./codersdk/toolsdk -run '^TestWorkspaceProcessIntegration/CommandActivityToolAttribution$' -count=1
           go test ./coderd/mcp -run '^TestActivityTrackingPropagatesInvocationTool$'
           go test ./agent/agentproc -run '^TestListProcesses/IncludesValidatedToolAttribution$'
