@@ -419,9 +419,9 @@ func (api *API) createWorkspaceVolumeCopyOperation(
 		if err != nil {
 			return err
 		}
-		if destinationStatus != codersdk.WorkspaceStatusStopped {
+		if destinationStatus != codersdk.WorkspaceStatusStopped && destinationStatus != codersdk.WorkspaceStatusRunning {
 			return httperror.NewResponseError(http.StatusConflict, codersdk.Response{
-				Message: fmt.Sprintf("Destination workspace must be stopped before copying volumes; current status is %s.", destinationStatus),
+				Message: fmt.Sprintf("Destination workspace must be stopped or running before copying volumes; current status is %s.", destinationStatus),
 			})
 		}
 		if allowSourceRunning {

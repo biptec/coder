@@ -163,14 +163,58 @@ func TestDeleteCopyJobWaitsForJobToDisappear(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/apis/batch/v1/namespaces/coder-workspaces/jobs/copy-job", r.URL.Path)
 		switch r.Method {
+		case http.MethodGet:
+			if deleted {
+				http.Error(rw, `{"reason":"NotFound"}`, http.StatusNotFound)
+				return
+			}
+			_ = json.NewEncoder(rw).Encode(map[string]any{
+				"status": map[string]any{"succeeded": 1},
+			})
 		case http.MethodDelete:
 			var options map[string]any
 			require.NoError(t, json.NewDecoder(r.Body).Decode(&options))
 			require.Equal(t, "Foreground", options["propagationPolicy"])
 			deleted = true
 			_ = json.NewEncoder(rw).Encode(map[string]any{"status": "Success"})
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	}))
+	defer server.Close()
+	baseURL, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	client := NewClient(baseURL, "", server.Client())
+
+	require.NoError(t, client.DeleteCopyJob(context.Background(), "coder-workspaces", "copy-job"))
+	require.True(t, deleted)
+}
+
+func TestDeleteCopyJobAlreadyGoneSkipsDelete(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method, "DELETE must not be attempted for an already missing Job")
+		http.Error(rw, `{"reason":"NotFound"}`, http.StatusNotFound)
+	}))
+	defer server.Close()
+	baseURL, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	client := NewClient(baseURL, "", server.Client())
+
+	require.NoError(t, client.DeleteCopyJob(context.Background(), "coder-workspaces", "copy-job"))
+}
+
+func TestDeleteCopyJobDisappearsBeforeDelete(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		switch r.Method {
 		case http.MethodGet:
-			require.True(t, deleted)
+			_ = json.NewEncoder(rw).Encode(map[string]any{
+				"status": map[string]any{"succeeded": 1},
+			})
+		case http.MethodDelete:
 			http.Error(rw, `{"reason":"NotFound"}`, http.StatusNotFound)
 		default:
 			t.Fatalf("unexpected method %s", r.Method)
@@ -182,6 +226,31 @@ func TestDeleteCopyJobWaitsForJobToDisappear(t *testing.T) {
 	client := NewClient(baseURL, "", server.Client())
 
 	require.NoError(t, client.DeleteCopyJob(context.Background(), "coder-workspaces", "copy-job"))
+}
+
+func TestDeleteCopyJobForbiddenWhileJobExists(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			_ = json.NewEncoder(rw).Encode(map[string]any{
+				"status": map[string]any{"succeeded": 1},
+			})
+		case http.MethodDelete:
+			http.Error(rw, `{"reason":"Forbidden"}`, http.StatusForbidden)
+		default:
+			t.Fatalf("unexpected method %s", r.Method)
+		}
+	}))
+	defer server.Close()
+	baseURL, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	client := NewClient(baseURL, "", server.Client())
+
+	err = client.DeleteCopyJob(context.Background(), "coder-workspaces", "copy-job")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "HTTP 403")
 }
 
 func TestGetCopyJobState(t *testing.T) {

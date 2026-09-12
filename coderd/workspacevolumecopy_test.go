@@ -323,7 +323,7 @@ func TestWorkspaceVolumeCopyLiveSourceMode(t *testing.T) {
 	require.Contains(t, syncVolumes[0].ExcludedPaths, ".cache/destination-v2")
 }
 
-func TestWorkspaceVolumeCopyDestinationMustBeStopped(t *testing.T) {
+func TestWorkspaceVolumeCopyRunningDestination(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -348,15 +348,28 @@ func TestWorkspaceVolumeCopyDestinationMustBeStopped(t *testing.T) {
 	kubernetes.setWorkspaceVolumes(source.ID, "source-home")
 	kubernetes.setWorkspaceVolumes(destination.ID, "destination-home")
 
-	_, err := client.CreateWorkspaceVolumeCopy(ctx, source.ID, codersdk.CreateWorkspaceVolumeCopyRequest{
+	operation, err := client.CreateWorkspaceVolumeCopy(ctx, source.ID, codersdk.CreateWorkspaceVolumeCopyRequest{
 		DestinationWorkspaceID: destination.ID,
 		AllowSourceRunning:     true,
 		Volumes:                []codersdk.WorkspaceVolumeCopySelection{{Key: "home"}},
 	})
-	require.Error(t, err)
-	require.Equal(t, 409, coderdtest.SDKError(t, err).StatusCode())
+	require.NoError(t, err)
 
-	// The rejected operation must not leave a lifecycle lock behind.
+	// A running destination is intentionally allowed, but its lifecycle stays
+	// locked for the duration of the copy so it cannot stop/restart halfway
+	// through a live write.
+	destinationDuringCopy, err := client.Workspace(ctx, destination.ID)
+	require.NoError(t, err)
+	require.Equal(t, codersdk.WorkspaceStatusRunning, destinationDuringCopy.LatestBuild.Status)
+	_, err = client.CreateWorkspaceBuild(ctx, destination.ID, codersdk.CreateWorkspaceBuildRequest{Transition: codersdk.WorkspaceTransitionStop})
+	require.Error(t, err)
+	require.Equal(t, http.StatusConflict, coderdtest.SDKError(t, err).StatusCode())
+
+	kubernetes.completeAllJobs()
+	_ = awaitWorkspaceVolumeCopyStatus(t, client, operation.ID, codersdk.WorkspaceVolumeCopyStatusSucceeded)
+
+	// Once cleanup finishes the destination is unlocked again and can be stopped
+	// normally by the operator.
 	_, err = client.CreateWorkspaceBuild(ctx, destination.ID, codersdk.CreateWorkspaceBuildRequest{Transition: codersdk.WorkspaceTransitionStop})
 	require.NoError(t, err)
 }
