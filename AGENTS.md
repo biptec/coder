@@ -16,6 +16,24 @@ Rule #1: If you want exception to ANY rule, YOU MUST STOP and get explicit permi
   For supporting agent-specific guidance, refer to [`.claude/docs/DOCS_STYLE_GUIDE.md`](.claude/docs/DOCS_STYLE_GUIDE.md), which covers structure, research, and content patterns.
 - Docs authoring: For new, moved, or restructured `docs/` pages, or when unsure, load the [`write-docs` skill](.claude/skills/write-docs/SKILL.md) first. It points at the canonical content guidelines and the prose style guide above, then walks research, routing, Diátaxis mode, structure, and validation.
 
+## Existing-system-first discovery
+
+Before creating a new build, release, deployment, synchronization, migration, publishing,
+secret-management, or workspace operational mechanism:
+
+1. Read the relevant root/area guidance and inspect the existing Make targets, scripts,
+   services, workflows, and runbooks for that operation.
+2. Search the repository for the nouns and verbs in the request before designing a new path.
+3. Identify the current canonical owner and extend it whenever possible.
+4. Do not introduce a parallel operational path merely because credentials, execution host,
+   transport, or UI entry point changed. Adapt those concerns around the existing path.
+5. If the existing path is genuinely insufficient, state the concrete gap before adding a new
+   mechanism and keep the replacement/extension consistent with the current architecture.
+
+This rule is especially important for deployment, workspace lifecycle, volume operations,
+template publication, image handling, and automation. Existing workflows are architecture
+contracts, not examples to duplicate.
+
 ## Foundational rules
 
 - Doing it right is better than doing it fast. You are not in a rush. NEVER skip steps or take shortcuts.
