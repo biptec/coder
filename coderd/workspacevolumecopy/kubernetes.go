@@ -205,6 +205,18 @@ func (c *Client) EnsureCopyJob(ctx context.Context, namespace, jobName, image st
 }
 
 func (c *Client) DeleteCopyJob(ctx context.Context, namespace, jobName string) error {
+	// Check existence before DELETE. Kubernetes authorization is evaluated before
+	// resource lookup, so a stale/missing delete permission can otherwise return
+	// 403 forever even after the Job has already disappeared via TTL cleanup.
+	// If GET confirms the Job is already gone, cleanup is complete and the
+	// workspace lifecycle locks can be safely released.
+	if _, err := c.GetCopyJobState(ctx, namespace, jobName); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+
 	path := fmt.Sprintf("/apis/batch/v1/namespaces/%s/jobs/%s", url.PathEscape(namespace), url.PathEscape(jobName))
 	foreground := "Foreground"
 	deleteOptions := map[string]any{

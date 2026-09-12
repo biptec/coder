@@ -46,6 +46,13 @@ const destination: Workspace = {
 	owner_name: "developer",
 };
 
+const destinationRunning: Workspace = {
+	...MockWorkspace,
+	id: destination.id,
+	name: destination.name,
+	owner_name: destination.owner_name,
+};
+
 const additionalDestinations: Workspace[] = Array.from(
 	{ length: 14 },
 	(_, index) => ({
@@ -135,6 +142,7 @@ const workspaceQueries = (
 	source: Workspace,
 	operation?: WorkspaceVolumeCopyOperation,
 	listedWorkspaces: Workspace[] = [source, destination],
+	selectedDestination: Workspace = destination,
 ) => [
 	{
 		key: workspaceByOwnerAndNameKey(source.owner_name, source.name),
@@ -153,15 +161,15 @@ const workspaceQueries = (
 		data: { workspaces: listedWorkspaces, count: listedWorkspaces.length },
 	},
 	{
-		key: workspaceByIdKey(destination.id),
-		data: destination,
+		key: workspaceByIdKey(selectedDestination.id),
+		data: selectedDestination,
 	},
 	{
-		key: ["workspaces", destination.id, "permissions"],
+		key: ["workspaces", selectedDestination.id, "permissions"],
 		data: volumeCopyPermissions,
 	},
 	{
-		key: workspaceVolumeCopyVolumes(destination.id).queryKey,
+		key: workspaceVolumeCopyVolumes(selectedDestination.id).queryKey,
 		data: [homeVolume],
 	},
 	...(operation
@@ -215,6 +223,36 @@ export const StoppedSource: Story = {
 		expect(
 			canvas.getByRole("checkbox", { name: "Overwrite existing files" }),
 		).toBeChecked();
+	},
+};
+
+export const RunningDestination: Story = {
+	parameters: {
+		reactRouter: routerParameters(sourceStopped),
+		queries: workspaceQueries(
+			sourceStopped,
+			undefined,
+			[sourceStopped, destinationRunning],
+			destinationRunning,
+		),
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await userEvent.click(
+			canvas.getByRole("button", { name: "Select destination workspace" }),
+		);
+		await userEvent.click(
+			screen.getByText("developer/identity-management", { exact: true }),
+		);
+
+		await waitFor(() => {
+			expect(
+				canvas.getByText("Destination workspace is running."),
+			).toBeVisible();
+			expect(
+				canvas.getByRole("button", { name: "Copy volumes" }),
+			).toBeEnabled();
+		});
 	},
 };
 

@@ -44,6 +44,7 @@ import {
 	type VolumeRow,
 	VolumeSelectionList,
 } from "./WorkspaceVolumeCopyPageView";
+import { isWorkspaceVolumeCopyDestinationStatusAllowed } from "./workspaceVolumeCopyPolicy";
 
 const DESTINATION_SEARCH_LIMIT = 25;
 
@@ -344,7 +345,8 @@ const WorkspaceVolumeCopyPage: FC = () => {
 	const sourceStateAllowed = allowSourceRunning
 		? sourceStatus === "running" || sourceStatus === "stopped"
 		: sourceStatus === "stopped";
-	const destinationStateAllowed = destinationStatus === "stopped";
+	const destinationStateAllowed =
+		isWorkspaceVolumeCopyDestinationStatusAllowed(destinationStatus);
 	const formDisabled = Boolean(
 		activeOperation ||
 			(operation &&
@@ -484,10 +486,20 @@ const WorkspaceVolumeCopyPage: FC = () => {
 								You do not have volume-copy permission on this destination.
 							</p>
 						)}
-						{destination && destinationStatus !== "stopped" && (
+						{destination && destinationStatus === "running" && (
+							<Alert severity="warning" prominent>
+								<strong>Destination workspace is running.</strong> Files in the
+								destination may be read or modified by running processes while
+								the copy is in progress. The destination keeps running, but
+								Start/Stop/Delete and other lifecycle changes are blocked until
+								the copy finishes. Continue only when live destination copying
+								is safe for this workspace.
+							</Alert>
+						)}
+						{destination && !destinationStateAllowed && (
 							<p className="text-sm text-content-warning m-0">
-								Destination must be stopped before copying. Current status:{" "}
-								{destinationStatus}.
+								Destination status is <strong>{destinationStatus}</strong>. Wait
+								until it is stopped or running before copying.
 							</p>
 						)}
 					</section>
