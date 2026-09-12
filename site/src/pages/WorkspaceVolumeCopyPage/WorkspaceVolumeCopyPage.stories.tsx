@@ -290,18 +290,24 @@ export const RunningSource: Story = {
 			screen.getByText("developer/identity-management", { exact: true }),
 		);
 
-		expect(canvas.getByRole("button", { name: "Copy volumes" })).toBeDisabled();
-		await userEvent.click(
-			canvas.getByRole("checkbox", {
-				name: "Allow copying while source workspace is running",
-			}),
-		);
-
 		await waitFor(() => {
-			expect(canvas.getByText("Source workspace is running.")).toBeVisible();
+			const sourceSection = canvas
+				.getByRole("heading", { name: "Source" })
+				.closest("section");
+			expect(sourceSection).not.toBeNull();
+			expect(
+				within(sourceSection as HTMLElement).getByText(
+					"Source workspace is running.",
+				),
+			).toBeVisible();
 			expect(
 				canvas.getByRole("button", { name: "Copy volumes" }),
 			).toBeEnabled();
+			expect(
+				canvas.queryByRole("checkbox", {
+					name: "Allow copying while source workspace is running",
+				}),
+			).not.toBeInTheDocument();
 		});
 	},
 };
@@ -313,12 +319,14 @@ export const ReloadedRunningLiveCopy: Story = {
 	},
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		const liveCopyCheckbox = await canvas.findByRole("checkbox", {
-			name: "Allow copying while source workspace is running",
-		});
-		expect(liveCopyCheckbox).toBeChecked();
-		expect(liveCopyCheckbox).toBeDisabled();
-		expect(canvas.getByText("Source workspace is running.")).toBeVisible();
+		expect(
+			await canvas.findByText("Source workspace is running."),
+		).toBeVisible();
+		expect(
+			canvas.queryByRole("checkbox", {
+				name: "Allow copying while source workspace is running",
+			}),
+		).not.toBeInTheDocument();
 	},
 };
 
@@ -333,9 +341,9 @@ export const CompletedLiveCopy: Story = {
 		expect(successAlert).toHaveTextContent("Persistent volume copy completed.");
 		expect(successAlert.querySelectorAll("svg")).toHaveLength(1);
 		expect(
-			canvas.getByRole("checkbox", {
+			canvas.queryByRole("checkbox", {
 				name: "Allow copying while source workspace is running",
 			}),
-		).toBeChecked();
+		).not.toBeInTheDocument();
 	},
 };
