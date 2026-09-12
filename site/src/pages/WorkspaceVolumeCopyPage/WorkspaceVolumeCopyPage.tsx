@@ -17,7 +17,6 @@ import {
 import type { WorkspaceVolumeCopySelection } from "#/api/typesGenerated";
 import { Alert } from "#/components/Alert/Alert";
 import { Button } from "#/components/Button/Button";
-import { Checkbox } from "#/components/Checkbox/Checkbox";
 import {
 	Combobox,
 	ComboboxButton,
@@ -50,7 +49,6 @@ const DESTINATION_SEARCH_LIMIT = 25;
 
 type VolumeCopyDraft = {
 	destinationId?: string;
-	allowSourceRunning: boolean;
 	choices: Record<string, VolumeChoice>;
 };
 
@@ -119,7 +117,6 @@ const WorkspaceVolumeCopyPage: FC = () => {
 	}, [sourceVolumesQuery.data, destinationVolumesQuery.data]);
 
 	const [choices, setChoices] = useState<Record<string, VolumeChoice>>({});
-	const [allowSourceRunning, setAllowSourceRunning] = useState(false);
 	const createMutation = useMutation(createWorkspaceVolumeCopy());
 	const syncMutation = useMutation(syncWorkspaceVolumeCopy());
 	const operationId = searchParams.get("operation") ?? undefined;
@@ -133,7 +130,6 @@ const WorkspaceVolumeCopyPage: FC = () => {
 	const operationQuery = useQuery(workspaceVolumeCopyOperation(operationId));
 	const activeOperation = activeOperationQuery.data?.operation;
 	const operation = activeOperation ?? operationQuery.data;
-	const operationAllowSourceRunning = operation?.allow_source_running;
 	const draftLoadedFor = useRef<string | undefined>(undefined);
 	const skipNextDraftSaveFor = useRef<string | undefined>(undefined);
 	const currentIsOperationDestination = Boolean(
@@ -163,7 +159,6 @@ const WorkspaceVolumeCopyPage: FC = () => {
 			skipNextDraftSaveFor.current = source.id;
 			const draft = JSON.parse(raw) as VolumeCopyDraft;
 			setDestinationId(draft.destinationId);
-			setAllowSourceRunning(draft.allowSourceRunning ?? false);
 			setChoices(draft.choices ?? {});
 		} catch {
 			sessionStorage.removeItem(volumeCopyDraftKey(source.id));
@@ -183,14 +178,13 @@ const WorkspaceVolumeCopyPage: FC = () => {
 				volumeCopyDraftKey(source.id),
 				JSON.stringify({
 					destinationId,
-					allowSourceRunning,
 					choices,
 				} satisfies VolumeCopyDraft),
 			);
 		} catch {
 			// The form still works when session storage is unavailable.
 		}
-	}, [allowSourceRunning, choices, destinationId, operation, source]);
+	}, [choices, destinationId, operation, source]);
 
 	useEffect(() => {
 		if (!destination || destinationVolumesQuery.isLoading) {
@@ -219,12 +213,6 @@ const WorkspaceVolumeCopyPage: FC = () => {
 			setDestinationId(operation.destination_workspace_id);
 		}
 	}, [operation, source]);
-
-	useEffect(() => {
-		if (operationAllowSourceRunning !== undefined) {
-			setAllowSourceRunning(operationAllowSourceRunning);
-		}
-	}, [operationAllowSourceRunning]);
 
 	if (
 		sourceQuery.isLoading ||
@@ -342,9 +330,8 @@ const WorkspaceVolumeCopyPage: FC = () => {
 			key: row.source.key,
 			overwrite: choices[row.source.key]?.overwrite ?? false,
 		}));
-	const sourceStateAllowed = allowSourceRunning
-		? sourceStatus === "running" || sourceStatus === "stopped"
-		: sourceStatus === "stopped";
+	const sourceStateAllowed =
+		sourceStatus === "running" || sourceStatus === "stopped";
 	const destinationStateAllowed =
 		isWorkspaceVolumeCopyDestinationStatusAllowed(destinationStatus);
 	const formDisabled = Boolean(
@@ -381,7 +368,7 @@ const WorkspaceVolumeCopyPage: FC = () => {
 			sourceWorkspaceId: source.id,
 			request: {
 				destination_workspace_id: destination.id,
-				allow_source_running: allowSourceRunning,
+				allow_source_running: true,
 				volumes: selectedVolumes,
 			},
 		});
@@ -424,6 +411,20 @@ const WorkspaceVolumeCopyPage: FC = () => {
 								Status: {sourceStatus}
 							</div>
 						</div>
+						{sourceStatus === "running" && (
+							<Alert severity="warning" prominent>
+								<strong>Source workspace is running.</strong> Files modified
+								during the copy may not represent a point-in-time consistent
+								snapshot. The source can keep working, but Start/Stop/Delete and
+								other lifecycle changes are blocked until the copy finishes.
+							</Alert>
+						)}
+						{!sourceStateAllowed && (
+							<p className="text-sm text-content-warning m-0">
+								Source status is <strong>{sourceStatus}</strong>. Wait until it
+								is stopped or running before copying.
+							</p>
+						)}
 					</section>
 
 					<section className="flex flex-col gap-2">
@@ -529,45 +530,6 @@ const WorkspaceVolumeCopyPage: FC = () => {
 							)}
 						</section>
 					)}
-
-					<section className="flex flex-col gap-3">
-						<label
-							className="flex items-start gap-3 cursor-pointer"
-							htmlFor="allow-source-running"
-						>
-							<Checkbox
-								id="allow-source-running"
-								checked={allowSourceRunning}
-								disabled={formDisabled}
-								onCheckedChange={(checked) =>
-									setAllowSourceRunning(checked === true)
-								}
-							/>
-							<div>
-								<div className="font-medium">
-									Allow copying while source workspace is running
-								</div>
-								<div className="text-sm text-content-secondary">
-									When disabled, the source must already be stopped and its
-									lifecycle remains locked until the copy finishes.
-								</div>
-							</div>
-						</label>
-						{sourceStatus === "running" && allowSourceRunning && (
-							<Alert severity="warning" prominent>
-								<strong>Source workspace is running.</strong> Files modified
-								during the copy may not represent a point-in-time consistent
-								snapshot. The source can keep working, but Start/Stop/Delete and
-								other lifecycle changes are blocked until the copy finishes.
-							</Alert>
-						)}
-						{!sourceStateAllowed && (
-							<Alert severity="warning">
-								Source status is <strong>{sourceStatus}</strong>. Stop the
-								source first, or enable live copying when the source is running.
-							</Alert>
-						)}
-					</section>
 
 					{(createMutation.error ||
 						syncMutation.error ||
