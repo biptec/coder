@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"sort"
 	"time"
 
 	mcpclient "github.com/mark3labs/mcp-go/client"
+	mcptransport "github.com/mark3labs/mcp-go/client/transport"
 	mcpproto "github.com/mark3labs/mcp-go/mcp"
 	"golang.org/x/xerrors"
 
@@ -36,11 +38,15 @@ func currentDeveloperCatalog(ctx context.Context) ([]toolSpec, error) {
 	httpServer := httptest.NewServer(mcpServer)
 	defer httpServer.Close()
 
-	client, err := mcpclient.NewStreamableHttpClient(httpServer.URL)
+	basicClient := isolatedHTTPClient()
+	client, err := mcpclient.NewStreamableHttpClient(httpServer.URL, mcptransport.WithHTTPBasicClient(basicClient))
 	if err != nil {
 		return nil, xerrors.Errorf("create MCP client: %w", err)
 	}
 	defer func() { _ = client.Close() }()
+	if transport, ok := basicClient.Transport.(*http.Transport); ok {
+		defer transport.CloseIdleConnections()
+	}
 
 	catalogCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -80,6 +86,13 @@ func currentDeveloperCatalog(ctx context.Context) ([]toolSpec, error) {
 	}
 	sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
 	return tools, nil
+}
+
+func isolatedHTTPClient() *http.Client {
+	if transport, ok := http.DefaultTransport.(*http.Transport); ok {
+		return &http.Client{Transport: transport.Clone()}
+	}
+	return &http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment}}
 }
 
 func toolParameters(tool mcpproto.Tool) (map[string]any, error) {

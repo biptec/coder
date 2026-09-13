@@ -433,5 +433,8 @@ func writeReport(path string, report runReport) error {
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return xerrors.Errorf("write report: %w", err)
 	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return xerrors.Errorf("restrict report permissions: %w", err)
+	}
 	return nil
 }
