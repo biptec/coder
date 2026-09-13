@@ -34,7 +34,7 @@ func TestObserveWorkspaceProcessKeepsWaitingAcrossOutput(t *testing.T) {
 		}).
 		Times(2)
 
-	resp, err := observeWorkspaceProcess(context.Background(), conn, processID, mcpObservationBudget{deadline: time.Now().Add(time.Second)}, time.Second)
+	resp, err := observeWorkspaceProcess(context.Background(), conn, processID, mcpObservationBudget{deadline: time.Now().Add(time.Second)})
 	require.NoError(t, err)
 	require.False(t, resp.Running)
 	require.NotNil(t, resp.ExitCode)

@@ -19,8 +19,6 @@ const maxDirectoryTraversalEntries = 5000
 type WorkspaceListDirectoryV2Args struct {
 	Workspace     string `json:"workspace"`
 	Path          string `json:"path"`
-	Host          string `json:"host,omitempty"`
-	IdentityFile  string `json:"identity_file,omitempty"`
 	Depth         int    `json:"depth,omitempty"`
 	IncludeHidden bool   `json:"include_hidden,omitempty"`
 	Cursor        int    `json:"cursor,omitempty"`
@@ -50,7 +48,6 @@ var WorkspaceListDirectoryV2 = Tool[WorkspaceListDirectoryV2Args, WorkspaceListD
 			Properties: map[string]any{
 				"workspace": map[string]any{"type": "string", "description": workspaceAgentDescription},
 				"path":      map[string]any{"type": "string", "description": "Absolute directory path."},
-				"host":      map[string]any{"type": "string", "description": "Optional SSH alias returned by remote_hosts. Omit for the workspace filesystem."},
 				"depth": map[string]any{
 					"type":        "integer",
 					"description": "Directory depth to return. 1 lists direct children only. Defaults to 1, maximum 10.",
@@ -64,14 +61,11 @@ var WorkspaceListDirectoryV2 = Tool[WorkspaceListDirectoryV2Args, WorkspaceListD
 			Required: []string{"workspace", "path"},
 		},
 	},
-	MCPAnnotations:     mcpReadOnlyOpenWorldAnnotations,
+	MCPAnnotations:     mcpReadOnlyAnnotations,
 	UserClientOptional: true,
 	Handler: func(ctx context.Context, deps Deps, args WorkspaceListDirectoryV2Args) (WorkspaceListDirectoryV2Result, error) {
 		if args.Workspace == "" || args.Path == "" {
 			return WorkspaceListDirectoryV2Result{}, xerrors.New("workspace and path are required")
-		}
-		if err := validateRemoteTarget(args.Host, args.IdentityFile); err != nil {
-			return WorkspaceListDirectoryV2Result{}, err
 		}
 		if args.Cursor < 0 || args.Cursor > maxDirectoryTraversalEntries {
 			return WorkspaceListDirectoryV2Result{}, xerrors.Errorf("cursor must be between 0 and %d", maxDirectoryTraversalEntries)
@@ -95,9 +89,6 @@ var WorkspaceListDirectoryV2 = Tool[WorkspaceListDirectoryV2Args, WorkspaceListD
 			return WorkspaceListDirectoryV2Result{}, err
 		}
 		defer conn.Close()
-		if args.Host != "" {
-			return remoteListDirectory(ctx, conn, args.Host, args.IdentityFile, args.Path, depth, args.IncludeHidden, args.Cursor, limit)
-		}
 
 		resp, err := conn.ListDirectory(ctx, workspacesdk.ListDirectoryRequest{
 			Path:          args.Path,
@@ -126,13 +117,11 @@ var WorkspaceListDirectoryV2 = Tool[WorkspaceListDirectoryV2Args, WorkspaceListD
 }
 
 type WorkspaceReadFileV2Args struct {
-	Workspace    string `json:"workspace"`
-	Path         string `json:"path"`
-	Host         string `json:"host,omitempty"`
-	IdentityFile string `json:"identity_file,omitempty"`
-	Offset       int64  `json:"offset,omitempty"`
-	Limit        int64  `json:"limit,omitempty"`
-	Binary       bool   `json:"binary,omitempty"`
+	Workspace string `json:"workspace"`
+	Path      string `json:"path"`
+	Offset    int64  `json:"offset,omitempty"`
+	Limit     int64  `json:"limit,omitempty"`
+	Binary    bool   `json:"binary,omitempty"`
 }
 
 type WorkspaceReadFileV2Result struct {
@@ -236,7 +225,6 @@ var WorkspaceReadFileV2 = Tool[WorkspaceReadFileV2Args, WorkspaceReadFileV2Resul
 			Properties: map[string]any{
 				"workspace": map[string]any{"type": "string", "description": workspaceAgentDescription},
 				"path":      map[string]any{"type": "string", "description": "Absolute file path."},
-				"host":      map[string]any{"type": "string", "description": "Optional SSH alias returned by remote_hosts. Omit for the workspace filesystem."},
 				"offset":    map[string]any{"type": "integer", "description": "Text: 1-based line number (default 1). Binary: 0-based byte offset (default 0).", "minimum": 0},
 				"limit":     map[string]any{"type": "integer", "description": "Text: lines (default 200). Binary: bytes (default 65536, maximum 1 MiB).", "minimum": 1},
 				"binary":    map[string]any{"type": "boolean", "description": "Read bytes and return base64 instead of line-numbered text."},
@@ -244,29 +232,21 @@ var WorkspaceReadFileV2 = Tool[WorkspaceReadFileV2Args, WorkspaceReadFileV2Resul
 			Required: []string{"workspace", "path"},
 		},
 	},
-	MCPAnnotations:     mcpReadOnlyOpenWorldAnnotations,
+	MCPAnnotations:     mcpReadOnlyAnnotations,
 	UserClientOptional: true,
 	Handler: func(ctx context.Context, deps Deps, args WorkspaceReadFileV2Args) (WorkspaceReadFileV2Result, error) {
-		if err := validateRemoteTarget(args.Host, args.IdentityFile); err != nil {
-			return WorkspaceReadFileV2Result{}, err
-		}
 		conn, err := openAgentConn(ctx, deps, args.Workspace)
 		if err != nil {
 			return WorkspaceReadFileV2Result{}, err
 		}
 		defer conn.Close()
-		if args.Host != "" {
-			return remoteReadWorkspaceFileV2(ctx, conn, args)
-		}
 		return readWorkspaceFileV2(ctx, conn, args)
 	},
 }
 
 type WorkspaceReadFilesV2Args struct {
-	Workspace    string                    `json:"workspace"`
-	Host         string                    `json:"host,omitempty"`
-	IdentityFile string                    `json:"identity_file,omitempty"`
-	Files        []WorkspaceReadFileV2Args `json:"files"`
+	Workspace string                    `json:"workspace"`
+	Files     []WorkspaceReadFileV2Args `json:"files"`
 }
 
 type WorkspaceReadFilesV2Result struct {
@@ -280,7 +260,6 @@ var WorkspaceReadFilesV2 = Tool[WorkspaceReadFilesV2Args, WorkspaceReadFilesV2Re
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
 				"workspace": map[string]any{"type": "string", "description": workspaceAgentDescription},
-				"host":      map[string]any{"type": "string", "description": "Optional SSH alias returned by remote_hosts applied to all files."},
 				"files": map[string]any{
 					"type":        "array",
 					"description": "Up to 20 file read specifications.",
@@ -301,12 +280,9 @@ var WorkspaceReadFilesV2 = Tool[WorkspaceReadFilesV2Args, WorkspaceReadFilesV2Re
 			Required: []string{"workspace", "files"},
 		},
 	},
-	MCPAnnotations:     mcpReadOnlyOpenWorldAnnotations,
+	MCPAnnotations:     mcpReadOnlyAnnotations,
 	UserClientOptional: true,
 	Handler: func(ctx context.Context, deps Deps, args WorkspaceReadFilesV2Args) (WorkspaceReadFilesV2Result, error) {
-		if err := validateRemoteTarget(args.Host, args.IdentityFile); err != nil {
-			return WorkspaceReadFilesV2Result{}, err
-		}
 		if len(args.Files) == 0 || len(args.Files) > 20 {
 			return WorkspaceReadFilesV2Result{}, xerrors.New("files must contain between 1 and 20 entries")
 		}
@@ -318,14 +294,7 @@ var WorkspaceReadFilesV2 = Tool[WorkspaceReadFilesV2Args, WorkspaceReadFilesV2Re
 		results := make([]WorkspaceReadFileV2Result, 0, len(args.Files))
 		for _, file := range args.Files {
 			file.Workspace = args.Workspace
-			file.Host = args.Host
-			file.IdentityFile = args.IdentityFile
-			var result WorkspaceReadFileV2Result
-			if args.Host != "" {
-				result, err = remoteReadWorkspaceFileV2(ctx, conn, file)
-			} else {
-				result, err = readWorkspaceFileV2(ctx, conn, file)
-			}
+			result, err := readWorkspaceFileV2(ctx, conn, file)
 			if err != nil {
 				results = append(results, WorkspaceReadFileV2Result{Path: file.Path, Error: err.Error()})
 				continue
@@ -337,12 +306,10 @@ var WorkspaceReadFilesV2 = Tool[WorkspaceReadFilesV2Args, WorkspaceReadFilesV2Re
 }
 
 type WorkspaceWriteFileV2Args struct {
-	Workspace    string `json:"workspace"`
-	Path         string `json:"path"`
-	Content      string `json:"content"`
-	Encoding     string `json:"encoding,omitempty"`
-	Host         string `json:"host,omitempty"`
-	IdentityFile string `json:"identity_file,omitempty"`
+	Workspace string `json:"workspace"`
+	Path      string `json:"path"`
+	Content   string `json:"content"`
+	Encoding  string `json:"encoding,omitempty"`
 }
 
 var WorkspaceWriteFileV2 = Tool[WorkspaceWriteFileV2Args, codersdk.Response]{
@@ -355,17 +322,13 @@ var WorkspaceWriteFileV2 = Tool[WorkspaceWriteFileV2Args, codersdk.Response]{
 				"path":      map[string]any{"type": "string", "description": "Absolute file path."},
 				"content":   map[string]any{"type": "string", "description": "Text content or base64 according to encoding."},
 				"encoding":  map[string]any{"type": "string", "description": "text (default) or base64.", "enum": []string{"text", "base64"}},
-				"host":      map[string]any{"type": "string", "description": "Optional SSH alias returned by remote_hosts. Omit for the workspace filesystem."},
 			},
 			Required: []string{"workspace", "path", "content"},
 		},
 	},
-	MCPAnnotations:     mcpDestructiveOpenWorldAnnotations,
+	MCPAnnotations:     mcpDestructiveAnnotations,
 	UserClientOptional: true,
 	Handler: func(ctx context.Context, deps Deps, args WorkspaceWriteFileV2Args) (codersdk.Response, error) {
-		if err := validateRemoteTarget(args.Host, args.IdentityFile); err != nil {
-			return codersdk.Response{}, err
-		}
 		encoding := args.Encoding
 		if encoding == "" {
 			encoding = "text"
@@ -388,12 +351,6 @@ var WorkspaceWriteFileV2 = Tool[WorkspaceWriteFileV2Args, codersdk.Response]{
 			return codersdk.Response{}, err
 		}
 		defer conn.Close()
-		if args.Host != "" {
-			if err := remoteWriteFile(ctx, conn, args.Host, args.IdentityFile, args.Path, data); err != nil {
-				return codersdk.Response{}, err
-			}
-			return codersdk.Response{Message: "File written successfully."}, nil
-		}
 		if err := conn.WriteFile(ctx, args.Path, bytes.NewReader(data)); err != nil {
 			return codersdk.Response{}, err
 		}
@@ -402,10 +359,8 @@ var WorkspaceWriteFileV2 = Tool[WorkspaceWriteFileV2Args, codersdk.Response]{
 }
 
 type WorkspaceFileInfoArgs struct {
-	Workspace    string `json:"workspace"`
-	Path         string `json:"path"`
-	Host         string `json:"host,omitempty"`
-	IdentityFile string `json:"identity_file,omitempty"`
+	Workspace string `json:"workspace"`
+	Path      string `json:"path"`
 }
 
 var WorkspaceFileInfoTool = Tool[WorkspaceFileInfoArgs, workspacesdk.WorkspaceFileInfo]{
@@ -416,35 +371,26 @@ var WorkspaceFileInfoTool = Tool[WorkspaceFileInfoArgs, workspacesdk.WorkspaceFi
 			Properties: map[string]any{
 				"workspace": map[string]any{"type": "string", "description": workspaceAgentDescription},
 				"path":      map[string]any{"type": "string", "description": "Absolute path."},
-				"host":      map[string]any{"type": "string", "description": "Optional SSH alias returned by remote_hosts. Omit for the workspace filesystem."},
 			},
 			Required: []string{"workspace", "path"},
 		},
 	},
-	MCPAnnotations:     mcpReadOnlyOpenWorldAnnotations,
+	MCPAnnotations:     mcpReadOnlyAnnotations,
 	UserClientOptional: true,
 	Handler: func(ctx context.Context, deps Deps, args WorkspaceFileInfoArgs) (workspacesdk.WorkspaceFileInfo, error) {
-		if err := validateRemoteTarget(args.Host, args.IdentityFile); err != nil {
-			return workspacesdk.WorkspaceFileInfo{}, err
-		}
 		conn, err := openAgentConn(ctx, deps, args.Workspace)
 		if err != nil {
 			return workspacesdk.WorkspaceFileInfo{}, err
 		}
 		defer conn.Close()
-		if args.Host != "" {
-			return remoteFileInfo(ctx, conn, args.Host, args.IdentityFile, args.Path)
-		}
 		return conn.FileInfo(ctx, args.Path)
 	},
 }
 
 type WorkspaceCreateDirectoryArgs struct {
-	Workspace    string `json:"workspace"`
-	Path         string `json:"path"`
-	Parents      bool   `json:"parents,omitempty"`
-	Host         string `json:"host,omitempty"`
-	IdentityFile string `json:"identity_file,omitempty"`
+	Workspace string `json:"workspace"`
+	Path      string `json:"path"`
+	Parents   bool   `json:"parents,omitempty"`
 }
 
 var WorkspaceCreateDirectory = Tool[WorkspaceCreateDirectoryArgs, codersdk.Response]{
@@ -455,29 +401,19 @@ var WorkspaceCreateDirectory = Tool[WorkspaceCreateDirectoryArgs, codersdk.Respo
 			Properties: map[string]any{
 				"workspace": map[string]any{"type": "string", "description": workspaceAgentDescription},
 				"path":      map[string]any{"type": "string", "description": "Absolute directory path."},
-				"host":      map[string]any{"type": "string", "description": "Optional SSH alias returned by remote_hosts. Omit for the workspace filesystem."},
 				"parents":   map[string]any{"type": "boolean", "description": "Create missing parent directories."},
 			},
 			Required: []string{"workspace", "path"},
 		},
 	},
-	MCPAnnotations:     mcpMutationOpenWorldAnnotations,
+	MCPAnnotations:     mcpMutationAnnotations,
 	UserClientOptional: true,
 	Handler: func(ctx context.Context, deps Deps, args WorkspaceCreateDirectoryArgs) (codersdk.Response, error) {
-		if err := validateRemoteTarget(args.Host, args.IdentityFile); err != nil {
-			return codersdk.Response{}, err
-		}
 		conn, err := openAgentConn(ctx, deps, args.Workspace)
 		if err != nil {
 			return codersdk.Response{}, err
 		}
 		defer conn.Close()
-		if args.Host != "" {
-			if err := remoteCreateDirectory(ctx, conn, args.Host, args.IdentityFile, args.Path, args.Parents); err != nil {
-				return codersdk.Response{}, err
-			}
-			return codersdk.Response{Message: "Directory created."}, nil
-		}
 		if err := conn.CreateDirectory(ctx, workspacesdk.CreateDirectoryRequest{Path: args.Path, Parents: args.Parents}); err != nil {
 			return codersdk.Response{}, err
 		}
@@ -486,12 +422,10 @@ var WorkspaceCreateDirectory = Tool[WorkspaceCreateDirectoryArgs, codersdk.Respo
 }
 
 type WorkspaceMoveFileArgs struct {
-	Workspace    string `json:"workspace"`
-	Source       string `json:"source"`
-	Dest         string `json:"dest"`
-	Overwrite    bool   `json:"overwrite,omitempty"`
-	Host         string `json:"host,omitempty"`
-	IdentityFile string `json:"identity_file,omitempty"`
+	Workspace string `json:"workspace"`
+	Source    string `json:"source"`
+	Dest      string `json:"dest"`
+	Overwrite bool   `json:"overwrite,omitempty"`
 }
 
 var WorkspaceMoveFile = Tool[WorkspaceMoveFileArgs, codersdk.Response]{
@@ -503,18 +437,14 @@ var WorkspaceMoveFile = Tool[WorkspaceMoveFileArgs, codersdk.Response]{
 				"workspace": map[string]any{"type": "string", "description": workspaceAgentDescription},
 				"source":    map[string]any{"type": "string", "description": "Absolute source path."},
 				"dest":      map[string]any{"type": "string", "description": "Absolute destination path."},
-				"host":      map[string]any{"type": "string", "description": "Optional SSH alias returned by remote_hosts. Source and destination are on the same target."},
 				"overwrite": map[string]any{"type": "boolean", "description": "Allow replacing an existing removable destination. Defaults to false."},
 			},
 			Required: []string{"workspace", "source", "dest"},
 		},
 	},
-	MCPAnnotations:     mcpDestructiveOpenWorldAnnotations,
+	MCPAnnotations:     mcpDestructiveAnnotations,
 	UserClientOptional: true,
 	Handler: func(ctx context.Context, deps Deps, args WorkspaceMoveFileArgs) (codersdk.Response, error) {
-		if err := validateRemoteTarget(args.Host, args.IdentityFile); err != nil {
-			return codersdk.Response{}, err
-		}
 		if filepath.Clean(args.Source) == filepath.Clean(args.Dest) {
 			return codersdk.Response{Message: "Source and destination are identical."}, nil
 		}
@@ -523,12 +453,6 @@ var WorkspaceMoveFile = Tool[WorkspaceMoveFileArgs, codersdk.Response]{
 			return codersdk.Response{}, err
 		}
 		defer conn.Close()
-		if args.Host != "" {
-			if err := remoteMoveFile(ctx, conn, args.Host, args.IdentityFile, args.Source, args.Dest, args.Overwrite); err != nil {
-				return codersdk.Response{}, err
-			}
-			return codersdk.Response{Message: "Path moved."}, nil
-		}
 		if err := conn.MoveFile(ctx, workspacesdk.MoveFileRequest{Source: args.Source, Dest: args.Dest, Overwrite: args.Overwrite}); err != nil {
 			return codersdk.Response{}, err
 		}

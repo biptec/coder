@@ -3,7 +3,6 @@
 package agentproc
 
 import (
-	"errors"
 	"os"
 	"syscall"
 )
@@ -24,12 +23,4 @@ func procSysProcAttr() *syscall.SysProcAttr {
 // also signaled.
 func signalProcess(p *os.Process, sig syscall.Signal) error {
 	return syscall.Kill(-p.Pid, sig)
-}
-
-func killProcessGroup(p *os.Process) error {
-	err := signalProcess(p, syscall.SIGKILL)
-	if errors.Is(err, syscall.ESRCH) {
-		return os.ErrProcessDone
-	}
-	return err
 }

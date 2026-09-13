@@ -14,7 +14,7 @@ func TestObserveProvisionerLogsCursorAndLimit(t *testing.T) {
 	t.Parallel()
 
 	zeroWait := 0
-	result, err := observeProvisionerLogs(context.Background(), newMCPObservationBudget(Deps{}), 10, &zeroWait, 2, func(_ context.Context, after int64) ([]codersdk.ProvisionerJobLog, error) {
+	result, err := observeProvisionerLogs(context.Background(), newMCPObservationBudget(), 10, &zeroWait, 2, func(_ context.Context, after int64) ([]codersdk.ProvisionerJobLog, error) {
 		require.Equal(t, int64(10), after)
 		return []codersdk.ProvisionerJobLog{
 			{ID: 11, Output: "one"},
@@ -33,7 +33,7 @@ func TestObserveProvisionerLogsSnapshotFitsWithinLimit(t *testing.T) {
 	t.Parallel()
 
 	zeroWait := 0
-	result, err := observeProvisionerLogs(context.Background(), newMCPObservationBudget(Deps{}), 20, &zeroWait, 10, func(_ context.Context, after int64) ([]codersdk.ProvisionerJobLog, error) {
+	result, err := observeProvisionerLogs(context.Background(), newMCPObservationBudget(), 20, &zeroWait, 10, func(_ context.Context, after int64) ([]codersdk.ProvisionerJobLog, error) {
 		require.Equal(t, int64(20), after)
 		return []codersdk.ProvisionerJobLog{{ID: 21, Output: "done"}}, nil
 	})
@@ -50,7 +50,7 @@ func TestObserveProvisionerLogsReturnsAtWaitBoundary(t *testing.T) {
 	waitMs := 20
 	calls := 0
 	started := time.Now()
-	result, err := observeProvisionerLogs(context.Background(), newMCPObservationBudget(Deps{}), 7, &waitMs, 0, func(_ context.Context, after int64) ([]codersdk.ProvisionerJobLog, error) {
+	result, err := observeProvisionerLogs(context.Background(), newMCPObservationBudget(), 7, &waitMs, 0, func(_ context.Context, after int64) ([]codersdk.ProvisionerJobLog, error) {
 		require.Equal(t, int64(7), after)
 		calls++
 		return nil, nil
@@ -99,7 +99,7 @@ func TestProvisionerLogToolSchemasExposeBoundedObservation(t *testing.T) {
 		{name: GetWorkspaceBuildLogs.Name, description: GetWorkspaceBuildLogs.Description, properties: GetWorkspaceBuildLogs.Schema.Properties},
 		{name: GetTemplateVersionLogs.Name, description: GetTemplateVersionLogs.Description, properties: GetTemplateVersionLogs.Schema.Properties},
 	} {
-		require.Contains(t, tool.description, "bounded by the deployment-wide MCP tool timeout", tool.name)
+		require.Contains(t, tool.description, "at most a 60-second observation budget", tool.name)
 		require.Contains(t, tool.description, "never cancels", tool.name)
 		require.Contains(t, tool.description, "non-follow log snapshots", tool.name)
 		require.Contains(t, tool.description, "complete=true", tool.name)
@@ -110,9 +110,8 @@ func TestProvisionerLogToolSchemasExposeBoundedObservation(t *testing.T) {
 		require.Contains(t, tool.properties, "wait_timeout_ms", tool.name)
 		require.Contains(t, tool.properties, "limit", tool.name)
 		waitSchema := tool.properties["wait_timeout_ms"].(map[string]any)
-		require.Equal(t, 0, waitSchema["minimum"], tool.name)
-		require.NotContains(t, waitSchema, "default", tool.name)
-		require.NotContains(t, waitSchema, "maximum", tool.name)
+		require.Equal(t, 10000, waitSchema["default"], tool.name)
+		require.Equal(t, 60000, waitSchema["maximum"], tool.name)
 	}
 }
 
@@ -124,13 +123,13 @@ func TestProvisionerLogObservationValidation(t *testing.T) {
 		return nil, nil
 	}
 
-	_, err := observeProvisionerLogs(context.Background(), newMCPObservationBudget(Deps{}), -1, nil, 0, fetch)
+	_, err := observeProvisionerLogs(context.Background(), newMCPObservationBudget(), -1, nil, 0, fetch)
 	require.ErrorContains(t, err, "cursor cannot be negative")
 
-	tooLong := int(codersdk.DefaultMCPToolTimeoutMax.Milliseconds()) + 1
-	_, err = observeProvisionerLogs(context.Background(), newMCPObservationBudget(Deps{}), 0, &tooLong, 0, fetch)
+	tooLong := int(mcpToolObservationWindow.Milliseconds()) + 1
+	_, err = observeProvisionerLogs(context.Background(), newMCPObservationBudget(), 0, &tooLong, 0, fetch)
 	require.ErrorContains(t, err, "cannot exceed")
 
-	_, err = observeProvisionerLogs(context.Background(), newMCPObservationBudget(Deps{}), 0, nil, maxProvisionerLogLimit+1, fetch)
+	_, err = observeProvisionerLogs(context.Background(), newMCPObservationBudget(), 0, nil, maxProvisionerLogLimit+1, fetch)
 	require.ErrorContains(t, err, "limit must be between")
 }

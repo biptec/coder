@@ -19,8 +19,6 @@ type WorkspaceSearchStartArgs struct {
 	CaseSensitive bool   `json:"case_sensitive,omitempty"`
 	IncludeHidden bool   `json:"include_hidden,omitempty"`
 	MaxResults    int    `json:"max_results,omitempty"`
-	Host          string `json:"host,omitempty"`
-	IdentityFile  string `json:"identity_file,omitempty"`
 }
 
 type WorkspaceSearchStartResult struct {
@@ -41,17 +39,13 @@ var WorkspaceSearchStart = Tool[WorkspaceSearchStartArgs, WorkspaceSearchStartRe
 				"case_sensitive": map[string]any{"type": "boolean", "description": "Use case-sensitive matching. Defaults to false."},
 				"include_hidden": map[string]any{"type": "boolean", "description": "Include dot-prefixed files and directories."},
 				"max_results":    map[string]any{"type": "integer", "description": "Maximum retained results. Defaults to 500, maximum 5000.", "minimum": 1, "maximum": 5000},
-				"host":           map[string]any{"type": "string", "description": "Optional SSH alias returned by remote_hosts. Omit to search the workspace filesystem."},
 			},
 			Required: []string{"workspace", "root", "query", "mode"},
 		},
 	},
-	MCPAnnotations:     mcpReadOnlyOpenWorldAnnotations,
+	MCPAnnotations:     mcpReadOnlyAnnotations,
 	UserClientOptional: true,
 	Handler: func(ctx context.Context, deps Deps, args WorkspaceSearchStartArgs) (WorkspaceSearchStartResult, error) {
-		if err := validateRemoteTarget(args.Host, args.IdentityFile); err != nil {
-			return WorkspaceSearchStartResult{}, err
-		}
 		conn, err := openAgentConn(ctx, deps, args.Workspace)
 		if err != nil {
 			return WorkspaceSearchStartResult{}, err
@@ -65,8 +59,6 @@ var WorkspaceSearchStart = Tool[WorkspaceSearchStartArgs, WorkspaceSearchStartRe
 			CaseSensitive: args.CaseSensitive,
 			IncludeHidden: args.IncludeHidden,
 			MaxResults:    args.MaxResults,
-			Host:          args.Host,
-			IdentityFile:  args.IdentityFile,
 		})
 		if err != nil {
 			return WorkspaceSearchStartResult{}, xerrors.Errorf("start workspace search: %w", err)
@@ -96,7 +88,7 @@ var WorkspaceSearchResults = Tool[WorkspaceSearchResultsArgs, workspacesdk.Searc
 			Required: []string{"workspace", "search_id"},
 		},
 	},
-	MCPAnnotations:     mcpReadOnlyOpenWorldAnnotations,
+	MCPAnnotations:     mcpReadOnlyAnnotations,
 	UserClientOptional: true,
 	Handler: func(ctx context.Context, deps Deps, args WorkspaceSearchResultsArgs) (workspacesdk.SearchResultsResponse, error) {
 		if args.Cursor < 0 {
@@ -133,7 +125,7 @@ var WorkspaceSearchList = Tool[WorkspaceSearchListArgs, workspacesdk.ListSearche
 			Required: []string{"workspace"},
 		},
 	},
-	MCPAnnotations:     mcpReadOnlyOpenWorldAnnotations,
+	MCPAnnotations:     mcpReadOnlyAnnotations,
 	UserClientOptional: true,
 	Handler: func(ctx context.Context, deps Deps, args WorkspaceSearchListArgs) (workspacesdk.ListSearchesResponse, error) {
 		conn, err := openAgentConn(ctx, deps, args.Workspace)
@@ -162,7 +154,7 @@ var WorkspaceSearchStop = Tool[WorkspaceSearchStopArgs, codersdk.Response]{
 			Required: []string{"workspace", "search_id"},
 		},
 	},
-	MCPAnnotations:     mcpReadOnlyOpenWorldAnnotations,
+	MCPAnnotations:     mcpReadOnlyAnnotations,
 	UserClientOptional: true,
 	Handler: func(ctx context.Context, deps Deps, args WorkspaceSearchStopArgs) (codersdk.Response, error) {
 		conn, err := openAgentConn(ctx, deps, args.Workspace)

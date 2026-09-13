@@ -3,7 +3,6 @@ package agentproc_test
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -53,18 +52,6 @@ func postStart(t *testing.T, handler http.Handler, req workspacesdk.StartProcess
 			}
 		}
 	}
-	handler.ServeHTTP(w, r)
-	return w
-}
-
-func postRun(t *testing.T, handler http.Handler, req workspacesdk.RunCommandRequest) *httptest.ResponseRecorder {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), testutil.WaitLong)
-	defer cancel()
-	body, err := json.Marshal(req)
-	require.NoError(t, err)
-	w := httptest.NewRecorder()
-	r := httptest.NewRequestWithContext(ctx, http.MethodPost, "/run", bytes.NewReader(body))
 	handler.ServeHTTP(w, r)
 	return w
 }
@@ -254,23 +241,6 @@ func startAndGetID(t *testing.T, handler http.Handler, req workspacesdk.StartPro
 	require.True(t, resp.Started)
 	require.NotEmpty(t, resp.ID)
 	return resp.ID
-}
-
-func TestRunCommand(t *testing.T) {
-	t.Parallel()
-
-	handler := newTestAPI(t)
-	w := postRun(t, handler, workspacesdk.RunCommandRequest{
-		Argv:        []string{"printf", "%s", "hello run command"},
-		StdinBase64: base64.StdEncoding.EncodeToString(nil),
-	})
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var resp workspacesdk.RunCommandResponse
-	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	require.Equal(t, 0, resp.ExitCode)
-	output, err := base64.StdEncoding.DecodeString(resp.StdoutBase64)
-	require.NoError(t, err)
-	require.Equal(t, "hello run command", string(output))
 }
 
 func TestStartProcess(t *testing.T) {

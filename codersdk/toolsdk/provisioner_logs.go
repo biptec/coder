@@ -75,7 +75,7 @@ func observeProvisionerLogs(
 	if cursor < 0 {
 		return ProvisionerLogObservationResult{}, xerrors.New("cursor cannot be negative")
 	}
-	wait, err := workspaceProcessWaitDuration(waitTimeoutMs, budget.max)
+	wait, err := workspaceProcessWaitDuration(waitTimeoutMs)
 	if err != nil {
 		return ProvisionerLogObservationResult{}, err
 	}
@@ -91,9 +91,8 @@ func observeProvisionerLogs(
 		NextCursor: cursor,
 	}
 
-	// The shared observation budget already reserves a short tail below the
-	// deployment-wide MCP timeout for the regular job-status API lookup and
-	// response serialization performed after this function returns.
+	// Preserve a small tail of the shared budget for the regular job-status API
+	// lookup performed by the handler after this function returns.
 	wait = workspaceProcessWaitWithinBudget(wait, budget)
 	observationCtx, cancel := budget.context(ctx)
 	defer cancel()
