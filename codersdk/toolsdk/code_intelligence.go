@@ -14,15 +14,13 @@ import (
 )
 
 type WorkspaceCodeQueryArgs struct {
-	Workspace    string `json:"workspace"`
-	Operation    string `json:"operation"`
-	Path         string `json:"path,omitempty"`
-	Root         string `json:"root,omitempty"`
-	Line         int    `json:"line,omitempty"`
-	Column       int    `json:"column,omitempty"`
-	Query        string `json:"query,omitempty"`
-	Host         string `json:"host,omitempty"`
-	IdentityFile string `json:"identity_file,omitempty"`
+	Workspace string `json:"workspace"`
+	Operation string `json:"operation"`
+	Path      string `json:"path,omitempty"`
+	Root      string `json:"root,omitempty"`
+	Line      int    `json:"line,omitempty"`
+	Column    int    `json:"column,omitempty"`
+	Query     string `json:"query,omitempty"`
 }
 
 const maxCodeToolOutputBytes = 512 << 10
@@ -35,7 +33,7 @@ type WorkspaceCodeQueryResult struct {
 var WorkspaceCodeQuery = Tool[WorkspaceCodeQueryArgs, WorkspaceCodeQueryResult]{
 	Tool: aisdk.Tool{
 		Name: ToolNameWorkspaceCodeQuery,
-		Description: `Query semantic Go code intelligence using the gopls language server CLI available in the workspace or on an optional SSH alias returned by remote_hosts.
+		Description: `Query semantic Go code intelligence using the gopls language server CLI available in the workspace.
 
 Supported operations:
 - symbols: list symbols in path
@@ -57,7 +55,6 @@ This tool is semantic and read-only. Use search_start for plain text or filename
 				"line":   map[string]any{"type": "integer", "minimum": 1, "description": "1-based line for position-based operations."},
 				"column": map[string]any{"type": "integer", "minimum": 1, "description": "1-based column for position-based operations."},
 				"query":  map[string]any{"type": "string", "description": "Symbol query required by workspace_symbols."},
-				"host":   map[string]any{"type": "string", "description": "Optional SSH alias returned by remote_hosts. gopls must be installed on that target."},
 			},
 			Required: []string{"workspace", "operation"},
 		},
@@ -65,9 +62,6 @@ This tool is semantic and read-only. Use search_start for plain text or filename
 	MCPAnnotations:     mcpReadOnlyOpenWorldAnnotations,
 	UserClientOptional: true,
 	Handler: func(ctx context.Context, deps Deps, args WorkspaceCodeQueryArgs) (WorkspaceCodeQueryResult, error) {
-		if err := validateRemoteTarget(args.Host, args.IdentityFile); err != nil {
-			return WorkspaceCodeQueryResult{}, err
-		}
 		argv, workdir, err := codeQueryCommand(args)
 		if err != nil {
 			return WorkspaceCodeQueryResult{}, err
@@ -78,10 +72,8 @@ This tool is semantic and read-only. Use search_start for plain text or filename
 		}
 		defer conn.Close()
 		resp, err := conn.RunCommand(ctx, workspacesdk.RunCommandRequest{
-			Argv:         argv,
-			WorkDir:      workdir,
-			Host:         args.Host,
-			IdentityFile: args.IdentityFile,
+			Argv:    argv,
+			WorkDir: workdir,
 		})
 		if err != nil {
 			return WorkspaceCodeQueryResult{}, err
@@ -150,14 +142,12 @@ func codeQueryCommand(args WorkspaceCodeQueryArgs) ([]string, string, error) {
 }
 
 type WorkspaceCodeRenameArgs struct {
-	Workspace    string `json:"workspace"`
-	Path         string `json:"path"`
-	Line         int    `json:"line"`
-	Column       int    `json:"column"`
-	NewName      string `json:"new_name"`
-	Host         string `json:"host,omitempty"`
-	IdentityFile string `json:"identity_file,omitempty"`
-	DryRun       bool   `json:"dry_run,omitempty"`
+	Workspace string `json:"workspace"`
+	Path      string `json:"path"`
+	Line      int    `json:"line"`
+	Column    int    `json:"column"`
+	NewName   string `json:"new_name"`
+	DryRun    bool   `json:"dry_run,omitempty"`
 }
 
 type WorkspaceCodeRenameResult struct {
@@ -177,7 +167,6 @@ var WorkspaceCodeRename = Tool[WorkspaceCodeRenameArgs, WorkspaceCodeRenameResul
 				"line":      map[string]any{"type": "integer", "minimum": 1, "description": "1-based line of the identifier."},
 				"column":    map[string]any{"type": "integer", "minimum": 1, "description": "1-based column of the identifier."},
 				"new_name":  map[string]any{"type": "string", "description": "New identifier name."},
-				"host":      map[string]any{"type": "string", "description": "Optional SSH alias returned by remote_hosts. gopls must be installed on that target."},
 				"dry_run":   map[string]any{"type": "boolean", "description": "Return the proposed diff without changing files."},
 			},
 			Required: []string{"workspace", "path", "line", "column", "new_name"},
@@ -186,9 +175,6 @@ var WorkspaceCodeRename = Tool[WorkspaceCodeRenameArgs, WorkspaceCodeRenameResul
 	MCPAnnotations:     mcpDestructiveOpenWorldAnnotations,
 	UserClientOptional: true,
 	Handler: func(ctx context.Context, deps Deps, args WorkspaceCodeRenameArgs) (WorkspaceCodeRenameResult, error) {
-		if err := validateRemoteTarget(args.Host, args.IdentityFile); err != nil {
-			return WorkspaceCodeRenameResult{}, err
-		}
 		if args.Path == "" || !path.IsAbs(args.Path) {
 			return WorkspaceCodeRenameResult{}, xerrors.New("path must be an absolute source file path")
 		}
@@ -213,10 +199,8 @@ var WorkspaceCodeRename = Tool[WorkspaceCodeRenameArgs, WorkspaceCodeRenameResul
 		}
 		defer conn.Close()
 		resp, err := conn.RunCommand(ctx, workspacesdk.RunCommandRequest{
-			Argv:         argv,
-			WorkDir:      path.Dir(args.Path),
-			Host:         args.Host,
-			IdentityFile: args.IdentityFile,
+			Argv:    argv,
+			WorkDir: path.Dir(args.Path),
 		})
 		if err != nil {
 			return WorkspaceCodeRenameResult{}, err

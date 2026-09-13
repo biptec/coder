@@ -10,13 +10,11 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"golang.org/x/xerrors"
 
-	"github.com/coder/coder/v2/agent/sshconfig"
 	"github.com/coder/coder/v2/coderd/httpapi"
 	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/codersdk/workspacesdk"
@@ -94,9 +92,6 @@ func (api *API) runCommand(ctx context.Context, req workspacesdk.RunCommandReque
 
 	var cmd *exec.Cmd
 	if req.Host != "" {
-		if err := sshconfig.ValidateAlias(req.Host); err != nil {
-			return workspacesdk.RunCommandResponse{}, err
-		}
 		remoteCommand, err := buildSSHRemoteCommand(workspacesdk.StartProcessRequest{
 			Command:      req.Command,
 			Argv:         req.Argv,
@@ -110,9 +105,6 @@ func (api *API) runCommand(ctx context.Context, req workspacesdk.RunCommandReque
 		}
 		args := []string{"-o", "BatchMode=yes"}
 		if req.IdentityFile != "" {
-			if !filepath.IsAbs(req.IdentityFile) {
-				return workspacesdk.RunCommandResponse{}, xerrors.New("identity_file must be an absolute workspace path")
-			}
 			args = append(args, "-i", req.IdentityFile)
 		}
 		args = append(args, "--", strings.TrimSpace(req.Host), remoteCommand)

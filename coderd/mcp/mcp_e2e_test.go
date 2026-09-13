@@ -1563,11 +1563,11 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 	developerToolSpecs := listTools(developerClient.SessionToken())
 	developerTools := toolNames(developerToolSpecs)
 	assert.ElementsMatch(t, []string{
-		"status", "list_workspaces", "remote_hosts",
+		"status", "list_workspaces",
 		"list_directory", "read_file", "read_files", "write_file", "file_info", "create_directory", "move_file", "copy_path", "remove_path",
 		"edit_file", "edit_files",
 		"search_start", "search_results", "search_list", "search_stop",
-		"http_fetch", "http_request", "git_query", "git_mutate", "code_query", "code_rename",
+		"http_fetch", "code_query", "code_rename",
 		"bash", "exec",
 		"process_start", "process_output", "process_list", "process_input", "process_signal",
 		"list_apps", "capabilities", "recent_activity",
@@ -1632,10 +1632,10 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 
 	readonlyTools := toolNames(listTools(developerClient.SessionToken()))
 	assert.ElementsMatch(t, []string{
-		"status", "list_workspaces", "remote_hosts",
+		"status", "list_workspaces",
 		"list_directory", "read_file", "read_files", "file_info",
 		"search_start", "search_results", "search_list", "search_stop",
-		"http_fetch", "git_query", "code_query",
+		"http_fetch", "code_query",
 		"process_output", "process_list", "list_apps", "capabilities", "recent_activity",
 	}, readonlyTools)
 	assert.NotContains(t, readonlyTools, "write_file")

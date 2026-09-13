@@ -2158,7 +2158,11 @@ var WorkspaceEditFile = Tool[WorkspaceEditFileArgs, WorkspaceEditFilesResponse]{
 				},
 				"host": map[string]any{
 					"type":        "string",
-					"description": "Optional SSH alias returned by remote_hosts. Omit for the workspace filesystem.",
+					"description": remoteHostDescription,
+				},
+				"identity_file": map[string]any{
+					"type":        "string",
+					"description": remoteIdentityFileDescription,
 				},
 				"dry_run": map[string]any{
 					"type":        "boolean",
@@ -2250,7 +2254,11 @@ var WorkspaceEditFiles = Tool[WorkspaceEditFilesArgs, WorkspaceEditFilesResponse
 				},
 				"host": map[string]any{
 					"type":        "string",
-					"description": "Optional SSH alias returned by remote_hosts applied to all files. Omit for the workspace filesystem.",
+					"description": remoteHostDescription,
+				},
+				"identity_file": map[string]any{
+					"type":        "string",
+					"description": remoteIdentityFileDescription,
 				},
 				"dry_run": map[string]any{
 					"type":        "boolean",

@@ -204,7 +204,6 @@ type toolAlias struct {
 var developerToolAliases = []toolAlias{
 	{SDKName: toolsdk.ToolNameGetWorkspace, MCPName: "status"},
 	{SDKName: toolsdk.ToolNameListAccessibleWorkspaces, MCPName: "list_workspaces"},
-	{SDKName: toolsdk.ToolNameWorkspaceRemoteHosts, MCPName: "remote_hosts"},
 	{SDKName: toolsdk.ToolNameWorkspaceListDirectoryV2, MCPName: "list_directory"},
 	{SDKName: toolsdk.ToolNameWorkspaceReadFileV2, MCPName: "read_file"},
 	{SDKName: toolsdk.ToolNameWorkspaceReadFilesV2, MCPName: "read_files"},
@@ -215,9 +214,6 @@ var developerToolAliases = []toolAlias{
 	{SDKName: toolsdk.ToolNameWorkspaceCopyPath, MCPName: "copy_path"},
 	{SDKName: toolsdk.ToolNameWorkspaceRemovePath, MCPName: "remove_path"},
 	{SDKName: toolsdk.ToolNameWorkspaceHTTPFetch, MCPName: "http_fetch"},
-	{SDKName: toolsdk.ToolNameWorkspaceHTTPRequest, MCPName: "http_request"},
-	{SDKName: toolsdk.ToolNameWorkspaceGitQuery, MCPName: "git_query"},
-	{SDKName: toolsdk.ToolNameWorkspaceGitMutate, MCPName: "git_mutate"},
 	{SDKName: toolsdk.ToolNameWorkspaceCodeQuery, MCPName: "code_query"},
 	{SDKName: toolsdk.ToolNameWorkspaceCodeRename, MCPName: "code_rename"},
 	{SDKName: toolsdk.ToolNameWorkspaceSearchStart, MCPName: "search_start"},
@@ -240,13 +236,11 @@ var developerToolAliases = []toolAlias{
 var readonlyToolAliases = []toolAlias{
 	{SDKName: toolsdk.ToolNameGetWorkspace, MCPName: "status"},
 	{SDKName: toolsdk.ToolNameListAccessibleWorkspaces, MCPName: "list_workspaces"},
-	{SDKName: toolsdk.ToolNameWorkspaceRemoteHosts, MCPName: "remote_hosts"},
 	{SDKName: toolsdk.ToolNameWorkspaceListDirectoryV2, MCPName: "list_directory"},
 	{SDKName: toolsdk.ToolNameWorkspaceReadFileV2, MCPName: "read_file"},
 	{SDKName: toolsdk.ToolNameWorkspaceReadFilesV2, MCPName: "read_files"},
 	{SDKName: toolsdk.ToolNameWorkspaceFileInfo, MCPName: "file_info"},
 	{SDKName: toolsdk.ToolNameWorkspaceHTTPFetch, MCPName: "http_fetch"},
-	{SDKName: toolsdk.ToolNameWorkspaceGitQuery, MCPName: "git_query"},
 	{SDKName: toolsdk.ToolNameWorkspaceCodeQuery, MCPName: "code_query"},
 	{SDKName: toolsdk.ToolNameWorkspaceSearchStart, MCPName: "search_start"},
 	{SDKName: toolsdk.ToolNameWorkspaceSearchResults, MCPName: "search_results"},
@@ -335,11 +329,7 @@ func (s *Server) registerAliasedTools(client *codersdk.Client, aliases []toolAli
 	toolsByName[toolsdk.ToolNameWorkspaceMoveFile] = toolsdk.WorkspaceMoveFile.Generic()
 	toolsByName[toolsdk.ToolNameWorkspaceCopyPath] = toolsdk.WorkspaceCopyPath.Generic()
 	toolsByName[toolsdk.ToolNameWorkspaceRemovePath] = toolsdk.WorkspaceRemovePath.Generic()
-	toolsByName[toolsdk.ToolNameWorkspaceRemoteHosts] = toolsdk.WorkspaceRemoteHosts.Generic()
 	toolsByName[toolsdk.ToolNameWorkspaceHTTPFetch] = toolsdk.WorkspaceHTTPFetch.Generic()
-	toolsByName[toolsdk.ToolNameWorkspaceHTTPRequest] = toolsdk.WorkspaceHTTPRequest.Generic()
-	toolsByName[toolsdk.ToolNameWorkspaceGitQuery] = toolsdk.WorkspaceGitQuery.Generic()
-	toolsByName[toolsdk.ToolNameWorkspaceGitMutate] = toolsdk.WorkspaceGitMutate.Generic()
 	toolsByName[toolsdk.ToolNameWorkspaceCodeQuery] = toolsdk.WorkspaceCodeQuery.Generic()
 	toolsByName[toolsdk.ToolNameWorkspaceCodeRename] = toolsdk.WorkspaceCodeRename.Generic()
 	toolsByName[toolsdk.ToolNameWorkspaceSearchStart] = toolsdk.WorkspaceSearchStart.Generic()

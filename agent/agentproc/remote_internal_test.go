@@ -2,6 +2,8 @@ package agentproc
 
 import (
 	"encoding/json"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -47,6 +49,13 @@ func TestTrackedRemoteCommandUsesPrivatePIDFile(t *testing.T) {
 	require.Contains(t, command, "/tmp/coder-mcp-process-test.pid")
 	require.Contains(t, command, "$$")
 	require.Contains(t, command, "rm -f")
+	require.Contains(t, command, "__coder_status=$?")
+	require.NotContains(t, command, "; status=$?")
+
+	pidFile := filepath.Join(t.TempDir(), "remote.pid")
+	command = trackedRemoteCommand("exit 0", pidFile)
+	output, err := exec.Command("zsh", "-c", command).CombinedOutput()
+	require.NoError(t, err, string(output))
 }
 
 func TestProcessInfoExposesHostButNotIdentityFile(t *testing.T) {

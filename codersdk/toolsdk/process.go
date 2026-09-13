@@ -110,7 +110,11 @@ The command is executed by the workspace Agent using sh -c. If workdir is omitte
 				},
 				"host": map[string]any{
 					"type":        "string",
-					"description": "Optional SSH alias returned by remote_hosts. Omit for local workspace execution.",
+					"description": remoteHostDescription,
+				},
+				"identity_file": map[string]any{
+					"type":        "string",
+					"description": remoteIdentityFileDescription,
 				},
 				"background": map[string]any{
 					"type":        "boolean",

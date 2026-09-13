@@ -12,6 +12,11 @@ import (
 	"github.com/coder/coder/v2/codersdk/workspacesdk"
 )
 
+const (
+	remoteHostDescription         = "Optional SSH target (hostname, IP address, SSH alias, or user@host). Omit for local workspace execution."
+	remoteIdentityFileDescription = "Optional workspace path to the SSH private key used for host, equivalent to ssh -i. Only the path is passed through MCP, never the key contents."
+)
+
 type WorkspacePathEndpoint struct {
 	Path         string `json:"path"`
 	Host         string `json:"host,omitempty"`
@@ -20,46 +25,11 @@ type WorkspacePathEndpoint struct {
 
 func validateRemoteTarget(host, identityFile string) error {
 	host = strings.TrimSpace(host)
-	if identityFile != "" {
-		return xerrors.New("identity_file is not accepted by assistant remote tools; configure IdentityFile on the SSH alias and call remote_hosts to discover allowed targets")
+	if strings.ContainsAny(host, "\r\n\x00") {
+		return xerrors.New("host cannot contain newline or NUL characters")
 	}
-	for _, r := range host {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
-		default:
-			return xerrors.New("host must be an exact SSH alias containing only letters, digits, '.', '_' or '-'; call remote_hosts to list allowed targets")
-		}
-	}
-	return nil
-}
-
-func validateConfiguredRemoteAliases(ctx context.Context, conn workspacesdk.AgentConn, hosts ...string) error {
-	needValidation := false
-	for _, host := range hosts {
-		if strings.TrimSpace(host) != "" {
-			needValidation = true
-			break
-		}
-	}
-	if !needValidation {
-		return nil
-	}
-	response, err := conn.ListRemoteHosts(ctx)
-	if err != nil {
-		return xerrors.Errorf("list configured SSH aliases: %w", err)
-	}
-	allowed := make(map[string]struct{}, len(response.Hosts))
-	for _, host := range response.Hosts {
-		allowed[strings.ToLower(host.Alias)] = struct{}{}
-	}
-	for _, host := range hosts {
-		host = strings.TrimSpace(host)
-		if host == "" {
-			continue
-		}
-		if _, ok := allowed[strings.ToLower(host)]; !ok {
-			return xerrors.Errorf("SSH alias %q is not configured; call remote_hosts to list allowed targets", host)
-		}
+	if identityFile != "" && host == "" {
+		return xerrors.New("identity_file requires host")
 	}
 	return nil
 }
@@ -76,7 +46,7 @@ func endpointSSHInvocation(endpoint WorkspacePathEndpoint, remoteCommand string)
 		return "", err
 	}
 	if endpoint.Host == "" {
-		return remoteCommand, nil
+		return "bash -c " + toolShellQuote(remoteCommand), nil
 	}
 	parts := []string{"ssh", "-o", "BatchMode=yes"}
 	if endpoint.IdentityFile != "" {
@@ -122,19 +92,21 @@ var WorkspaceCopyPath = Tool[WorkspaceCopyPathArgs, codersdk.Response]{
 				"workspace": map[string]any{"type": "string", "description": workspaceAgentDescription},
 				"source": map[string]any{
 					"type":        "object",
-					"description": "Source path and optional SSH alias returned by remote_hosts.",
+					"description": "Source path and optional SSH target.",
 					"properties": map[string]any{
-						"path": map[string]any{"type": "string", "description": "Absolute source path."},
-						"host": map[string]any{"type": "string", "description": "Optional SSH alias returned by remote_hosts."},
+						"path":          map[string]any{"type": "string", "description": "Absolute source path."},
+						"host":          map[string]any{"type": "string", "description": remoteHostDescription},
+						"identity_file": map[string]any{"type": "string", "description": remoteIdentityFileDescription},
 					},
 					"required": []string{"path"},
 				},
 				"destination": map[string]any{
 					"type":        "object",
-					"description": "Destination path and optional SSH alias returned by remote_hosts.",
+					"description": "Destination path and optional SSH target.",
 					"properties": map[string]any{
-						"path": map[string]any{"type": "string", "description": "Absolute destination path."},
-						"host": map[string]any{"type": "string", "description": "Optional SSH alias returned by remote_hosts."},
+						"path":          map[string]any{"type": "string", "description": "Absolute destination path."},
+						"host":          map[string]any{"type": "string", "description": remoteHostDescription},
+						"identity_file": map[string]any{"type": "string", "description": remoteIdentityFileDescription},
 					},
 					"required": []string{"path"},
 				},
@@ -170,10 +142,6 @@ var WorkspaceCopyPath = Tool[WorkspaceCopyPathArgs, codersdk.Response]{
 			return codersdk.Response{}, err
 		}
 		defer conn.Close()
-		if err := validateConfiguredRemoteAliases(ctx, conn, args.Source.Host, args.Destination.Host); err != nil {
-			return codersdk.Response{}, err
-		}
-
 		if samePathTarget(args.Source, args.Destination) {
 			command := "if [ ! -e " + toolShellQuote(args.Source.Path) + " ] && [ ! -L " + toolShellQuote(args.Source.Path) + " ]; then echo 'source does not exist' >&2; exit 2; fi; " +
 				"if [ -e " + toolShellQuote(args.Destination.Path) + " ] || [ -L " + toolShellQuote(args.Destination.Path) + " ]; then "
@@ -241,10 +209,11 @@ var WorkspaceRemovePath = Tool[WorkspaceRemovePathArgs, codersdk.Response]{
 		Description: `Remove a file, symlink, or directory from the workspace or an SSH target. Directories must be empty unless recursive=true.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
-				"workspace": map[string]any{"type": "string", "description": workspaceAgentDescription},
-				"path":      map[string]any{"type": "string", "description": "Absolute path to remove."},
-				"host":      map[string]any{"type": "string", "description": "Optional SSH alias returned by remote_hosts. Omit for the workspace filesystem."},
-				"recursive": map[string]any{"type": "boolean", "description": "Recursively remove a directory tree. Defaults to false."},
+				"workspace":     map[string]any{"type": "string", "description": workspaceAgentDescription},
+				"path":          map[string]any{"type": "string", "description": "Absolute path to remove."},
+				"host":          map[string]any{"type": "string", "description": remoteHostDescription},
+				"identity_file": map[string]any{"type": "string", "description": remoteIdentityFileDescription},
+				"recursive":     map[string]any{"type": "boolean", "description": "Recursively remove a directory tree. Defaults to false."},
 			},
 			Required: []string{"workspace", "path"},
 		},

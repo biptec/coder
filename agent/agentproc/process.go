@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -20,7 +19,6 @@ import (
 
 	"cdr.dev/slog/v3"
 	"github.com/coder/coder/v2/agent/agentexec"
-	"github.com/coder/coder/v2/agent/sshconfig"
 	"github.com/coder/coder/v2/agent/usershell"
 	"github.com/coder/coder/v2/codersdk/workspacesdk"
 	"github.com/coder/quartz"
@@ -124,7 +122,7 @@ func validEnvironmentName(name string) bool {
 func trackedRemoteCommand(command, pidFile string) string {
 	inner := "printf '%s\\n' \"$$\" > " + shellQuote(pidFile) + "; exec sh -c " + shellQuote(command)
 	runner := "sh -c " + shellQuote(inner)
-	return "if setsid -w true >/dev/null 2>&1; then setsid -w " + runner + "; else " + runner + "; fi; status=$?; rm -f -- " + shellQuote(pidFile) + "; exit $status"
+	return "if setsid -w true >/dev/null 2>&1; then setsid -w " + runner + "; else " + runner + "; fi; __coder_status=$?; rm -f -- " + shellQuote(pidFile) + "; exit $__coder_status"
 }
 
 func buildSSHRemoteCommand(req workspacesdk.StartProcessRequest) (string, error) {
@@ -288,10 +286,6 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 	processWorkDir := req.WorkDir
 	remotePIDFile := ""
 	if req.Host != "" {
-		if err := sshconfig.ValidateAlias(req.Host); err != nil {
-			cancel()
-			return nil, err
-		}
 		remoteCommand, err := buildSSHRemoteCommand(req)
 		if err != nil {
 			cancel()
@@ -301,10 +295,6 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 		remoteCommand = trackedRemoteCommand(remoteCommand, remotePIDFile)
 		sshArgs := []string{"-o", "BatchMode=yes"}
 		if req.IdentityFile != "" {
-			if !filepath.IsAbs(req.IdentityFile) {
-				cancel()
-				return nil, xerrors.New("identity_file must be an absolute workspace path")
-			}
 			sshArgs = append(sshArgs, "-i", req.IdentityFile)
 		}
 		sshArgs = append(sshArgs, "--", req.Host, remoteCommand)

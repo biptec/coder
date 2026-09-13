@@ -48,9 +48,10 @@ var WorkspaceListDirectoryV2 = Tool[WorkspaceListDirectoryV2Args, WorkspaceListD
 		Description: `List a workspace directory with optional bounded recursion, metadata, hidden-file control, and pagination.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
-				"workspace": map[string]any{"type": "string", "description": workspaceAgentDescription},
-				"path":      map[string]any{"type": "string", "description": "Absolute directory path."},
-				"host":      map[string]any{"type": "string", "description": "Optional SSH alias returned by remote_hosts. Omit for the workspace filesystem."},
+				"workspace":     map[string]any{"type": "string", "description": workspaceAgentDescription},
+				"path":          map[string]any{"type": "string", "description": "Absolute directory path."},
+				"host":          map[string]any{"type": "string", "description": remoteHostDescription},
+				"identity_file": map[string]any{"type": "string", "description": remoteIdentityFileDescription},
 				"depth": map[string]any{
 					"type":        "integer",
 					"description": "Directory depth to return. 1 lists direct children only. Defaults to 1, maximum 10.",
@@ -234,12 +235,13 @@ var WorkspaceReadFileV2 = Tool[WorkspaceReadFileV2Args, WorkspaceReadFileV2Resul
 		Description: `Read a workspace file. Text mode is the default and uses 1-based line offsets with line-numbered output. Set binary=true for byte offsets and base64 content.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
-				"workspace": map[string]any{"type": "string", "description": workspaceAgentDescription},
-				"path":      map[string]any{"type": "string", "description": "Absolute file path."},
-				"host":      map[string]any{"type": "string", "description": "Optional SSH alias returned by remote_hosts. Omit for the workspace filesystem."},
-				"offset":    map[string]any{"type": "integer", "description": "Text: 1-based line number (default 1). Binary: 0-based byte offset (default 0).", "minimum": 0},
-				"limit":     map[string]any{"type": "integer", "description": "Text: lines (default 200). Binary: bytes (default 65536, maximum 1 MiB).", "minimum": 1},
-				"binary":    map[string]any{"type": "boolean", "description": "Read bytes and return base64 instead of line-numbered text."},
+				"workspace":     map[string]any{"type": "string", "description": workspaceAgentDescription},
+				"path":          map[string]any{"type": "string", "description": "Absolute file path."},
+				"host":          map[string]any{"type": "string", "description": remoteHostDescription},
+				"identity_file": map[string]any{"type": "string", "description": remoteIdentityFileDescription},
+				"offset":        map[string]any{"type": "integer", "description": "Text: 1-based line number (default 1). Binary: 0-based byte offset (default 0).", "minimum": 0},
+				"limit":         map[string]any{"type": "integer", "description": "Text: lines (default 200). Binary: bytes (default 65536, maximum 1 MiB).", "minimum": 1},
+				"binary":        map[string]any{"type": "boolean", "description": "Read bytes and return base64 instead of line-numbered text."},
 			},
 			Required: []string{"workspace", "path"},
 		},
@@ -279,8 +281,9 @@ var WorkspaceReadFilesV2 = Tool[WorkspaceReadFilesV2Args, WorkspaceReadFilesV2Re
 		Description: `Read multiple workspace files in one call. Each file returns its own result or error; one missing file does not fail the whole batch.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
-				"workspace": map[string]any{"type": "string", "description": workspaceAgentDescription},
-				"host":      map[string]any{"type": "string", "description": "Optional SSH alias returned by remote_hosts applied to all files."},
+				"workspace":     map[string]any{"type": "string", "description": workspaceAgentDescription},
+				"host":          map[string]any{"type": "string", "description": remoteHostDescription},
+				"identity_file": map[string]any{"type": "string", "description": remoteIdentityFileDescription},
 				"files": map[string]any{
 					"type":        "array",
 					"description": "Up to 20 file read specifications.",
@@ -351,11 +354,12 @@ var WorkspaceWriteFileV2 = Tool[WorkspaceWriteFileV2Args, codersdk.Response]{
 		Description: `Write a complete workspace file. Content is UTF-8 text by default; set encoding=base64 for binary bytes. This tool replaces the file and never appends.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
-				"workspace": map[string]any{"type": "string", "description": workspaceAgentDescription},
-				"path":      map[string]any{"type": "string", "description": "Absolute file path."},
-				"content":   map[string]any{"type": "string", "description": "Text content or base64 according to encoding."},
-				"encoding":  map[string]any{"type": "string", "description": "text (default) or base64.", "enum": []string{"text", "base64"}},
-				"host":      map[string]any{"type": "string", "description": "Optional SSH alias returned by remote_hosts. Omit for the workspace filesystem."},
+				"workspace":     map[string]any{"type": "string", "description": workspaceAgentDescription},
+				"path":          map[string]any{"type": "string", "description": "Absolute file path."},
+				"content":       map[string]any{"type": "string", "description": "Text content or base64 according to encoding."},
+				"encoding":      map[string]any{"type": "string", "description": "text (default) or base64.", "enum": []string{"text", "base64"}},
+				"host":          map[string]any{"type": "string", "description": remoteHostDescription},
+				"identity_file": map[string]any{"type": "string", "description": remoteIdentityFileDescription},
 			},
 			Required: []string{"workspace", "path", "content"},
 		},
@@ -414,9 +418,10 @@ var WorkspaceFileInfoTool = Tool[WorkspaceFileInfoArgs, workspacesdk.WorkspaceFi
 		Description: `Return metadata for a workspace filesystem path without reading its content.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
-				"workspace": map[string]any{"type": "string", "description": workspaceAgentDescription},
-				"path":      map[string]any{"type": "string", "description": "Absolute path."},
-				"host":      map[string]any{"type": "string", "description": "Optional SSH alias returned by remote_hosts. Omit for the workspace filesystem."},
+				"workspace":     map[string]any{"type": "string", "description": workspaceAgentDescription},
+				"path":          map[string]any{"type": "string", "description": "Absolute path."},
+				"host":          map[string]any{"type": "string", "description": remoteHostDescription},
+				"identity_file": map[string]any{"type": "string", "description": remoteIdentityFileDescription},
 			},
 			Required: []string{"workspace", "path"},
 		},
@@ -453,10 +458,11 @@ var WorkspaceCreateDirectory = Tool[WorkspaceCreateDirectoryArgs, codersdk.Respo
 		Description: `Create a directory in a workspace. Existing directories are treated as success.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
-				"workspace": map[string]any{"type": "string", "description": workspaceAgentDescription},
-				"path":      map[string]any{"type": "string", "description": "Absolute directory path."},
-				"host":      map[string]any{"type": "string", "description": "Optional SSH alias returned by remote_hosts. Omit for the workspace filesystem."},
-				"parents":   map[string]any{"type": "boolean", "description": "Create missing parent directories."},
+				"workspace":     map[string]any{"type": "string", "description": workspaceAgentDescription},
+				"path":          map[string]any{"type": "string", "description": "Absolute directory path."},
+				"host":          map[string]any{"type": "string", "description": remoteHostDescription},
+				"identity_file": map[string]any{"type": "string", "description": remoteIdentityFileDescription},
+				"parents":       map[string]any{"type": "boolean", "description": "Create missing parent directories."},
 			},
 			Required: []string{"workspace", "path"},
 		},
@@ -500,11 +506,12 @@ var WorkspaceMoveFile = Tool[WorkspaceMoveFileArgs, codersdk.Response]{
 		Description: `Move or rename a workspace file or directory without shell quoting. Destination overwrite is disabled by default.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
-				"workspace": map[string]any{"type": "string", "description": workspaceAgentDescription},
-				"source":    map[string]any{"type": "string", "description": "Absolute source path."},
-				"dest":      map[string]any{"type": "string", "description": "Absolute destination path."},
-				"host":      map[string]any{"type": "string", "description": "Optional SSH alias returned by remote_hosts. Source and destination are on the same target."},
-				"overwrite": map[string]any{"type": "boolean", "description": "Allow replacing an existing removable destination. Defaults to false."},
+				"workspace":     map[string]any{"type": "string", "description": workspaceAgentDescription},
+				"source":        map[string]any{"type": "string", "description": "Absolute source path."},
+				"dest":          map[string]any{"type": "string", "description": "Absolute destination path."},
+				"host":          map[string]any{"type": "string", "description": remoteHostDescription},
+				"identity_file": map[string]any{"type": "string", "description": remoteIdentityFileDescription},
+				"overwrite":     map[string]any{"type": "boolean", "description": "Allow replacing an existing removable destination. Defaults to false."},
 			},
 			Required: []string{"workspace", "source", "dest"},
 		},

@@ -21,7 +21,6 @@ import (
 
 	"github.com/coder/coder/v2/agent/agentchat"
 	"github.com/coder/coder/v2/agent/agentexec"
-	"github.com/coder/coder/v2/agent/sshconfig"
 	"github.com/coder/coder/v2/coderd/httpapi"
 	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/codersdk/workspacesdk"
@@ -101,11 +100,6 @@ func (m *searchManager) start(req workspacesdk.SearchStartRequest, chatID string
 	}
 	if req.Mode != "files" && req.Mode != "content" {
 		return "", xerrors.New(`search mode must be "files" or "content"`)
-	}
-	if req.Host != "" {
-		if err := sshconfig.ValidateAlias(req.Host); err != nil {
-			return "", err
-		}
 	}
 	if req.Host == "" {
 		info, err := m.fs.Stat(req.Root)

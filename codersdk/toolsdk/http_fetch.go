@@ -46,14 +46,15 @@ type WorkspaceHTTPFetchResult struct {
 var WorkspaceHTTPFetch = Tool[WorkspaceHTTPFetchArgs, WorkspaceHTTPFetchResult]{
 	Tool: aisdk.Tool{
 		Name:        ToolNameWorkspaceHTTPFetch,
-		Description: `Fetch an HTTP or HTTPS URL from the workspace or an optional SSH alias returned by remote_hosts. Only GET and HEAD are supported. Response bodies are bounded; binary bodies are returned as base64.`,
+		Description: `Fetch an HTTP or HTTPS URL from the workspace or an optional SSH target. Only GET and HEAD are supported. Response bodies are bounded; binary bodies are returned as base64.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
-				"workspace": map[string]any{"type": "string", "description": workspaceAgentDescription},
-				"url":       map[string]any{"type": "string", "description": "HTTP or HTTPS URL to fetch."},
-				"method":    map[string]any{"type": "string", "description": "HTTP method. Defaults to GET.", "enum": []string{"GET", "HEAD"}},
-				"headers":   map[string]any{"type": "object", "description": "Optional request headers. Header values are redacted from stored MCP activity metadata.", "additionalProperties": map[string]any{"type": "string"}},
-				"host":      map[string]any{"type": "string", "description": "Optional SSH alias returned by remote_hosts from which to perform the request."},
+				"workspace":     map[string]any{"type": "string", "description": workspaceAgentDescription},
+				"url":           map[string]any{"type": "string", "description": "HTTP or HTTPS URL to fetch."},
+				"method":        map[string]any{"type": "string", "description": "HTTP method. Defaults to GET.", "enum": []string{"GET", "HEAD"}},
+				"headers":       map[string]any{"type": "object", "description": "Optional request headers. Header values are redacted from stored MCP activity metadata.", "additionalProperties": map[string]any{"type": "string"}},
+				"host":          map[string]any{"type": "string", "description": remoteHostDescription},
+				"identity_file": map[string]any{"type": "string", "description": remoteIdentityFileDescription},
 				"follow_redirects": map[string]any{
 					"type":        "boolean",
 					"description": "Follow HTTP redirects. Defaults to true.",

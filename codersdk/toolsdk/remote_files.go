@@ -43,18 +43,11 @@ func runHelperCommand(ctx context.Context, conn workspacesdk.AgentConn, req work
 	return stdout, nil
 }
 
-func remoteFileInfo(ctx context.Context, conn workspacesdk.AgentConn, host, identityFile, filePath string) (workspacesdk.WorkspaceFileInfo, error) {
-	if !path.IsAbs(filePath) {
-		return workspacesdk.WorkspaceFileInfo{}, xerrors.Errorf("path must be absolute: %q", filePath)
-	}
-	out, err := runHelperCommand(ctx, conn, workspacesdk.RunCommandRequest{
-		Host:         host,
-		IdentityFile: identityFile,
-		Command:      "stat -c '%F\\t%s\\t%Y\\t%A' -- " + toolShellQuote(filePath),
-	})
-	if err != nil {
-		return workspacesdk.WorkspaceFileInfo{}, err
-	}
+func remoteStatCommand(filePath string) string {
+	return "stat --printf '%F\\t%s\\t%Y\\t%A\\n' -- " + toolShellQuote(filePath)
+}
+
+func parseRemoteFileInfo(filePath string, out []byte) (workspacesdk.WorkspaceFileInfo, error) {
 	fields := strings.SplitN(strings.TrimSuffix(string(out), "\n"), "\t", 4)
 	if len(fields) != 4 {
 		return workspacesdk.WorkspaceFileInfo{}, xerrors.New("unexpected remote stat output")
@@ -77,6 +70,21 @@ func remoteFileInfo(ctx context.Context, conn workspacesdk.AgentConn, host, iden
 		Mode:        fields[3],
 		ModTimeUnix: modTime,
 	}, nil
+}
+
+func remoteFileInfo(ctx context.Context, conn workspacesdk.AgentConn, host, identityFile, filePath string) (workspacesdk.WorkspaceFileInfo, error) {
+	if !path.IsAbs(filePath) {
+		return workspacesdk.WorkspaceFileInfo{}, xerrors.Errorf("path must be absolute: %q", filePath)
+	}
+	out, err := runHelperCommand(ctx, conn, workspacesdk.RunCommandRequest{
+		Host:         host,
+		IdentityFile: identityFile,
+		Command:      remoteStatCommand(filePath),
+	})
+	if err != nil {
+		return workspacesdk.WorkspaceFileInfo{}, err
+	}
+	return parseRemoteFileInfo(filePath, out)
 }
 
 //nolint:revive // includeHidden is a direct semantic option from list_directory.

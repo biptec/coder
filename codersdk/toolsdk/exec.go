@@ -69,7 +69,11 @@ For commands that are expected to be long-running, expensive, side-effectful, or
 				},
 				"host": map[string]any{
 					"type":        "string",
-					"description": "Optional SSH alias returned by remote_hosts. Omit for local workspace execution.",
+					"description": remoteHostDescription,
+				},
+				"identity_file": map[string]any{
+					"type":        "string",
+					"description": remoteIdentityFileDescription,
 				},
 				"wait_timeout_ms": map[string]any{
 					"type":        "integer",

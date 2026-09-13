@@ -2,6 +2,9 @@ package toolsdk
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -75,9 +78,28 @@ func TestValidateRemoteTarget(t *testing.T) {
 	require.NoError(t, validateRemoteTarget("", ""))
 	require.NoError(t, validateRemoteTarget("coder1", ""))
 	require.NoError(t, validateRemoteTarget("build_host.example", ""))
-	require.ErrorContains(t, validateRemoteTarget("user@example.com", ""), "exact SSH alias")
-	require.ErrorContains(t, validateRemoteTarget("example.com\nmalicious", ""), "exact SSH alias")
-	require.ErrorContains(t, validateRemoteTarget("coder1", "/home/coder/.ssh/id_ed25519"), "not accepted")
+	require.NoError(t, validateRemoteTarget("user@example.com", ""))
+	require.NoError(t, validateRemoteTarget("127.0.0.1", ""))
+	require.NoError(t, validateRemoteTarget("coder1", "/home/coder/.ssh/id_ed25519"))
+	require.NoError(t, validateRemoteTarget("coder1", ".ssh/id_ed25519"))
+	require.ErrorContains(t, validateRemoteTarget("example.com\nmalicious", ""), "newline")
+	require.ErrorContains(t, validateRemoteTarget("", "/home/coder/.ssh/id_ed25519"), "requires host")
+}
+
+func TestRemoteStatCommandAndParse(t *testing.T) {
+	t.Parallel()
+
+	filePath := filepath.Join(t.TempDir(), "file with spaces.txt")
+	require.NoError(t, os.WriteFile(filePath, []byte("hello"), 0o600))
+	require.Contains(t, remoteStatCommand(filePath), toolShellQuote(filePath))
+	out, err := exec.Command("stat", "--printf", "%F\t%s\t%Y\t%A\n", "--", filePath).Output()
+	require.NoError(t, err)
+	info, err := parseRemoteFileInfo(filePath, out)
+	require.NoError(t, err)
+	require.Equal(t, filePath, info.Path)
+	require.Equal(t, int64(5), info.Size)
+	require.False(t, info.IsDir)
+	require.NotZero(t, info.ModTimeUnix)
 }
 
 func TestPathAncestorOf(t *testing.T) {
@@ -100,12 +122,18 @@ func TestEndpointSSHInvocationQuotesAliasAndCommand(t *testing.T) {
 	require.Contains(t, invocation, "'coder1'")
 	require.Contains(t, invocation, "'cat '\"'\"'/tmp/file'\"'\"''")
 
-	_, err = endpointSSHInvocation(WorkspacePathEndpoint{
+	invocation, err = endpointSSHInvocation(WorkspacePathEndpoint{
 		Path:         "/tmp/file",
-		Host:         "coder1",
+		Host:         "user@example.com",
 		IdentityFile: "/home/coder/.ssh/id_ed25519",
 	}, "cat '/tmp/file'")
-	require.ErrorContains(t, err, "not accepted")
+	require.NoError(t, err)
+	require.Contains(t, invocation, "'-i' '/home/coder/.ssh/id_ed25519'")
+	require.Contains(t, invocation, "'user@example.com'")
+
+	localInvocation, err := endpointSSHInvocation(WorkspacePathEndpoint{Path: "/tmp/file"}, "cat '/tmp/file'")
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(localInvocation, "bash -c "), localInvocation)
 }
 
 func TestGitQueryCommand(t *testing.T) {
