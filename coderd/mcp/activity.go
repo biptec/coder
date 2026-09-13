@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -349,9 +350,12 @@ func persistentActivityInput(args map[string]any) string {
 
 func persistentActivityOutput(toolName string, result *mcp.CallToolResult) string {
 	// process_output returns stdout/stderr that already belongs to the canonical
-	// command activity row. Keeping a second copy on every observation call both
-	// bloats history and makes the same process output appear multiple times.
-	if toolName == "process_output" || toolName == toolsdk.ToolNameWorkspaceProcessOutput {
+	// command activity row. HTTP tool results may contain response bodies, signed
+	// redirect URLs, or response headers from external systems. Keep neither class
+	// of output in durable MCP activity; the live MCP caller still receives it.
+	if toolName == "process_output" || toolName == toolsdk.ToolNameWorkspaceProcessOutput ||
+		toolName == "http_fetch" || toolName == toolsdk.ToolNameWorkspaceHTTPFetch ||
+		toolName == "http_request" || toolName == toolsdk.ToolNameWorkspaceHTTPRequest {
 		return ""
 	}
 	if result == nil {
@@ -442,6 +446,18 @@ func sanitizePersistentActivityValue(key string, value any, depth int) any {
 	if lowerKey == "env" || lowerKey == "environment" {
 		return sanitizePersistentActivityEnvironment(value)
 	}
+	if lowerKey == "headers" {
+		return sanitizePersistentActivityHeaders(value)
+	}
+	if lowerKey == "body" {
+		if text, ok := value.(string); ok {
+			return fmt.Sprintf("<redacted %d bytes>", len(text))
+		}
+		return "<redacted>"
+	}
+	if lowerKey == "url" {
+		return sanitizePersistentActivityURL(value)
+	}
 	if isSensitiveActivityInputKey(lowerKey) {
 		if text, ok := value.(string); ok {
 			return fmt.Sprintf("<redacted %d bytes>", len(text))
@@ -464,6 +480,43 @@ func sanitizePersistentActivityValue(key string, value any, depth int) any {
 	default:
 		return value
 	}
+}
+
+func sanitizePersistentActivityURL(value any) any {
+	raw, ok := value.(string)
+	if !ok {
+		return value
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return raw
+	}
+	parsed.User = nil
+	parsed.RawQuery = ""
+	parsed.ForceQuery = false
+	parsed.Fragment = ""
+	return parsed.String()
+}
+
+func sanitizePersistentActivityHeaders(value any) any {
+	headers := map[string]any{}
+	switch typed := value.(type) {
+	case map[string]string:
+		for key, item := range typed {
+			headers[key] = fmt.Sprintf("<redacted %d bytes>", len(item))
+		}
+	case map[string]any:
+		for key, item := range typed {
+			if text, ok := item.(string); ok {
+				headers[key] = fmt.Sprintf("<redacted %d bytes>", len(text))
+			} else {
+				headers[key] = "<redacted>"
+			}
+		}
+	default:
+		return "<redacted>"
+	}
+	return headers
 }
 
 func sanitizePersistentActivityEnvironment(value any) any {

@@ -37,7 +37,7 @@ func TestObserveWorkspaceProcessReturnsLastSnapshotAtObservationBoundary(t *test
 		After(first)
 
 	started := time.Now()
-	resp, err := observeWorkspaceProcess(context.Background(), conn, processID, mcpObservationBudget{deadline: time.Now().Add(20 * time.Millisecond)})
+	resp, err := observeWorkspaceProcess(context.Background(), conn, processID, mcpObservationBudget{deadline: time.Now().Add(20 * time.Millisecond)}, time.Second)
 	require.NoError(t, err)
 	require.True(t, resp.Running)
 	require.Equal(t, "still working", resp.Output)
@@ -63,7 +63,7 @@ func TestObserveWorkspaceProcessStopsOnCallerCancel(t *testing.T) {
 			return workspacesdk.ProcessOutputResponse{}, callCtx.Err()
 		})
 
-	_, err := observeWorkspaceProcess(ctx, conn, processID, mcpObservationBudget{deadline: time.Now().Add(time.Second)})
+	_, err := observeWorkspaceProcess(ctx, conn, processID, mcpObservationBudget{deadline: time.Now().Add(time.Second)}, time.Second)
 	require.ErrorIs(t, err, context.Canceled)
 }
 

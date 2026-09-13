@@ -106,10 +106,12 @@ type AgentConn interface {
 	GetPeerDiagnostics() tailnet.PeerDiagnostics
 	ListContainers(ctx context.Context) (codersdk.WorkspaceAgentListContainersResponse, error)
 	ListProcesses(ctx context.Context) (ListProcessesResponse, error)
+	ListRemoteHosts(ctx context.Context) (ListRemoteHostsResponse, error)
 	ListeningPorts(ctx context.Context) (codersdk.WorkspaceAgentListeningPortsResponse, error)
 	Netcheck(ctx context.Context) (healthsdk.AgentNetcheckReport, error)
 	Ping(ctx context.Context) (time.Duration, bool, *ipnstate.PingResult, error)
 	ProcessOutput(ctx context.Context, id string, opts *ProcessOutputOptions) (ProcessOutputResponse, error)
+	RunCommand(ctx context.Context, req RunCommandRequest) (RunCommandResponse, error)
 	ProcessInput(ctx context.Context, id string, req ProcessInputRequest) error
 	PrometheusMetrics(ctx context.Context) ([]byte, error)
 	ReconnectingPTY(ctx context.Context, id uuid.UUID, height uint16, width uint16, command string, initOpts ...AgentReconnectingPTYInitOption) (net.Conn, error)
@@ -864,6 +866,12 @@ type StartProcessRequest struct {
 	Argv    []string          `json:"argv,omitempty"`
 	WorkDir string            `json:"workdir,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
+	// Host optionally executes the process on an exact SSH alias explicitly
+	// configured in the workspace user's SSH config.
+	Host string `json:"host,omitempty"`
+	// IdentityFile is retained for internal compatibility. Assistant-facing MCP
+	// tools rely on credentials configured on the SSH alias instead.
+	IdentityFile string `json:"identity_file,omitempty"`
 	// Tool is optional attribution metadata identifying the MCP tool that started
 	// the process. It is not added to the process environment.
 	Tool        string `json:"tool,omitempty"`
@@ -880,6 +888,39 @@ type StartProcessResponse struct {
 	Started bool   `json:"started"`
 }
 
+// RunCommandRequest executes a synchronous helper command through the workspace
+// agent. It is intended for semantic MCP tools that need workspace-local or SSH
+// transport without creating a durable tracked process.
+type RunCommandRequest struct {
+	Command      string            `json:"command,omitempty"`
+	Argv         []string          `json:"argv,omitempty"`
+	WorkDir      string            `json:"workdir,omitempty"`
+	Env          map[string]string `json:"env,omitempty"`
+	Host         string            `json:"host,omitempty"`
+	IdentityFile string            `json:"identity_file,omitempty"`
+	StdinBase64  string            `json:"stdin_base64,omitempty"`
+}
+
+// RemoteHostInfo is an exact SSH alias explicitly declared by the workspace
+// user's SSH config. Wildcard-only patterns are intentionally excluded.
+type RemoteHostInfo struct {
+	Alias string `json:"alias"`
+}
+
+// ListRemoteHostsResponse contains SSH aliases that are safe to use with
+// assistant-facing remote tools.
+type ListRemoteHostsResponse struct {
+	Hosts []RemoteHostInfo `json:"hosts"`
+}
+
+// RunCommandResponse carries stdout as base64 so arbitrary bytes can safely
+// cross the JSON transport. Stderr is bounded diagnostic text.
+type RunCommandResponse struct {
+	StdoutBase64 string `json:"stdout_base64,omitempty"`
+	Stderr       string `json:"stderr,omitempty"`
+	ExitCode     int    `json:"exit_code"`
+}
+
 // ListProcessesResponse contains information about tracked
 // processes on the workspace agent.
 type ListProcessesResponse struct {
@@ -892,6 +933,7 @@ type ProcessInfo struct {
 	Command     string   `json:"command,omitempty"`
 	Argv        []string `json:"argv,omitempty"`
 	WorkDir     string   `json:"workdir,omitempty"`
+	Host        string   `json:"host,omitempty"`
 	Tool        string   `json:"tool,omitempty"`
 	Background  bool     `json:"background"`
 	Interactive bool     `json:"interactive,omitempty"`
@@ -1021,6 +1063,8 @@ type SearchStartRequest struct {
 	CaseSensitive bool   `json:"case_sensitive,omitempty"`
 	IncludeHidden bool   `json:"include_hidden,omitempty"`
 	MaxResults    int    `json:"max_results,omitempty"`
+	Host          string `json:"host,omitempty"`
+	IdentityFile  string `json:"identity_file,omitempty"`
 }
 
 type SearchStartResponse struct {
@@ -1039,6 +1083,7 @@ type SearchSessionInfo struct {
 	Root        string `json:"root"`
 	Query       string `json:"query"`
 	Mode        string `json:"mode"`
+	Host        string `json:"host,omitempty"`
 	Status      string `json:"status"`
 	ResultCount int    `json:"result_count"`
 	CreatedAt   int64  `json:"created_at_unix"`
@@ -1382,6 +1427,8 @@ type FileEditRequest struct {
 	// and return it in FileEditResponse.Files[i].Diff. When false
 	// (default) the agent skips diff computation and Files is nil.
 	IncludeDiff bool `json:"include_diff,omitempty"`
+	// DryRun validates and computes edits/diffs without writing files.
+	DryRun bool `json:"dry_run,omitempty"`
 }
 
 // FileEditResponse is the success response for the edit-files endpoint.
@@ -1475,6 +1522,22 @@ func (c *agentConn) StartProcess(ctx context.Context, req StartProcessRequest) (
 	return resp, json.NewDecoder(res.Body).Decode(&resp)
 }
 
+// RunCommand executes a request-scoped helper command on the workspace agent.
+func (c *agentConn) RunCommand(ctx context.Context, req RunCommandRequest) (RunCommandResponse, error) {
+	ctx, span := tracing.StartSpan(ctx)
+	defer span.End()
+	res, err := c.apiRequest(ctx, http.MethodPost, "/api/v0/processes/run", req)
+	if err != nil {
+		return RunCommandResponse{}, xerrors.Errorf("do request: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return RunCommandResponse{}, codersdk.ReadBodyAsError(res)
+	}
+	var resp RunCommandResponse
+	return resp, json.NewDecoder(res.Body).Decode(&resp)
+}
+
 // ListProcesses returns information about tracked processes on the agent.
 func (c *agentConn) ListProcesses(ctx context.Context) (ListProcessesResponse, error) {
 	ctx, span := tracing.StartSpan(ctx)
@@ -1488,6 +1551,22 @@ func (c *agentConn) ListProcesses(ctx context.Context) (ListProcessesResponse, e
 		return ListProcessesResponse{}, codersdk.ReadBodyAsError(res)
 	}
 	var resp ListProcessesResponse
+	return resp, json.NewDecoder(res.Body).Decode(&resp)
+}
+
+// ListRemoteHosts returns exact SSH aliases configured for assistant remote tools.
+func (c *agentConn) ListRemoteHosts(ctx context.Context) (ListRemoteHostsResponse, error) {
+	ctx, span := tracing.StartSpan(ctx)
+	defer span.End()
+	res, err := c.apiRequest(ctx, http.MethodGet, "/api/v0/processes/remote-hosts", nil)
+	if err != nil {
+		return ListRemoteHostsResponse{}, xerrors.Errorf("do request: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return ListRemoteHostsResponse{}, codersdk.ReadBodyAsError(res)
+	}
+	var resp ListRemoteHostsResponse
 	return resp, json.NewDecoder(res.Body).Decode(&resp)
 }
 

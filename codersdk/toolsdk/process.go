@@ -13,19 +13,27 @@ import (
 	"github.com/coder/coder/v2/codersdk/workspacesdk"
 )
 
-const (
-	defaultWorkspaceProcessWait = 10 * time.Second
-	mcpToolObservationWindow    = 60 * time.Second
-	maxWorkspaceProcessWait     = mcpToolObservationWindow
-	processSnapshotTimeout      = 5 * time.Second
-)
+const processSnapshotTimeout = 5 * time.Second
 
 type mcpObservationBudget struct {
 	deadline time.Time
+	window   time.Duration
+	max      time.Duration
 }
 
-func newMCPObservationBudget() mcpObservationBudget {
-	return mcpObservationBudget{deadline: time.Now().Add(mcpToolObservationWindow)}
+func newMCPObservationBudget(deps Deps) mcpObservationBudget {
+	maxTimeout := deps.MCPToolTimeoutMax()
+	window := maxTimeout
+	// Reserve a short tail for a final non-blocking snapshot and response
+	// serialization. The configured maximum still bounds the whole MCP call.
+	if window > processSnapshotTimeout {
+		window -= processSnapshotTimeout
+	}
+	return mcpObservationBudget{
+		deadline: time.Now().Add(window),
+		window:   window,
+		max:      maxTimeout,
+	}
 }
 
 func (b mcpObservationBudget) context(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -41,14 +49,16 @@ func (b mcpObservationBudget) remaining() time.Duration {
 }
 
 type WorkspaceProcessStartV2Args struct {
-	Workspace   string            `json:"workspace"`
-	Command     string            `json:"command,omitempty"`
-	Argv        []string          `json:"argv,omitempty"`
-	WorkDir     string            `json:"workdir,omitempty"`
-	Env         map[string]string `json:"env,omitempty"`
-	Background  bool              `json:"background,omitempty"`
-	Interactive bool              `json:"interactive,omitempty"`
-	Stdin       string            `json:"stdin,omitempty"`
+	Workspace    string            `json:"workspace"`
+	Command      string            `json:"command,omitempty"`
+	Argv         []string          `json:"argv,omitempty"`
+	WorkDir      string            `json:"workdir,omitempty"`
+	Env          map[string]string `json:"env,omitempty"`
+	Host         string            `json:"host,omitempty"`
+	IdentityFile string            `json:"identity_file,omitempty"`
+	Background   bool              `json:"background,omitempty"`
+	Interactive  bool              `json:"interactive,omitempty"`
+	Stdin        string            `json:"stdin,omitempty"`
 }
 
 type WorkspaceProcessStartResult struct {
@@ -64,7 +74,7 @@ var WorkspaceProcessStartV2 = Tool[WorkspaceProcessStartV2Args, WorkspaceProcess
 
 Use this tool instead of coder_workspace_bash or coder_workspace_exec when a command may run for a long time, is expensive, has side effects, or must not be executed twice. This tool starts the command exactly once and does not wait for completion or return command output. After a successful start, use coder_workspace_process_output with the returned process_id to observe the same process.
 
-A single MCP call has one shared 60-second observation budget across workspace auto-start/build readiness and process-start acknowledgement. If that budget elapses before process submission, any workspace start/build already submitted continues independently and the process itself was not submitted; retry process_start after the workspace is ready. If acknowledgement is lost after submission, the process may already exist: use process_list before retrying. Once process submission is acknowledged, process_id is returned without waiting for process completion, and the process lifetime is independent of the MCP connection.
+A single MCP call is bounded by the deployment-wide MCP tool timeout across workspace auto-start/build readiness and process-start acknowledgement. If that budget elapses before process submission, any workspace start/build already submitted continues independently and the process itself was not submitted; retry process_start after the workspace is ready. If acknowledgement is lost after submission, the process may already exist: use process_list before retrying. Once process submission is acknowledged, process_id is returned without waiting for process completion, and the process lifetime is independent of the MCP connection.
 
 Exactly one execution mode is required: argv for direct execution without shell parsing, or command for intentional sh -c shell syntax. Prefer argv. Set interactive=true only when later process_input calls are required.
 
@@ -95,8 +105,12 @@ The command is executed by the workspace Agent using sh -c. If workdir is omitte
 				},
 				"env": map[string]any{
 					"type":                 "object",
-					"description":          "Optional environment variable overrides applied on top of the Agent environment.",
+					"description":          "Optional environment variable overrides. For remote execution they are applied to the remote command.",
 					"additionalProperties": map[string]any{"type": "string"},
+				},
+				"host": map[string]any{
+					"type":        "string",
+					"description": "Optional SSH alias returned by remote_hosts. Omit for local workspace execution.",
 				},
 				"background": map[string]any{
 					"type":        "boolean",
@@ -115,7 +129,7 @@ The command is executed by the workspace Agent using sh -c. If workdir is omitte
 			Required: []string{"workspace"},
 		},
 	},
-	MCPAnnotations: mcpMutationAnnotations,
+	MCPAnnotations: mcpMutationOpenWorldAnnotations,
 	Handler: func(ctx context.Context, deps Deps, args WorkspaceProcessStartV2Args) (WorkspaceProcessStartResult, error) {
 		if args.Workspace == "" {
 			return WorkspaceProcessStartResult{}, xerrors.New("workspace name cannot be empty")
@@ -132,8 +146,11 @@ The command is executed by the workspace Agent using sh -c. If workdir is omitte
 		if len(args.Stdin) > workspacesdk.MaxProcessInputBytes {
 			return WorkspaceProcessStartResult{}, xerrors.Errorf("stdin cannot exceed %d bytes", workspacesdk.MaxProcessInputBytes)
 		}
+		if err := validateRemoteTarget(args.Host, args.IdentityFile); err != nil {
+			return WorkspaceProcessStartResult{}, err
+		}
 
-		budget := newMCPObservationBudget()
+		budget := newMCPObservationBudget(deps)
 		conn, err := openAgentConnWithBudget(ctx, deps, args.Workspace, budget)
 		if err != nil {
 			return WorkspaceProcessStartResult{}, err
@@ -141,14 +158,16 @@ The command is executed by the workspace Agent using sh -c. If workdir is omitte
 		defer conn.Close()
 
 		started, err := startWorkspaceProcessWithinObservation(ctx, conn, workspacesdk.StartProcessRequest{
-			Command:     args.Command,
-			Argv:        args.Argv,
-			WorkDir:     args.WorkDir,
-			Env:         args.Env,
-			Tool:        InvocationToolFromContext(ctx),
-			Background:  args.Background,
-			Interactive: args.Interactive,
-			Stdin:       args.Stdin,
+			Command:      args.Command,
+			Argv:         args.Argv,
+			WorkDir:      args.WorkDir,
+			Env:          args.Env,
+			Host:         args.Host,
+			IdentityFile: args.IdentityFile,
+			Tool:         InvocationToolFromContext(ctx),
+			Background:   args.Background,
+			Interactive:  args.Interactive,
+			Stdin:        args.Stdin,
 		}, budget)
 		if err != nil {
 			return WorkspaceProcessStartResult{}, xerrors.Errorf("start workspace process: %w", err)
@@ -193,7 +212,7 @@ var WorkspaceProcessOutput = Tool[WorkspaceProcessOutputArgs, WorkspaceProcessRe
 
 Use the process_id returned by coder_workspace_process_start or coder_workspace_process_list. Pass cursor=0 to use incremental output; subsequent calls should pass next_cursor. Incremental output is backed by a bounded rolling buffer: if the caller falls behind, gap_bytes reports evicted bytes. Omit cursor for the legacy head+tail snapshot.
 
-This tool is observation-only. One MCP call uses a single shared 60-second observation budget across workspace readiness and output retrieval. wait_timeout_ms defaults to 10000ms and is capped at 60000ms; if readiness consumes part of the shared budget, the actual output wait is shortened to fit. Reaching that observation limit never terminates the durable process; the tool returns the current snapshot with running=true and the caller can invoke process_output again. While running=true, exit_code is only a legacy placeholder and MUST NOT be interpreted as the process exit status, timeout, or failure; exit_code is meaningful only when running=false.
+This tool is observation-only. Without wait_timeout_ms it returns an immediate snapshot. When wait_timeout_ms is provided, it waits up to that interval for new output or process exit, bounded by the deployment-wide MCP tool timeout. Reaching an observation limit never terminates the durable process; the tool returns the current snapshot with running=true and the caller can invoke process_output again. While running=true, exit_code is only a legacy placeholder and MUST NOT be interpreted as the process exit status, timeout, or failure; exit_code is meaningful only when running=false.
 
 After any timeout, 502, reconnect, or uncertain result, use coder_workspace_process_list and this tool to recover the existing process before considering another command execution. If the recovered process command invokes sudo, this tool also returns the same structured persistence advisory separately from process output.`,
 		Schema: aisdk.Schema{
@@ -208,10 +227,8 @@ After any timeout, 502, reconnect, or uncertain result, use coder_workspace_proc
 				},
 				"wait_timeout_ms": map[string]any{
 					"type":        "integer",
-					"description": "Requested output-wait interval. Defaults to 10000ms. Use 0 for an immediate snapshot. Maximum 60000ms. The overall MCP call has one shared 60000ms budget including workspace readiness, so the actual wait may be shorter. This never limits the process lifetime.",
-					"default":     10000,
+					"description": "Optional output-wait interval in milliseconds. Omit it (or use 0) for an immediate snapshot. The deployment-wide MCP tool timeout is the maximum. This never limits the process lifetime.",
 					"minimum":     0,
-					"maximum":     60000,
 				},
 				"cursor": map[string]any{
 					"type":        "integer",
@@ -237,12 +254,12 @@ After any timeout, 502, reconnect, or uncertain result, use coder_workspace_proc
 			return WorkspaceProcessResult{}, xerrors.New("process_id cannot be empty")
 		}
 
-		wait, err := workspaceProcessWaitDuration(args.WaitTimeoutMs)
+		wait, err := workspaceProcessWaitDuration(args.WaitTimeoutMs, deps.MCPToolTimeoutMax())
 		if err != nil {
 			return WorkspaceProcessResult{}, err
 		}
 
-		budget := newMCPObservationBudget()
+		budget := newMCPObservationBudget(deps)
 		conn, err := openAgentConnWithBudget(ctx, deps, args.Workspace, budget)
 		if err != nil {
 			return WorkspaceProcessResult{}, err
@@ -276,6 +293,7 @@ After any timeout, 502, reconnect, or uncertain result, use coder_workspace_proc
 
 type WorkspaceProcessListArgs struct {
 	Workspace string `json:"workspace"`
+	Host      string `json:"host,omitempty"`
 	Cursor    int    `json:"cursor,omitempty"`
 	Limit     int    `json:"limit,omitempty"`
 }
@@ -295,12 +313,16 @@ var WorkspaceProcessList = Tool[WorkspaceProcessListArgs, WorkspaceProcessListRe
 		Name: ToolNameWorkspaceProcessList,
 		Description: `List durable processes tracked by a Coder workspace agent.
 
-Use this after a timeout, 502, reconnect, or any uncertain command result before running the command again. It lets you recover the original process_id and inspect whether the command is still running or already exited. Processes whose command invokes sudo include a structured persistence advisory alongside their metadata.`,
+Use this after a timeout, 502, reconnect, or any uncertain command result before running the command again. By default it lists both local and remote tracked processes; use host to filter remote processes for one SSH target. It lets you recover the original process_id and inspect whether the command is still running or already exited. Processes whose command invokes sudo include a structured persistence advisory alongside their metadata.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
 				"workspace": map[string]any{
 					"type":        "string",
 					"description": "The workspace name in format [owner/]workspace[.agent]. If owner is omitted, the authenticated user is used.",
+				},
+				"host": map[string]any{
+					"type":        "string",
+					"description": "Optional exact SSH target filter. Omit to list both local and remote tracked processes.",
 				},
 				"cursor": map[string]any{
 					"type":        "integer",
@@ -323,7 +345,7 @@ Use this after a timeout, 502, reconnect, or any uncertain command result before
 			return WorkspaceProcessListResult{}, xerrors.New("workspace name cannot be empty")
 		}
 
-		budget := newMCPObservationBudget()
+		budget := newMCPObservationBudget(deps)
 		conn, err := openAgentConnWithBudget(ctx, deps, args.Workspace, budget)
 		if err != nil {
 			return WorkspaceProcessListResult{}, err
@@ -346,16 +368,25 @@ Use this after a timeout, 502, reconnect, or any uncertain command result before
 		if err != nil {
 			return WorkspaceProcessListResult{}, xerrors.Errorf("list workspace processes: %w", err)
 		}
+		filtered := resp.Processes
+		if args.Host != "" {
+			filtered = make([]workspacesdk.ProcessInfo, 0, len(resp.Processes))
+			for _, process := range resp.Processes {
+				if strings.EqualFold(process.Host, strings.TrimSpace(args.Host)) {
+					filtered = append(filtered, process)
+				}
+			}
+		}
 		start := args.Cursor
-		if start > len(resp.Processes) {
-			start = len(resp.Processes)
+		if start > len(filtered) {
+			start = len(filtered)
 		}
 		end := start + limit
-		if end > len(resp.Processes) {
-			end = len(resp.Processes)
+		if end > len(filtered) {
+			end = len(filtered)
 		}
 		processes := make([]WorkspaceProcessInfo, 0, end-start)
-		for _, process := range resp.Processes[start:end] {
+		for _, process := range filtered[start:end] {
 			advisories := commandAdvisories(process.Command)
 			if len(process.Argv) > 0 {
 				advisories = argvAdvisories(process.Argv)
@@ -366,7 +397,7 @@ Use this after a timeout, 502, reconnect, or any uncertain command result before
 			})
 		}
 		var next *int
-		if end < len(resp.Processes) {
+		if end < len(filtered) {
 			value := end
 			next = &value
 		}
@@ -416,7 +447,7 @@ tracked by the workspace agent and preserves chat/process isolation.`,
 			Required: []string{"workspace", "process_id"},
 		},
 	},
-	MCPAnnotations: mcpMutationAnnotations,
+	MCPAnnotations: mcpMutationOpenWorldAnnotations,
 	Handler: func(ctx context.Context, deps Deps, args WorkspaceProcessInputArgs) (WorkspaceProcessInputResult, error) {
 		if args.Workspace == "" {
 			return WorkspaceProcessInputResult{}, xerrors.New("workspace name cannot be empty")
@@ -430,7 +461,7 @@ tracked by the workspace agent and preserves chat/process isolation.`,
 		if len(args.Data) > workspacesdk.MaxProcessInputBytes {
 			return WorkspaceProcessInputResult{}, xerrors.Errorf("data cannot exceed %d bytes", workspacesdk.MaxProcessInputBytes)
 		}
-		budget := newMCPObservationBudget()
+		budget := newMCPObservationBudget(deps)
 		conn, err := openAgentConnWithBudget(ctx, deps, args.Workspace, budget)
 		if err != nil {
 			return WorkspaceProcessInputResult{}, err
@@ -481,7 +512,7 @@ Use signal "terminate" for graceful shutdown or "kill" to force stop. Always ide
 			Required: []string{"workspace", "process_id", "signal"},
 		},
 	},
-	MCPAnnotations: mcpDestructiveAnnotations,
+	MCPAnnotations: mcpDestructiveOpenWorldAnnotations,
 	Handler: func(ctx context.Context, deps Deps, args WorkspaceProcessSignalArgs) (WorkspaceProcessSignalResult, error) {
 		if args.Workspace == "" {
 			return WorkspaceProcessSignalResult{}, xerrors.New("workspace name cannot be empty")
@@ -493,7 +524,7 @@ Use signal "terminate" for graceful shutdown or "kill" to force stop. Always ide
 			return WorkspaceProcessSignalResult{}, xerrors.New(`signal must be "terminate" or "kill"`)
 		}
 
-		budget := newMCPObservationBudget()
+		budget := newMCPObservationBudget(deps)
 		conn, err := openAgentConnWithBudget(ctx, deps, args.Workspace, budget)
 		if err != nil {
 			return WorkspaceProcessSignalResult{}, err
@@ -514,37 +545,34 @@ Use signal "terminate" for graceful shutdown or "kill" to force stop. Always ide
 
 func workspaceProcessWaitWithinBudget(wait time.Duration, budget mcpObservationBudget) time.Duration {
 	remaining := budget.remaining()
-	if remaining <= processSnapshotTimeout {
+	if remaining <= 0 {
 		return 0
 	}
-	remaining -= processSnapshotTimeout
 	if wait > remaining {
 		return remaining
 	}
 	return wait
 }
 
-func workspaceProcessWaitDuration(waitTimeoutMs *int) (time.Duration, error) {
+func workspaceProcessWaitDuration(waitTimeoutMs *int, maxWait time.Duration) (time.Duration, error) {
 	if waitTimeoutMs == nil {
-		return defaultWorkspaceProcessWait, nil
+		return 0, nil
 	}
 	if *waitTimeoutMs < 0 {
 		return 0, xerrors.New("wait_timeout_ms cannot be negative")
 	}
 	wait := time.Duration(*waitTimeoutMs) * time.Millisecond
-	if wait > maxWorkspaceProcessWait {
-		return 0, xerrors.Errorf("wait_timeout_ms cannot exceed %d", maxWorkspaceProcessWait.Milliseconds())
+	if wait > maxWait {
+		return 0, xerrors.Errorf("wait_timeout_ms cannot exceed %d", maxWait.Milliseconds())
 	}
 	return wait, nil
 }
 
-func waitForWorkspaceProcess(
-	ctx context.Context,
-	conn workspacesdk.AgentConn,
-	processID string,
-	wait time.Duration,
-) (workspacesdk.ProcessOutputResponse, error) {
-	return waitForWorkspaceProcessOptions(ctx, conn, processID, wait, nil, 0)
+func workspaceExecutionWaitDuration(waitTimeoutMs *int, maxWait time.Duration) (time.Duration, error) {
+	if waitTimeoutMs == nil {
+		return maxWait, nil
+	}
+	return workspaceProcessWaitDuration(waitTimeoutMs, maxWait)
 }
 
 // observeWorkspaceProcess keeps a short MCP request open while a tracked
@@ -556,16 +584,23 @@ func observeWorkspaceProcess(
 	conn workspacesdk.AgentConn,
 	processID string,
 	budget mcpObservationBudget,
+	wait time.Duration,
 ) (workspacesdk.ProcessOutputResponse, error) {
-	// If readiness and StartProcess already consumed the observation budget, we
-	// still have a durable process ID. Return control immediately rather than
-	// opening another wait interval.
+	// If readiness and StartProcess already consumed the observation budget, or
+	// the caller explicitly requested no wait, return a current snapshot.
 	last := workspacesdk.ProcessOutputResponse{Running: true}
-	if budget.remaining() <= 0 {
+	remaining := budget.remaining()
+	if remaining <= 0 {
 		return last, nil
 	}
+	if wait <= 0 {
+		return workspaceProcessSnapshot(ctx, conn, processID, nil, 0)
+	}
+	if wait > remaining {
+		wait = remaining
+	}
 
-	observationCtx, cancel := budget.context(ctx)
+	observationCtx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
 
 	for {
@@ -602,7 +637,7 @@ func startWorkspaceProcessWithinObservation(
 	budget mcpObservationBudget,
 ) (workspacesdk.StartProcessResponse, error) {
 	if budget.remaining() <= 0 {
-		return workspacesdk.StartProcessResponse{}, xerrors.Errorf("the %.0f-second MCP observation budget elapsed before process submission; retry after the workspace is ready", mcpToolObservationWindow.Seconds())
+		return workspacesdk.StartProcessResponse{}, xerrors.Errorf("the %.0f-second MCP observation budget elapsed before process submission; retry after the workspace is ready", budget.window.Seconds())
 	}
 
 	startCtx, cancel := budget.context(ctx)
@@ -613,7 +648,7 @@ func startWorkspaceProcessWithinObservation(
 		return started, nil
 	}
 	if ctx.Err() == nil && errors.Is(startCtx.Err(), context.DeadlineExceeded) {
-		return workspacesdk.StartProcessResponse{}, xerrors.Errorf("process start acknowledgement exceeded the %.0f-second MCP observation budget; the process may already have been submitted. Do not start it again until process_list confirms whether it exists: %w", mcpToolObservationWindow.Seconds(), err)
+		return workspacesdk.StartProcessResponse{}, xerrors.Errorf("process start acknowledgement exceeded the %.0f-second MCP observation budget; the process may already have been submitted. Do not start it again until process_list confirms whether it exists: %w", budget.window.Seconds(), err)
 	}
 	return workspacesdk.StartProcessResponse{}, err
 }

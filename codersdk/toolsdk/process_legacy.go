@@ -27,7 +27,7 @@ var WorkspaceProcessStart = Tool[WorkspaceProcessStartArgs, WorkspaceProcessStar
 
 Use this tool instead of coder_workspace_bash when a command may run for a long time, is expensive, has side effects, or must not be executed twice. This tool starts the command exactly once and does not wait for completion or return command output. After a successful start, use coder_workspace_process_output with the returned process_id to observe the same process.
 
-One MCP call uses a single shared 60-second observation budget across workspace readiness and process-start acknowledgement; this budget never controls the durable process lifetime. If this call ends with a timeout, 502, disconnect, or any other uncertain result after process submission, DO NOT start the command again. First call coder_workspace_process_list for the same workspace and recover the existing process by matching its command, workdir, and start time.
+One MCP call is bounded by the deployment-wide MCP tool timeout across workspace readiness and process-start acknowledgement; this limit never controls the durable process lifetime. If this call ends with a timeout, 502, disconnect, or any other uncertain result after process submission, DO NOT start the command again. First call coder_workspace_process_list for the same workspace and recover the existing process by matching its command, workdir, and start time.
 
 In the standard Developer Workspace, only /home/coder is persistent across workspace recreation. The system filesystem outside /home/coder is ephemeral. Prefer durable tools and dependencies under $HOME. sudo is available for temporary system changes and diagnostics, but changes made with sudo outside /home/coder can disappear when the workspace is recreated. When a command invokes sudo, this tool returns a structured advisory separately from process output.
 
@@ -68,7 +68,7 @@ The command is executed by the workspace Agent using sh -c. If workdir is omitte
 			return WorkspaceProcessStartResult{}, xerrors.New("command cannot be empty")
 		}
 
-		budget := newMCPObservationBudget()
+		budget := newMCPObservationBudget(deps)
 		conn, err := openAgentConnWithBudget(ctx, deps, args.Workspace, budget)
 		if err != nil {
 			return WorkspaceProcessStartResult{}, err

@@ -1536,18 +1536,24 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 	assert.Contains(t, adminTools, "capabilities")
 
 	workspaceBuildLogsTool := toolByName(adminToolSpecs, toolsdk.ToolNameGetWorkspaceBuildLogs)
-	require.Contains(t, workspaceBuildLogsTool.Description, "at most a 60-second observation budget")
+	require.Contains(t, workspaceBuildLogsTool.Description, "bounded by the deployment-wide MCP tool timeout")
 	require.Contains(t, workspaceBuildLogsTool.Description, "has_more=true")
 	require.Contains(t, workspaceBuildLogsTool.Description, "cursor=next_cursor")
 	require.Contains(t, workspaceBuildLogsTool.InputSchema.Properties, "wait_timeout_ms")
 	require.Contains(t, workspaceBuildLogsTool.InputSchema.Properties, "cursor")
+	workspaceLogWait := workspaceBuildLogsTool.InputSchema.Properties["wait_timeout_ms"].(map[string]any)
+	require.EqualValues(t, codersdk.DefaultMCPToolTimeoutMax.Milliseconds(), workspaceLogWait["maximum"])
+	require.NotContains(t, workspaceLogWait, "default")
 
 	templateVersionLogsTool := toolByName(adminToolSpecs, toolsdk.ToolNameGetTemplateVersionLogs)
-	require.Contains(t, templateVersionLogsTool.Description, "at most a 60-second observation budget")
+	require.Contains(t, templateVersionLogsTool.Description, "bounded by the deployment-wide MCP tool timeout")
 	require.Contains(t, templateVersionLogsTool.Description, "has_more=true")
 	require.Contains(t, templateVersionLogsTool.Description, "cursor=next_cursor")
 	require.Contains(t, templateVersionLogsTool.InputSchema.Properties, "wait_timeout_ms")
 	require.Contains(t, templateVersionLogsTool.InputSchema.Properties, "cursor")
+	templateLogWait := templateVersionLogsTool.InputSchema.Properties["wait_timeout_ms"].(map[string]any)
+	require.EqualValues(t, codersdk.DefaultMCPToolTimeoutMax.Milliseconds(), templateLogWait["maximum"])
+	require.NotContains(t, templateLogWait, "default")
 
 	// Newly created users default to the curated developer toolset.
 	assigned, err := coderClient.UserMCPToolset(ctx, developerUser.ID.String())
@@ -1557,10 +1563,11 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 	developerToolSpecs := listTools(developerClient.SessionToken())
 	developerTools := toolNames(developerToolSpecs)
 	assert.ElementsMatch(t, []string{
-		"status", "list_workspaces",
-		"list_directory", "read_file", "read_files", "write_file", "file_info", "create_directory", "move_file",
+		"status", "list_workspaces", "remote_hosts",
+		"list_directory", "read_file", "read_files", "write_file", "file_info", "create_directory", "move_file", "copy_path", "remove_path",
 		"edit_file", "edit_files",
 		"search_start", "search_results", "search_list", "search_stop",
+		"http_fetch", "http_request", "git_query", "git_mutate", "code_query", "code_rename",
 		"bash", "exec",
 		"process_start", "process_output", "process_list", "process_input", "process_signal",
 		"list_apps", "capabilities", "recent_activity",
@@ -1572,19 +1579,25 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 	// The contract exposed to assistants must describe the bounded MCP
 	// observation model, not the historical process timeout model.
 	bashTool := toolByName(developerToolSpecs, "bash")
-	require.Contains(t, bashTool.Description, "single shared 60-second observation budget")
+	require.Contains(t, bashTool.Description, "waits for completion up to the deployment-wide MCP tool timeout")
 	require.Contains(t, bashTool.Description, "process_id")
 	require.Contains(t, bashTool.Description, "running=true")
 	require.Contains(t, bashTool.Description, "process_output")
 	require.NotContains(t, bashTool.InputSchema.Properties, "timeout_ms")
+	bashWait := bashTool.InputSchema.Properties["wait_timeout_ms"].(map[string]any)
+	require.EqualValues(t, codersdk.DefaultMCPToolTimeoutMax.Milliseconds(), bashWait["maximum"])
+	require.NotContains(t, bashWait, "default")
 	require.NotContains(t, bashTool.InputSchema.Properties, "background")
 
 	execTool := toolByName(developerToolSpecs, "exec")
-	require.Contains(t, execTool.Description, "single shared 60-second observation budget")
+	require.Contains(t, execTool.Description, "waits for completion up to the deployment-wide MCP tool timeout")
 	require.Contains(t, execTool.Description, "process_id")
 	require.Contains(t, execTool.Description, "running=true")
 	require.Contains(t, execTool.Description, "process_output")
 	require.NotContains(t, execTool.InputSchema.Properties, "timeout_ms")
+	execWait := execTool.InputSchema.Properties["wait_timeout_ms"].(map[string]any)
+	require.EqualValues(t, codersdk.DefaultMCPToolTimeoutMax.Milliseconds(), execWait["maximum"])
+	require.NotContains(t, execWait, "default")
 
 	capabilitiesTool := toolByName(developerToolSpecs, "capabilities")
 	require.Contains(t, capabilitiesTool.Description, "before installing software")
@@ -1593,14 +1606,15 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 	require.NotContains(t, capabilitiesTool.Description, "Chromium")
 
 	processStartTool := toolByName(developerToolSpecs, "process_start")
-	require.Contains(t, processStartTool.Description, "shared 60-second observation budget")
+	require.Contains(t, processStartTool.Description, "deployment-wide MCP tool timeout")
 	require.Contains(t, processStartTool.Description, "process_list")
 	require.Contains(t, processStartTool.Description, "lifetime is independent of the MCP connection")
 
 	processOutputTool := toolByName(developerToolSpecs, "process_output")
-	require.Contains(t, processOutputTool.Description, "shared 60-second observation budget")
+	require.Contains(t, processOutputTool.Description, "Without wait_timeout_ms it returns an immediate snapshot")
 	waitTimeoutSchema := processOutputTool.InputSchema.Properties["wait_timeout_ms"].(map[string]any)
-	require.EqualValues(t, 60000, waitTimeoutSchema["maximum"])
+	require.EqualValues(t, codersdk.DefaultMCPToolTimeoutMax.Milliseconds(), waitTimeoutSchema["maximum"])
+	require.NotContains(t, waitTimeoutSchema, "default")
 	require.Contains(t, waitTimeoutSchema["description"], "never limits the process lifetime")
 
 	// Users cannot raise or otherwise change their own MCP toolset.
@@ -1618,15 +1632,21 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 
 	readonlyTools := toolNames(listTools(developerClient.SessionToken()))
 	assert.ElementsMatch(t, []string{
-		"status", "list_workspaces",
+		"status", "list_workspaces", "remote_hosts",
 		"list_directory", "read_file", "read_files", "file_info",
 		"search_start", "search_results", "search_list", "search_stop",
+		"http_fetch", "git_query", "code_query",
 		"process_output", "process_list", "list_apps", "capabilities", "recent_activity",
 	}, readonlyTools)
 	assert.NotContains(t, readonlyTools, "write_file")
 	assert.NotContains(t, readonlyTools, "create_directory")
 	assert.NotContains(t, readonlyTools, "move_file")
 	assert.NotContains(t, readonlyTools, "edit_file")
+	assert.NotContains(t, readonlyTools, "copy_path")
+	assert.NotContains(t, readonlyTools, "remove_path")
+	assert.NotContains(t, readonlyTools, "http_request")
+	assert.NotContains(t, readonlyTools, "git_mutate")
+	assert.NotContains(t, readonlyTools, "code_rename")
 	assert.NotContains(t, readonlyTools, "bash")
 	assert.NotContains(t, readonlyTools, "exec")
 	assert.NotContains(t, readonlyTools, "process_start")

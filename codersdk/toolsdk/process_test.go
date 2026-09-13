@@ -54,16 +54,15 @@ func TestWorkspaceProcessToolInstructions(t *testing.T) {
 	require.Contains(t, toolsdk.WorkspaceProcessOutput.Description, "structured persistence advisory")
 	require.Contains(t, toolsdk.WorkspaceProcessList.Description, "structured persistence advisory")
 
-	require.Contains(t, toolsdk.WorkspaceProcessStartV2.Description, "shared 60-second observation budget")
+	require.Contains(t, toolsdk.WorkspaceProcessStartV2.Description, "deployment-wide MCP tool timeout")
 	require.Contains(t, toolsdk.WorkspaceProcessStartV2.Description, "process lifetime is independent of the MCP connection")
-	require.Contains(t, toolsdk.WorkspaceProcessOutput.Description, "single shared 60-second observation budget")
-	require.Contains(t, toolsdk.WorkspaceProcessOutput.Description, "capped at 60000ms")
+	require.Contains(t, toolsdk.WorkspaceProcessOutput.Description, "Without wait_timeout_ms it returns an immediate snapshot")
+	require.Contains(t, toolsdk.WorkspaceProcessOutput.Description, "deployment-wide MCP tool timeout")
 	require.Contains(t, toolsdk.WorkspaceProcessOutput.Description, "never terminates the durable process")
 
-	// Bash remains a convenience wrapper, but its MCP observation is bounded and
-	// long-running work is recoverable through the durable process API.
-	require.Contains(t, toolsdk.WorkspaceBash.Description, "short shell commands")
-	require.Contains(t, toolsdk.WorkspaceBash.Description, "single shared 60-second observation budget")
+	// Bash waits for normal completion by default, but durable work remains
+	// recoverable through the process API when the observation window ends.
+	require.Contains(t, toolsdk.WorkspaceBash.Description, "waits for completion up to the deployment-wide MCP tool timeout")
 	require.Contains(t, toolsdk.WorkspaceBash.Description, "coder_workspace_process_start")
 	require.Contains(t, toolsdk.WorkspaceBash.Description, "non-idempotent")
 	require.Contains(t, toolsdk.WorkspaceBash.Description, "only /home/coder is persistent")

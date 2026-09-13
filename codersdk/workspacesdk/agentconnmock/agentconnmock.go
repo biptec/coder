@@ -355,6 +355,21 @@ func (mr *MockAgentConnMockRecorder) ListProcesses(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListProcesses", reflect.TypeOf((*MockAgentConn)(nil).ListProcesses), ctx)
 }
 
+// ListRemoteHosts mocks base method.
+func (m *MockAgentConn) ListRemoteHosts(ctx context.Context) (workspacesdk.ListRemoteHostsResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRemoteHosts", ctx)
+	ret0, _ := ret[0].(workspacesdk.ListRemoteHostsResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRemoteHosts indicates an expected call of ListRemoteHosts.
+func (mr *MockAgentConnMockRecorder) ListRemoteHosts(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRemoteHosts", reflect.TypeOf((*MockAgentConn)(nil).ListRemoteHosts), ctx)
+}
+
 // ListSearches mocks base method.
 func (m *MockAgentConn) ListSearches(ctx context.Context) (workspacesdk.ListSearchesResponse, error) {
 	m.ctrl.T.Helper()
@@ -554,6 +569,21 @@ func (m *MockAgentConn) ResolvePath(ctx context.Context, path string) (string, e
 func (mr *MockAgentConnMockRecorder) ResolvePath(ctx, path any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolvePath", reflect.TypeOf((*MockAgentConn)(nil).ResolvePath), ctx, path)
+}
+
+// RunCommand mocks base method.
+func (m *MockAgentConn) RunCommand(ctx context.Context, req workspacesdk.RunCommandRequest) (workspacesdk.RunCommandResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RunCommand", ctx, req)
+	ret0, _ := ret[0].(workspacesdk.RunCommandResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RunCommand indicates an expected call of RunCommand.
+func (mr *MockAgentConnMockRecorder) RunCommand(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RunCommand", reflect.TypeOf((*MockAgentConn)(nil).RunCommand), ctx, req)
 }
 
 // SSH mocks base method.

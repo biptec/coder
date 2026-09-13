@@ -450,22 +450,24 @@ func (api *API) HandleEditFiles(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Phase 2: write all files via atomicWrite. A failure here
-	// (e.g. disk full) can leave earlier files committed. True
+	// Phase 2: write all files via atomicWrite unless this is a dry run. A
+	// failure here (e.g. disk full) can leave earlier files committed. True
 	// cross-file atomicity would require filesystem transactions.
-	for _, p := range pending {
-		mode := p.mode
-		s, err := api.atomicWrite(ctx, p.path, &mode, strings.NewReader(p.content))
-		if err != nil {
-			httpapi.Write(ctx, rw, s, codersdk.Response{
-				Message: err.Error(),
-			})
-			return
+	if !req.DryRun {
+		for _, p := range pending {
+			mode := p.mode
+			s, err := api.atomicWrite(ctx, p.path, &mode, strings.NewReader(p.content))
+			if err != nil {
+				httpapi.Write(ctx, rw, s, codersdk.Response{
+					Message: err.Error(),
+				})
+				return
+			}
 		}
 	}
 
-	// Track edited paths for git watch.
-	if api.pathStore != nil {
+	// Track edited paths for git watch only when files were actually written.
+	if !req.DryRun && api.pathStore != nil {
 		if chatContext, ok := agentchat.FromContext(ctx); ok {
 			filePaths := make([]string, 0, len(req.Files))
 			for _, f := range req.Files {

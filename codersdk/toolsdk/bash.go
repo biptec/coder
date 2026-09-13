@@ -14,8 +14,11 @@ import (
 )
 
 type WorkspaceBashArgs struct {
-	Workspace string `json:"workspace"`
-	Command   string `json:"command"`
+	Workspace     string `json:"workspace"`
+	Command       string `json:"command"`
+	Host          string `json:"host,omitempty"`
+	IdentityFile  string `json:"identity_file,omitempty"`
+	WaitTimeoutMs *int   `json:"wait_timeout_ms,omitempty"`
 }
 
 type WorkspaceBashResult struct {
@@ -32,7 +35,7 @@ var WorkspaceBash = Tool[WorkspaceBashArgs, WorkspaceBashResult]{
 		Name: ToolNameWorkspaceBash,
 		Description: `Execute a bash command in a Coder workspace.
 
-Use this convenience tool for short shell commands. Bash has no process execution timeout. One MCP call uses a single shared 60-second observation budget across workspace readiness, process-start acknowledgement, and process observation. If the process finishes within the remaining budget, the tool returns its final output and exit code. If it is still running when the budget is exhausted, the tool returns process_id, running=true, and the latest available output while the same durable process continues independently on the workspace Agent. While running=true, exit_code is only a legacy placeholder and MUST be ignored; it is not the process exit status, timeout, or failure. exit_code is meaningful only when running=false. Continue observing it with coder_workspace_process_output; do not start the command again. If process-start acknowledgement is lost, use coder_workspace_process_list before retrying because the process may already exist.
+Use this convenience tool for shell commands. Bash has no process lifetime timeout. By default, the MCP call waits for completion up to the deployment-wide MCP tool timeout. Set wait_timeout_ms to return earlier; use 0 for an immediate post-start snapshot. If the process is still running when observation ends, the tool returns process_id, running=true, and the latest available output while the same durable process continues independently on the workspace Agent. While running=true, exit_code is only a legacy placeholder and MUST be ignored; it is not the process exit status, timeout, or failure. exit_code is meaningful only when running=false. Continue observing it with coder_workspace_process_output; do not start the command again. If process-start acknowledgement is lost, use coder_workspace_process_list before retrying because the process may already exist.
 
 For commands that are expected to be long-running, expensive, side-effectful, or non-idempotent, prefer coder_workspace_process_start so process_id is returned without waiting for process completion. If shell syntax is not required, prefer coder_workspace_exec.
 
@@ -70,13 +73,22 @@ Examples:
 				},
 				"command": map[string]any{
 					"type":        "string",
-					"description": "The bash command to execute in the workspace.",
+					"description": "The shell command to execute locally in the workspace or on host when provided.",
+				},
+				"host": map[string]any{
+					"type":        "string",
+					"description": "Optional SSH alias returned by remote_hosts. Omit for local workspace execution.",
+				},
+				"wait_timeout_ms": map[string]any{
+					"type":        "integer",
+					"description": "Optional observation interval in milliseconds. Omit to wait up to the deployment-wide MCP tool timeout; use 0 to return immediately after process start. This never limits process lifetime.",
+					"minimum":     0,
 				},
 			},
 			Required: []string{"workspace", "command"},
 		},
 	},
-	MCPAnnotations: mcpDestructiveAnnotations,
+	MCPAnnotations: mcpDestructiveOpenWorldAnnotations,
 	Handler: func(ctx context.Context, deps Deps, args WorkspaceBashArgs) (res WorkspaceBashResult, err error) {
 		if args.Workspace == "" {
 			return WorkspaceBashResult{}, xerrors.New("workspace name cannot be empty")
@@ -84,8 +96,15 @@ Examples:
 		if args.Command == "" {
 			return WorkspaceBashResult{}, xerrors.New("command cannot be empty")
 		}
+		if err := validateRemoteTarget(args.Host, args.IdentityFile); err != nil {
+			return WorkspaceBashResult{}, err
+		}
+		wait, err := workspaceExecutionWaitDuration(args.WaitTimeoutMs, deps.MCPToolTimeoutMax())
+		if err != nil {
+			return WorkspaceBashResult{}, err
+		}
 
-		budget := newMCPObservationBudget()
+		budget := newMCPObservationBudget(deps)
 		conn, err := openAgentConnWithBudget(ctx, deps, args.Workspace, budget)
 		if err != nil {
 			return WorkspaceBashResult{}, err
@@ -93,14 +112,16 @@ Examples:
 		defer conn.Close()
 
 		started, err := startWorkspaceProcessWithinObservation(ctx, conn, workspacesdk.StartProcessRequest{
-			Command: args.Command,
-			Tool:    InvocationToolFromContext(ctx),
+			Command:      args.Command,
+			Host:         args.Host,
+			IdentityFile: args.IdentityFile,
+			Tool:         InvocationToolFromContext(ctx),
 		}, budget)
 		if err != nil {
 			return WorkspaceBashResult{}, xerrors.Errorf("start workspace bash: %w", err)
 		}
 
-		resp, err := observeWorkspaceProcess(ctx, conn, started.ID, budget)
+		resp, err := observeWorkspaceProcess(ctx, conn, started.ID, budget, wait)
 		if err != nil {
 			return WorkspaceBashResult{}, err
 		}

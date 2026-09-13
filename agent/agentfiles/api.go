@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/afero"
 
 	"cdr.dev/slog/v3"
+	"github.com/coder/coder/v2/agent/agentexec"
 	"github.com/coder/coder/v2/agent/agentgit"
 )
 
@@ -15,15 +16,21 @@ type API struct {
 	logger     slog.Logger
 	filesystem afero.Fs
 	pathStore  *agentgit.PathStore
+	execer     agentexec.Execer
 	searches   *searchManager
 }
 
-func NewAPI(logger slog.Logger, filesystem afero.Fs, pathStore *agentgit.PathStore) *API {
+func NewAPI(logger slog.Logger, filesystem afero.Fs, pathStore *agentgit.PathStore, execers ...agentexec.Execer) *API {
+	execer := agentexec.DefaultExecer
+	if len(execers) > 0 && execers[0] != nil {
+		execer = execers[0]
+	}
 	api := &API{
 		logger:     logger,
 		filesystem: filesystem,
 		pathStore:  pathStore,
-		searches:   newSearchManager(filesystem),
+		execer:     execer,
+		searches:   newSearchManager(filesystem, execer),
 	}
 	return api
 }
