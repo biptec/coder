@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "clone_tools": [
+    {
+      "source": "read_file",
+      "name": "remote_read_file",
+      "description": "Read from a known remote SSH host. Use this instead of read_file plus an invented host argument or ssh/cat through exec/bash.",
+      "annotations": {"open_world": true},
+      "add_properties": {"host": {"type": "string", "description": "SSH host alias from remote_hosts."}},
+      "add_required": ["host"]
+    },
+    {
+      "source": "read_files",
+      "name": "remote_read_files",
+      "description": "Read multiple files from a known remote SSH host in one operation.",
+      "annotations": {"open_world": true},
+      "add_properties": {"host": {"type": "string", "description": "SSH host alias from remote_hosts."}},
+      "add_required": ["host"]
+    },
+    {
+      "source": "write_file",
+      "name": "remote_write_file",
+      "description": "Write a complete file on a known remote SSH host.",
+      "annotations": {"open_world": true},
+      "add_properties": {"host": {"type": "string", "description": "SSH host alias from remote_hosts."}},
+      "add_required": ["host"]
+    },
+    {
+      "source": "edit_file",
+      "name": "remote_edit_file",
+      "description": "Apply structured edits to one file on a known remote SSH host.",
+      "annotations": {"open_world": true},
+      "add_properties": {"host": {"type": "string", "description": "SSH host alias from remote_hosts."}},
+      "add_required": ["host"]
+    },
+    {
+      "source": "edit_files",
+      "name": "remote_edit_files",
+      "description": "Apply structured edits to multiple files on a known remote SSH host.",
+      "annotations": {"open_world": true},
+      "add_properties": {"host": {"type": "string", "description": "SSH host alias from remote_hosts."}},
+      "add_required": ["host"]
+    },
+    {
+      "source": "file_info",
+      "name": "remote_file_info",
+      "description": "Return metadata for a filesystem path on a known remote SSH host.",
+      "annotations": {"open_world": true},
+      "add_properties": {"host": {"type": "string", "description": "SSH host alias from remote_hosts."}},
+      "add_required": ["host"]
+    },
+    {
+      "source": "list_directory",
+      "name": "remote_list_directory",
+      "description": "List a directory on a known remote SSH host without shell quoting.",
+      "annotations": {"open_world": true},
+      "add_properties": {"host": {"type": "string", "description": "SSH host alias from remote_hosts."}},
+      "add_required": ["host"]
+    },
+    {
+      "source": "create_directory",
+      "name": "remote_create_directory",
+      "description": "Create a directory on a known remote SSH host.",
+      "annotations": {"open_world": true},
+      "add_properties": {"host": {"type": "string", "description": "SSH host alias from remote_hosts."}},
+      "add_required": ["host"]
+    },
+    {
+      "source": "move_file",
+      "name": "remote_move_file",
+      "description": "Move or rename a path on a known remote SSH host without shell quoting.",
+      "annotations": {"open_world": true},
+      "add_properties": {"host": {"type": "string", "description": "SSH host alias from remote_hosts."}},
+      "add_required": ["host"]
+    },
+    {
+      "source": "search_start",
+      "name": "remote_search_start",
+      "description": "Start a bounded file or content search on a known remote SSH host. The returned search_id is an opaque handle used by remote_search_results and remote_search_stop.",
+      "annotations": {"open_world": true},
+      "add_properties": {"host": {"type": "string", "description": "SSH host alias from remote_hosts."}},
+      "add_required": ["host"]
+    },
+    {
+      "source": "exec",
+      "name": "remote_exec",
+      "description": "Execute argv directly on a known remote SSH host without asking the assistant to construct a quoted ssh command.",
+      "annotations": {"open_world": true},
+      "add_properties": {"host": {"type": "string", "description": "SSH host alias from remote_hosts."}},
+      "add_required": ["host"]
+    },
+    {
+      "source": "bash",
+      "name": "remote_bash",
+      "description": "Run intentional shell syntax on a known remote SSH host. Prefer remote_exec when shell syntax is not required.",
+      "annotations": {"open_world": true},
+      "add_properties": {"host": {"type": "string", "description": "SSH host alias from remote_hosts."}},
+      "add_required": ["host"]
+    },
+    {
+      "source": "process_start",
+      "name": "remote_process_start",
+      "description": "Start a durable process on a known remote SSH host. The returned process_id is an opaque handle used by remote_process_output, remote_process_input, and remote_process_signal.",
+      "annotations": {"open_world": true},
+      "add_properties": {"host": {"type": "string", "description": "SSH host alias from remote_hosts."}},
+      "add_required": ["host"]
+    },
+    {
+      "source": "process_output",
+      "name": "remote_process_output",
+      "description": "Read output from an opaque process handle returned by remote_process_start.",
+      "annotations": {"open_world": true}
+    },
+    {
+      "source": "process_input",
+      "name": "remote_process_input",
+      "description": "Write stdin to an opaque interactive process handle returned by remote_process_start.",
+      "annotations": {"open_world": true}
+    },
+    {
+      "source": "process_signal",
+      "name": "remote_process_signal",
+      "description": "Send a signal to an opaque process handle returned by remote_process_start.",
+      "annotations": {"open_world": true}
+    },
+    {
+      "source": "process_list",
+      "name": "remote_process_list",
+      "description": "List or recover durable processes for a known remote SSH host, including after an uncertain remote_process_start acknowledgement.",
+      "annotations": {"open_world": true},
+      "add_properties": {"host": {"type": "string", "description": "SSH host alias from remote_hosts."}},
+      "add_required": ["host"]
+    },
+    {
+      "source": "search_results",
+      "name": "remote_search_results",
+      "description": "Read results from an opaque search handle returned by remote_search_start.",
+      "annotations": {"open_world": true}
+    },
+    {
+      "source": "search_stop",
+      "name": "remote_search_stop",
+      "description": "Stop an opaque search handle returned by remote_search_start.",
+      "annotations": {"open_world": true}
+    },
+    {
+      "source": "search_list",
+      "name": "remote_search_list",
+      "description": "List active search sessions for a known remote SSH host.",
+      "annotations": {"open_world": true},
+      "add_properties": {"host": {"type": "string", "description": "SSH host alias from remote_hosts."}},
+      "add_required": ["host"]
+    }
+  ]
+}

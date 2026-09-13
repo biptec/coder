@@ -1,0 +1,443 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "id": "local-read-file",
+      "category": "filesystem",
+      "source": "production-history:read_file",
+      "prompt": "Read /home/coder/work/example/config.yaml in workspace developer/coder.",
+      "expected": {"tool": "read_file", "arguments": {"workspace": "developer/coder", "path": "/home/coder/work/example/config.yaml"}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "local-read-multiple-files",
+      "category": "filesystem",
+      "source": "production-history:read_files",
+      "prompt": "Read both /home/coder/work/example/go.mod and /home/coder/work/example/README.md from developer/coder in one operation.",
+      "expected": {"tool": "read_files", "arguments": {"workspace": "developer/coder"}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "local-edit-file",
+      "category": "filesystem",
+      "source": "production-history:edit_file",
+      "prompt": "In developer/coder, replace the single occurrence of old.example.com with new.example.com in /home/coder/work/example/config.yaml.",
+      "expected": {"tool": "edit_file", "arguments": {"workspace": "developer/coder", "path": "/home/coder/work/example/config.yaml"}},
+      "forbidden_tools": ["exec", "bash", "write_file"]
+    },
+    {
+      "id": "local-write-complete-file",
+      "category": "filesystem",
+      "source": "production-history:write_file",
+      "prompt": "Write the complete text 'hello\n' to /home/coder/work/example/tmp/message.txt in developer/coder, replacing the file if it already exists.",
+      "expected": {"tool": "write_file", "arguments": {"workspace": "developer/coder", "path": "/home/coder/work/example/tmp/message.txt", "content": "hello\n"}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "local-list-directory",
+      "category": "filesystem",
+      "source": "production-history:list_directory",
+      "prompt": "List the direct children of /home/coder/work/example/internal in developer/coder, including hidden entries.",
+      "expected": {"tool": "list_directory", "arguments": {"workspace": "developer/coder", "path": "/home/coder/work/example/internal", "include_hidden": true}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "local-file-info",
+      "category": "filesystem",
+      "source": "production-history:file_info",
+      "prompt": "Tell me the metadata for /home/coder/work/example/bin/server in developer/coder without reading its contents.",
+      "expected": {"tool": "file_info", "arguments": {"workspace": "developer/coder", "path": "/home/coder/work/example/bin/server"}},
+      "forbidden_tools": ["exec", "bash", "read_file"]
+    },
+    {
+      "id": "local-create-directory",
+      "category": "filesystem",
+      "source": "production-history:create_directory",
+      "prompt": "Create /home/coder/work/example/tmp/results in developer/coder, creating missing parent directories if necessary.",
+      "expected": {"tool": "create_directory", "arguments": {"workspace": "developer/coder", "path": "/home/coder/work/example/tmp/results", "parents": true}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "local-move-file",
+      "category": "filesystem",
+      "source": "production-history:move_file",
+      "prompt": "Rename /home/coder/work/example/tmp/old.txt to /home/coder/work/example/tmp/new.txt in developer/coder without overwriting an existing destination.",
+      "expected": {"tool": "move_file", "arguments": {"workspace": "developer/coder", "source": "/home/coder/work/example/tmp/old.txt", "dest": "/home/coder/work/example/tmp/new.txt"}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "local-copy-path",
+      "category": "filesystem",
+      "source": "production-history:exec/cp-workaround",
+      "prompt": "Copy /home/coder/work/example/config.yaml to /home/coder/work/example/tmp/config.backup.yaml inside developer/coder. Do not move the original.",
+      "expected": {"tool": "copy_path", "arguments": {"workspace": "developer/coder", "source": {"path": "/home/coder/work/example/config.yaml"}, "destination": {"path": "/home/coder/work/example/tmp/config.backup.yaml"}}},
+      "forbidden_tools": ["exec", "bash", "move_file"]
+    },
+    {
+      "id": "local-remove-path",
+      "category": "filesystem",
+      "source": "production-history:exec/rm-workaround",
+      "prompt": "Delete the temporary file /home/coder/work/example/tmp/stale.txt from developer/coder.",
+      "expected": {"tool": "remove_path", "arguments": {"workspace": "developer/coder", "path": "/home/coder/work/example/tmp/stale.txt"}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "literal-content-search",
+      "category": "search",
+      "source": "production-history:search_start",
+      "prompt": "Search file contents below /home/coder/work/example in developer/coder for the literal text 'workspaceMCPRequestActivity'. This is a text search, not a semantic symbol lookup.",
+      "expected": {"tool": "search_start", "arguments": {"workspace": "developer/coder", "root": "/home/coder/work/example", "mode": "content", "query": "workspaceMCPRequestActivity"}},
+      "forbidden_tools": ["exec", "bash", "code_query"]
+    },
+    {
+      "id": "filename-search",
+      "category": "search",
+      "source": "production-history:search_start",
+      "prompt": "Find paths below /home/coder/work/example in developer/coder whose relative path contains 'workspaceactivity'. Search filenames, not file contents.",
+      "expected": {"tool": "search_start", "arguments": {"workspace": "developer/coder", "root": "/home/coder/work/example", "mode": "files", "query": "workspaceactivity"}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "continue-search-results",
+      "category": "search",
+      "source": "production-history:search_results",
+      "prompt": "Continue reading results for existing search session search-123 in developer/coder starting at cursor 100. Do not start the search again.",
+      "expected": {"tool": "search_results", "arguments": {"workspace": "developer/coder", "search_id": "search-123", "cursor": 100}},
+      "forbidden_tools": ["search_start", "exec", "bash"]
+    },
+    {
+      "id": "workspace-capabilities",
+      "category": "workspace",
+      "source": "production-history:capabilities",
+      "prompt": "What development tools and versions are installed in developer/coder? Use the workspace-published capabilities manifest.",
+      "expected": {"tool": "capabilities", "arguments": {"workspace": "developer/coder"}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "workspace-status",
+      "category": "workspace",
+      "source": "production-history:status",
+      "prompt": "Get the current Coder workspace status and metadata for developer/coder.",
+      "expected": {"tool": "status", "arguments": {"workspace_id": "developer/coder"}}
+    },
+    {
+      "id": "workspace-list",
+      "category": "workspace",
+      "source": "production-history:list_workspaces",
+      "prompt": "List all Coder workspaces visible to me, including shared workspaces.",
+      "expected": {"tool": "list_workspaces"}
+    },
+    {
+      "id": "workspace-apps",
+      "category": "workspace",
+      "source": "production-history:list_apps",
+      "prompt": "List the Coder application URLs exposed by developer/coder.",
+      "expected": {"tool": "list_apps", "arguments": {"workspace": "developer/coder"}}
+    },
+    {
+      "id": "recent-tool-activity",
+      "category": "workspace",
+      "source": "production-history:recent_activity",
+      "prompt": "Show the ten most recent safe MCP tool activity records for developer/coder.",
+      "expected": {"tool": "recent_activity", "arguments": {"workspace": "developer/coder", "limit": 10}}
+    },
+    {
+      "id": "git-status-direct-exec",
+      "category": "execution",
+      "source": "production-history:exec/git/status",
+      "prompt": "In developer/coder, run git status --short in /home/coder/work/example. I want the actual Git CLI result.",
+      "expected": {"tool": "exec", "arguments": {"workspace": "developer/coder", "workdir": "/home/coder/work/example", "argv": ["git", "status", "--short"]}},
+      "forbidden_tools": ["bash"]
+    },
+    {
+      "id": "git-diff-direct-exec",
+      "category": "execution",
+      "source": "production-history:exec/git/diff",
+      "prompt": "Run git diff --check in /home/coder/work/example on developer/coder.",
+      "expected": {"tool": "exec", "arguments": {"workspace": "developer/coder", "workdir": "/home/coder/work/example", "argv": ["git", "diff", "--check"]}},
+      "forbidden_tools": ["bash"]
+    },
+    {
+      "id": "long-test-process-start",
+      "category": "process",
+      "source": "production-history:process_start/go",
+      "prompt": "Run go test ./... in /home/coder/work/example on developer/coder. It can take several minutes, so start it exactly once and give me a durable process handle without waiting for completion.",
+      "expected": {"tool": "process_start", "arguments": {"workspace": "developer/coder", "workdir": "/home/coder/work/example", "argv": ["go", "test", "./..."]}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "intentional-shell-pipeline",
+      "category": "execution",
+      "source": "production-history:bash",
+      "prompt": "In developer/coder, run a shell pipeline that prints the current environment, filters lines containing CODER_, and sorts them. Shell pipe syntax is intentionally required.",
+      "expected": {"tool": "bash", "arguments": {"workspace": "developer/coder"}},
+      "forbidden_tools": ["exec"]
+    },
+    {
+      "id": "observe-existing-process",
+      "category": "process",
+      "source": "production-history:process_output",
+      "prompt": "Process process-123 is already running in developer/coder. Read its next available output and wait up to 10 seconds. Do not rerun the command.",
+      "expected": {"tool": "process_output", "arguments": {"workspace": "developer/coder", "process_id": "process-123", "wait_timeout_ms": 10000}},
+      "forbidden_tools": ["exec", "bash", "process_start"]
+    },
+    {
+      "id": "recover-after-uncertain-submit",
+      "category": "process",
+      "source": "production-history:process_list",
+      "prompt": "My previous process_start call for developer/coder disconnected before I received its acknowledgement. I do not know whether it was submitted. Check tracked processes before considering another execution.",
+      "expected": {"tool": "process_list", "arguments": {"workspace": "developer/coder"}},
+      "forbidden_tools": ["process_start", "exec", "bash"]
+    },
+    {
+      "id": "terminate-durable-process",
+      "category": "process",
+      "source": "production-history:process_signal",
+      "prompt": "Gracefully terminate tracked process process-123 in developer/coder.",
+      "expected": {"tool": "process_signal", "arguments": {"workspace": "developer/coder", "process_id": "process-123", "signal": "terminate"}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "interactive-process-input",
+      "category": "process",
+      "source": "production-history:process_input",
+      "prompt": "Send the text 'yes\n' to the open stdin of tracked interactive process process-123 in developer/coder, keeping stdin open afterward.",
+      "expected": {"tool": "process_input", "arguments": {"workspace": "developer/coder", "process_id": "process-123", "data": "yes\n"}},
+      "forbidden_tools": ["exec", "bash", "process_start"]
+    },
+    {
+      "id": "explicit-curl-cli-flags",
+      "category": "execution",
+      "source": "production-history:exec/curl",
+      "prompt": "In developer/coder, explicitly run curl with these exact diagnostic CLI arguments: curl -fsS --resolve api.example.test:443:192.0.2.10 https://api.example.test/health . I am testing curl's --resolve behavior itself.",
+      "expected": {"tool": "exec", "arguments": {"workspace": "developer/coder", "argv": ["curl", "-fsS", "--resolve", "api.example.test:443:192.0.2.10", "https://api.example.test/health"]}},
+      "forbidden_tools": ["http_fetch", "http_request", "bash"]
+    },
+    {
+      "id": "discover-remote-hosts",
+      "category": "remote",
+      "source": "production-history:exec/ssh-workaround",
+      "prompt": "List the SSH host aliases configured for developer/coder so I can choose a remote target. Do not reveal private key contents or credentials.",
+      "expected": {"tool": "remote_hosts", "arguments": {"workspace": "developer/coder"}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "remote-read-file",
+      "category": "remote",
+      "source": "production-history:exec/ssh+cat",
+      "prompt": "From developer/coder, read /etc/caddy/Caddyfile on the configured SSH host alias edge-1.",
+      "expected": {"tool": "read_file", "arguments": {"workspace": "developer/coder", "host": "edge-1", "path": "/etc/caddy/Caddyfile"}},
+      "expected_by_catalog": {"specialized": {"tool": "remote_read_file", "arguments": {"workspace": "developer/coder", "host": "edge-1", "path": "/etc/caddy/Caddyfile"}}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "remote-edit-file",
+      "category": "remote",
+      "source": "production-history:exec/ssh+sed-workaround",
+      "prompt": "On SSH host edge-1 reached from developer/coder, replace the single text 'old-upstream' with 'new-upstream' in /etc/example/service.conf.",
+      "expected": {"tool": "edit_file", "arguments": {"workspace": "developer/coder", "host": "edge-1", "path": "/etc/example/service.conf"}},
+      "expected_by_catalog": {"specialized": {"tool": "remote_edit_file", "arguments": {"workspace": "developer/coder", "host": "edge-1", "path": "/etc/example/service.conf"}}},
+      "forbidden_tools": ["exec", "bash", "write_file"]
+    },
+    {
+      "id": "remote-list-directory",
+      "category": "remote",
+      "source": "production-history:exec/ssh+ls-workaround",
+      "prompt": "List /var/log/caddy on SSH host edge-1 from developer/coder.",
+      "expected": {"tool": "list_directory", "arguments": {"workspace": "developer/coder", "host": "edge-1", "path": "/var/log/caddy"}},
+      "expected_by_catalog": {"specialized": {"tool": "remote_list_directory", "arguments": {"workspace": "developer/coder", "host": "edge-1", "path": "/var/log/caddy"}}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "remote-search-content",
+      "category": "remote",
+      "source": "production-history:exec/ssh+grep",
+      "prompt": "Search files below /etc/caddy on SSH host edge-1 for the literal text 'reverse_proxy'. Use developer/coder as the access workspace.",
+      "expected": {"tool": "search_start", "arguments": {"workspace": "developer/coder", "host": "edge-1", "root": "/etc/caddy", "mode": "content", "query": "reverse_proxy"}},
+      "expected_by_catalog": {"specialized": {"tool": "remote_search_start", "arguments": {"workspace": "developer/coder", "host": "edge-1", "root": "/etc/caddy", "mode": "content", "query": "reverse_proxy"}}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "remote-search-results",
+      "category": "remote",
+      "source": "workflow-guidance:remote-handle-lifecycle",
+      "prompt": "Remote search search-remote-123 was already started on edge-1 from developer/coder. Read the next retained results from that existing search handle; do not start the search again.",
+      "expected": {"tool": "search_results", "arguments": {"workspace": "developer/coder", "search_id": "search-remote-123"}},
+      "expected_by_catalog": {"specialized": {"tool": "remote_search_results", "arguments": {"workspace": "developer/coder", "search_id": "search-remote-123"}}},
+      "forbidden_tools": ["search_start", "remote_search_start", "exec", "bash"]
+    },
+    {
+      "id": "remote-exec-systemctl",
+      "category": "remote",
+      "source": "production-history:exec/ssh+systemctl",
+      "prompt": "On SSH host edge-1 from developer/coder, run systemctl status caddy --no-pager. No shell pipeline or expansion is needed.",
+      "expected": {"tool": "exec", "arguments": {"workspace": "developer/coder", "host": "edge-1", "argv": ["systemctl", "status", "caddy", "--no-pager"]}},
+      "expected_by_catalog": {"specialized": {"tool": "remote_exec", "arguments": {"workspace": "developer/coder", "host": "edge-1", "argv": ["systemctl", "status", "caddy", "--no-pager"]}}},
+      "forbidden_tools": ["bash"]
+    },
+    {
+      "id": "remote-long-process",
+      "category": "remote",
+      "source": "production-history:process_start/ssh",
+      "prompt": "On SSH host build-1 from developer/coder, start go test ./... in /srv/project. It can take a long time and must be submitted only once with a durable process handle.",
+      "expected": {"tool": "process_start", "arguments": {"workspace": "developer/coder", "host": "build-1", "workdir": "/srv/project", "argv": ["go", "test", "./..."]}},
+      "expected_by_catalog": {"specialized": {"tool": "remote_process_start", "arguments": {"workspace": "developer/coder", "host": "build-1", "workdir": "/srv/project", "argv": ["go", "test", "./..."]}}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "remote-process-output",
+      "category": "remote",
+      "source": "workflow-guidance:remote-handle-lifecycle",
+      "prompt": "Remote process process-remote-123 is already running on build-1 and was started from developer/coder. Read its next available output without rerunning it.",
+      "expected": {"tool": "process_output", "arguments": {"workspace": "developer/coder", "process_id": "process-remote-123"}},
+      "expected_by_catalog": {"specialized": {"tool": "remote_process_output", "arguments": {"workspace": "developer/coder", "process_id": "process-remote-123"}}},
+      "forbidden_tools": ["process_start", "remote_process_start", "exec", "bash"]
+    },
+    {
+      "id": "remote-process-recovery-list",
+      "category": "remote",
+      "source": "workflow-guidance:remote-handle-lifecycle",
+      "prompt": "A previous remote process start on SSH host build-1 from developer/coder disconnected before acknowledgement. I do not have a process_id. List tracked processes for build-1 before considering another submission.",
+      "expected": {"tool": "process_list", "arguments": {"workspace": "developer/coder", "host": "build-1"}},
+      "expected_by_catalog": {"specialized": {"tool": "remote_process_list", "arguments": {"workspace": "developer/coder", "host": "build-1"}}},
+      "forbidden_tools": ["process_start", "remote_process_start", "exec", "bash"]
+    },
+    {
+      "id": "remote-intentional-shell",
+      "category": "remote",
+      "source": "production-history:bash/ssh",
+      "prompt": "On SSH host edge-1 from developer/coder, intentionally run a shell pipeline that reads journalctl -u caddy -n 200 and pipes it to grep timeout. The remote pipe is required.",
+      "expected": {"tool": "bash", "arguments": {"workspace": "developer/coder", "host": "edge-1"}},
+      "expected_by_catalog": {"specialized": {"tool": "remote_bash", "arguments": {"workspace": "developer/coder", "host": "edge-1"}}},
+      "forbidden_tools": ["exec"]
+    },
+    {
+      "id": "copy-remote-to-workspace",
+      "category": "remote",
+      "source": "production-history:exec/scp-workaround",
+      "prompt": "Copy /var/log/example/service.log from SSH host edge-1 into /home/coder/tmp/service.log in developer/coder.",
+      "expected": {"tool": "copy_path", "arguments": {"workspace": "developer/coder", "source": {"host": "edge-1", "path": "/var/log/example/service.log"}, "destination": {"path": "/home/coder/tmp/service.log"}}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "copy-workspace-to-remote",
+      "category": "remote",
+      "source": "production-history:exec/scp-workaround",
+      "prompt": "Copy /home/coder/tmp/candidate.conf from developer/coder to /tmp/candidate.conf on SSH host edge-1 without overwriting an existing destination.",
+      "expected": {"tool": "copy_path", "arguments": {"workspace": "developer/coder", "source": {"path": "/home/coder/tmp/candidate.conf"}, "destination": {"host": "edge-1", "path": "/tmp/candidate.conf"}}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "remove-remote-temp-file",
+      "category": "remote",
+      "source": "production-history:exec/ssh+rm-workaround",
+      "prompt": "Delete /tmp/candidate.conf on SSH host edge-1 from developer/coder.",
+      "expected": {"tool": "remove_path", "arguments": {"workspace": "developer/coder", "host": "edge-1", "path": "/tmp/candidate.conf"}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "remote-http-get",
+      "category": "http",
+      "source": "production-history:exec/ssh+curl",
+      "prompt": "From SSH host edge-1 using developer/coder, GET https://127.0.0.1:8443/health and return the HTTP status, headers, and bounded body. This is an ordinary HTTP probe, not a curl CLI test.",
+      "expected": {"tool": "http_fetch", "arguments": {"workspace": "developer/coder", "host": "edge-1", "url": "https://127.0.0.1:8443/health"}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "remote-http-post-json-quoting-regression",
+      "category": "http",
+      "source": "production-history:bash/ssh+curl-regression",
+      "prompt": "From SSH host edge-1 using developer/coder, POST the body {\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"} to https://127.0.0.1:8443/rpc with Content-Type application/json. Do not construct nested ssh/curl shell quoting.",
+      "expected": {"tool": "http_request", "arguments": {"workspace": "developer/coder", "host": "edge-1", "url": "https://127.0.0.1:8443/rpc", "method": "POST", "body": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}"}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "inspect-openssh-resolution",
+      "category": "remote",
+      "source": "production-history:exec/ssh",
+      "prompt": "In developer/coder, run ssh -G edge-1 because I specifically want OpenSSH to print its resolved client configuration. Do not connect to edge-1.",
+      "expected": {"tool": "exec", "arguments": {"workspace": "developer/coder", "argv": ["ssh", "-G", "edge-1"]}},
+      "forbidden_tools": ["remote_hosts", "bash"]
+    },
+    {
+      "id": "http-local-get",
+      "category": "http",
+      "source": "production-history:exec/curl",
+      "prompt": "From developer/coder, GET https://service.example.test/health and return structured status, headers, and a bounded response body.",
+      "expected": {"tool": "http_fetch", "arguments": {"workspace": "developer/coder", "url": "https://service.example.test/health"}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "http-local-head",
+      "category": "http",
+      "source": "production-history:exec/curl",
+      "prompt": "From developer/coder, make a HEAD request to https://service.example.test/artifact.tar.zst. I only need the response status and headers.",
+      "expected": {"tool": "http_fetch", "arguments": {"workspace": "developer/coder", "url": "https://service.example.test/artifact.tar.zst", "method": "HEAD"}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "http-local-post-json",
+      "category": "http",
+      "source": "production-history:exec/curl",
+      "prompt": "From developer/coder, POST the JSON body {\"name\":\"candidate\",\"enabled\":true} to https://api.example.test/v1/items with Content-Type application/json.",
+      "expected": {"tool": "http_request", "arguments": {"workspace": "developer/coder", "url": "https://api.example.test/v1/items", "method": "POST", "body": "{\"name\":\"candidate\",\"enabled\":true}"}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "http-local-delete",
+      "category": "http",
+      "source": "production-history:exec/curl",
+      "prompt": "From developer/coder, send DELETE to https://api.example.test/v1/items/123 and return the structured HTTP response.",
+      "expected": {"tool": "http_request", "arguments": {"workspace": "developer/coder", "url": "https://api.example.test/v1/items/123", "method": "DELETE"}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "code-definition",
+      "category": "code",
+      "source": "workflow-guidance:lsp-first",
+      "prompt": "In developer/coder, find the semantic definition of the Go symbol openAgentConn. Use language-server code intelligence rather than text grep.",
+      "expected": {"tool": "code_query", "arguments": {"workspace": "developer/coder", "operation": "definition", "symbol": "openAgentConn"}},
+      "forbidden_tools": ["search_start", "exec", "bash"]
+    },
+    {
+      "id": "code-references",
+      "category": "code",
+      "source": "workflow-guidance:lsp-first",
+      "prompt": "In developer/coder, find semantic references to the Go symbol WorkspaceCapabilities. I need actual symbol references, not textual matches.",
+      "expected": {"tool": "code_query", "arguments": {"workspace": "developer/coder", "operation": "references", "symbol": "WorkspaceCapabilities"}},
+      "forbidden_tools": ["search_start", "exec", "bash"]
+    },
+    {
+      "id": "code-diagnostics",
+      "category": "code",
+      "source": "workflow-guidance:lsp-first",
+      "prompt": "Get language-server diagnostics for /home/coder/work/example/internal/server/server.go in developer/coder without running the test suite.",
+      "expected": {"tool": "code_query", "arguments": {"workspace": "developer/coder", "operation": "diagnostics", "path": "/home/coder/work/example/internal/server/server.go"}},
+      "forbidden_tools": ["exec", "bash"]
+    },
+    {
+      "id": "code-symbol-search",
+      "category": "code",
+      "source": "workflow-guidance:lsp-first",
+      "prompt": "In developer/coder, semantically search the code index for symbols matching WorkspaceActivity. Do not grep file text.",
+      "expected": {"tool": "code_query", "arguments": {"workspace": "developer/coder", "operation": "symbols", "query": "WorkspaceActivity"}},
+      "forbidden_tools": ["search_start", "exec", "bash"]
+    },
+    {
+      "id": "code-call-hierarchy",
+      "category": "code",
+      "source": "workflow-guidance:lsp-first",
+      "prompt": "In developer/coder, inspect the semantic call hierarchy for the function StartToolActivity using the language server.",
+      "expected": {"tool": "code_query", "arguments": {"workspace": "developer/coder", "operation": "call_hierarchy", "symbol": "StartToolActivity"}},
+      "forbidden_tools": ["search_start", "exec", "bash"]
+    },
+    {
+      "id": "code-semantic-rename",
+      "category": "code",
+      "source": "workflow-guidance:lsp-first",
+      "prompt": "In developer/coder, semantically rename the symbol at /home/coder/work/example/internal/server/server.go line 42 column 6 to serveRequest, updating its references across the project.",
+      "expected": {"tool": "code_rename", "arguments": {"workspace": "developer/coder", "path": "/home/coder/work/example/internal/server/server.go", "line": 42, "column": 6, "new_name": "serveRequest"}},
+      "forbidden_tools": ["edit_file", "edit_files", "search_start", "exec", "bash"]
+    }
+  ]
+}

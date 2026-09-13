@@ -1,0 +1,367 @@
+{
+  "version": 1,
+  "patch_tools": [
+    {
+      "name": "read_file",
+      "description_append": "Set host to a known SSH alias to read the file on that remote host instead of the workspace filesystem. Prefer this structured remote access over running ssh or cat through exec/bash.",
+      "annotations": {"open_world": true},
+      "add_properties": {
+        "host": {
+          "type": "string",
+          "description": "Optional SSH host alias from remote_hosts. When omitted, operate on the workspace filesystem."
+        }
+      }
+    },
+    {
+      "name": "read_files",
+      "description_append": "Set host to a known SSH alias to read the files on that remote host instead of the workspace filesystem.",
+      "annotations": {"open_world": true},
+      "add_properties": {
+        "host": {
+          "type": "string",
+          "description": "Optional SSH host alias from remote_hosts. When omitted, operate on the workspace filesystem."
+        }
+      }
+    },
+    {
+      "name": "write_file",
+      "description_append": "Set host to a known SSH alias to write the file on that remote host instead of the workspace filesystem.",
+      "annotations": {"open_world": true},
+      "add_properties": {
+        "host": {
+          "type": "string",
+          "description": "Optional SSH host alias from remote_hosts. When omitted, operate on the workspace filesystem."
+        }
+      }
+    },
+    {
+      "name": "edit_file",
+      "description_append": "Set host to a known SSH alias to edit the file on that remote host instead of the workspace filesystem.",
+      "annotations": {"open_world": true},
+      "add_properties": {
+        "host": {
+          "type": "string",
+          "description": "Optional SSH host alias from remote_hosts. When omitted, operate on the workspace filesystem."
+        }
+      }
+    },
+    {
+      "name": "edit_files",
+      "description_append": "Set host to a known SSH alias to edit the files on that remote host instead of the workspace filesystem.",
+      "annotations": {"open_world": true},
+      "add_properties": {
+        "host": {
+          "type": "string",
+          "description": "Optional SSH host alias from remote_hosts. When omitted, operate on the workspace filesystem."
+        }
+      }
+    },
+    {
+      "name": "file_info",
+      "description_append": "Set host to a known SSH alias to inspect the path on that remote host instead of the workspace filesystem.",
+      "annotations": {"open_world": true},
+      "add_properties": {
+        "host": {
+          "type": "string",
+          "description": "Optional SSH host alias from remote_hosts. When omitted, operate on the workspace filesystem."
+        }
+      }
+    },
+    {
+      "name": "list_directory",
+      "description_append": "Set host to a known SSH alias to list a directory on that remote host instead of the workspace filesystem.",
+      "annotations": {"open_world": true},
+      "add_properties": {
+        "host": {
+          "type": "string",
+          "description": "Optional SSH host alias from remote_hosts. When omitted, operate on the workspace filesystem."
+        }
+      }
+    },
+    {
+      "name": "create_directory",
+      "description_append": "Set host to a known SSH alias to create the directory on that remote host instead of the workspace filesystem.",
+      "annotations": {"open_world": true},
+      "add_properties": {
+        "host": {
+          "type": "string",
+          "description": "Optional SSH host alias from remote_hosts. When omitted, operate on the workspace filesystem."
+        }
+      }
+    },
+    {
+      "name": "move_file",
+      "description_append": "Set host to a known SSH alias to move or rename the path on that remote host instead of the workspace filesystem.",
+      "annotations": {"open_world": true},
+      "add_properties": {
+        "host": {
+          "type": "string",
+          "description": "Optional SSH host alias from remote_hosts. When omitted, operate on the workspace filesystem."
+        }
+      }
+    },
+    {
+      "name": "search_start",
+      "description_append": "Set host to a known SSH alias to search the remote filesystem. Prefer this over invoking ssh plus grep/find/rg.",
+      "annotations": {"open_world": true},
+      "add_properties": {
+        "host": {
+          "type": "string",
+          "description": "Optional SSH host alias from remote_hosts. When omitted, search the workspace filesystem."
+        }
+      }
+    },
+    {
+      "name": "exec",
+      "description_append": "Set host to a known SSH alias to execute argv on that remote host without asking the assistant to construct a quoted ssh command. Prefer host over putting ssh in argv.",
+      "annotations": {"open_world": true},
+      "add_properties": {
+        "host": {
+          "type": "string",
+          "description": "Optional SSH host alias from remote_hosts. When omitted, execute in the workspace."
+        }
+      }
+    },
+    {
+      "name": "bash",
+      "description_append": "Set host to a known SSH alias when intentional shell syntax must run remotely. Do not wrap a remote command in ssh yourself. Prefer exec with host when shell syntax is not required.",
+      "annotations": {"open_world": true},
+      "add_properties": {
+        "host": {
+          "type": "string",
+          "description": "Optional SSH host alias from remote_hosts. When omitted, execute in the workspace."
+        }
+      }
+    },
+    {
+      "name": "process_start",
+      "description_append": "Set host to a known SSH alias to start the durable process on that remote host. Prefer argv mode unless shell syntax is required. The returned process_id is an opaque handle for process_output/process_input/process_signal.",
+      "annotations": {"open_world": true},
+      "add_properties": {
+        "host": {
+          "type": "string",
+          "description": "Optional SSH host alias from remote_hosts. When omitted, start the process in the workspace."
+        }
+      }
+    },
+    {
+      "name": "process_output",
+      "description_append": "The process_id may refer to a process started on a remote host by process_start(host=...). The opaque handle carries its target.",
+      "annotations": {"open_world": true}
+    },
+    {
+      "name": "process_input",
+      "description_append": "The process_id may refer to an interactive process started on a remote host by process_start(host=...). The opaque handle carries its target.",
+      "annotations": {"open_world": true}
+    },
+    {
+      "name": "process_signal",
+      "description_append": "The process_id may refer to a process started on a remote host by process_start(host=...). The opaque handle carries its target.",
+      "annotations": {"open_world": true}
+    },
+    {
+      "name": "process_list",
+      "description_append": "Set host to a known SSH alias when recovering or listing durable processes for that remote target after an uncertain process_start result. Remote entries include target metadata.",
+      "annotations": {"open_world": true},
+      "add_properties": {
+        "host": {
+          "type": "string",
+          "description": "Optional SSH host alias from remote_hosts. When omitted, list workspace-local tracked processes."
+        }
+      }
+    },
+    {
+      "name": "search_results",
+      "description_append": "The search_id may refer to a search started on a remote host by search_start(host=...). The opaque handle carries its target.",
+      "annotations": {"open_world": true}
+    },
+    {
+      "name": "search_stop",
+      "description_append": "The search_id may refer to a search started on a remote host by search_start(host=...). The opaque handle carries its target.",
+      "annotations": {"open_world": true}
+    },
+    {
+      "name": "search_list",
+      "description_append": "List workspace-local and remote search sessions started by search_start. Remote entries include target metadata.",
+      "annotations": {"open_world": true}
+    }
+  ],
+  "add_tools": [
+    {
+      "name": "remote_hosts",
+      "description": "List SSH host aliases available to the workspace, with safe connection metadata only. Use this to discover a remote target before setting host on file, search, exec, bash, process, HTTP, copy, or remove tools. Never returns private key contents or credential values.",
+      "annotations": {"read_only": true, "destructive": false, "idempotent": true, "open_world": false},
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "workspace": {
+            "type": "string",
+            "description": "Workspace whose SSH configuration and known remote targets should be inspected."
+          }
+        },
+        "required": ["workspace"]
+      }
+    },
+    {
+      "name": "copy_path",
+      "description": "Copy a file or directory between workspace and/or remote SSH targets without shell quoting. Source and destination may independently be local to the workspace or use a known host alias. Use this instead of cp, scp, rsync, tar-over-ssh, or base64 transfer when a direct copy is intended.",
+      "annotations": {"read_only": false, "destructive": true, "idempotent": false, "open_world": true},
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "workspace": {
+            "type": "string",
+            "description": "Workspace that owns the local filesystem and SSH configuration for this transfer."
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "path": {"type": "string", "description": "Absolute source path."},
+              "host": {"type": "string", "description": "Optional source SSH host alias. Omit for the workspace filesystem."}
+            },
+            "required": ["path"]
+          },
+          "destination": {
+            "type": "object",
+            "properties": {
+              "path": {"type": "string", "description": "Absolute destination path."},
+              "host": {"type": "string", "description": "Optional destination SSH host alias. Omit for the workspace filesystem."}
+            },
+            "required": ["path"]
+          },
+          "overwrite": {
+            "type": "boolean",
+            "description": "Allow replacing an existing destination. Defaults to false."
+          }
+        },
+        "required": ["workspace", "source", "destination"]
+      }
+    },
+    {
+      "name": "remove_path",
+      "description": "Remove a file or directory from the workspace or a known remote SSH host. This is destructive. Use only when removal is the requested action, instead of rm through exec/bash.",
+      "annotations": {"read_only": false, "destructive": true, "idempotent": false, "open_world": true},
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "workspace": {
+            "type": "string",
+            "description": "Workspace that owns the local filesystem and SSH configuration."
+          },
+          "path": {
+            "type": "string",
+            "description": "Absolute path to remove."
+          },
+          "host": {
+            "type": "string",
+            "description": "Optional SSH host alias. When omitted, remove from the workspace filesystem."
+          },
+          "recursive": {
+            "type": "boolean",
+            "description": "Allow removing a non-empty directory. Defaults to false."
+          }
+        },
+        "required": ["workspace", "path"]
+      }
+    },
+    {
+      "name": "http_fetch",
+      "description": "Perform a structured read-only HTTP GET or HEAD request from the workspace or a known remote SSH host. Prefer this over curl/wget for ordinary probes and document retrieval. Does not support mutating HTTP methods.",
+      "annotations": {"read_only": true, "destructive": false, "idempotent": true, "open_world": true},
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "workspace": {
+            "type": "string",
+            "description": "Workspace from whose network context the request is made."
+          },
+          "host": {
+            "type": "string",
+            "description": "Optional SSH host alias. When set, originate the HTTP request from that remote host."
+          },
+          "url": {"type": "string", "description": "Absolute http or https URL."},
+          "method": {
+            "type": "string",
+            "enum": ["GET", "HEAD"],
+            "description": "Read-only HTTP method. Defaults to GET."
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {"type": "string"},
+            "description": "Optional request headers. Secret header values must not be persisted in activity metadata."
+          },
+          "follow_redirects": {"type": "boolean", "description": "Follow redirects. Defaults to true."},
+          "timeout_ms": {"type": "integer", "minimum": 1, "maximum": 60000, "description": "Request timeout in milliseconds."},
+          "max_body_bytes": {"type": "integer", "minimum": 1, "maximum": 1048576, "description": "Maximum response body bytes returned to the assistant."}
+        },
+        "required": ["workspace", "url"]
+      }
+    },
+    {
+      "name": "http_request",
+      "description": "Perform a structured HTTP request that may mutate remote state, such as POST, PUT, PATCH, or DELETE, from the workspace or a known remote SSH host. Prefer this over curl when an HTTP API call is the intended action.",
+      "annotations": {"read_only": false, "destructive": true, "idempotent": false, "open_world": true},
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "workspace": {"type": "string", "description": "Workspace from whose network context the request is made."},
+          "host": {"type": "string", "description": "Optional SSH host alias. When set, originate the HTTP request from that remote host."},
+          "url": {"type": "string", "description": "Absolute http or https URL."},
+          "method": {
+            "type": "string",
+            "enum": ["POST", "PUT", "PATCH", "DELETE"],
+            "description": "Potentially mutating HTTP method."
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {"type": "string"},
+            "description": "Optional request headers. Secret header values must not be persisted in activity metadata."
+          },
+          "body": {"type": "string", "description": "Optional request body delivered verbatim."},
+          "follow_redirects": {"type": "boolean", "description": "Follow redirects. Defaults to false for mutating requests."},
+          "timeout_ms": {"type": "integer", "minimum": 1, "maximum": 60000, "description": "Request timeout in milliseconds."},
+          "max_body_bytes": {"type": "integer", "minimum": 1, "maximum": 1048576, "description": "Maximum response body bytes returned to the assistant."}
+        },
+        "required": ["workspace", "url", "method"]
+      }
+    },
+    {
+      "name": "code_query",
+      "description": "Query language-server code intelligence without modifying files. Use this for semantic symbols, definitions, references, diagnostics, hover information, or call hierarchy. Use search_start instead for literal or regex text search.",
+      "annotations": {"read_only": true, "destructive": false, "idempotent": true, "open_world": false},
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "workspace": {"type": "string", "description": "Workspace containing the codebase."},
+          "operation": {
+            "type": "string",
+            "enum": ["symbols", "definition", "references", "diagnostics", "hover", "call_hierarchy"],
+            "description": "Semantic code query to perform."
+          },
+          "path": {"type": "string", "description": "Absolute source file path when the operation requires a location."},
+          "line": {"type": "integer", "minimum": 1, "description": "1-based source line."},
+          "column": {"type": "integer", "minimum": 1, "description": "1-based source column."},
+          "symbol": {"type": "string", "description": "Optional symbol name for symbol-oriented queries."},
+          "query": {"type": "string", "description": "Optional symbol search query."}
+        },
+        "required": ["workspace", "operation"]
+      }
+    },
+    {
+      "name": "code_rename",
+      "description": "Rename a code symbol semantically through the language server, updating references across the project. This modifies files. Prefer this over text replacement when the requested change is a symbol rename.",
+      "annotations": {"read_only": false, "destructive": true, "idempotent": false, "open_world": false},
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "workspace": {"type": "string", "description": "Workspace containing the codebase."},
+          "path": {"type": "string", "description": "Absolute source file path containing the symbol."},
+          "line": {"type": "integer", "minimum": 1, "description": "1-based source line of the symbol."},
+          "column": {"type": "integer", "minimum": 1, "description": "1-based source column of the symbol."},
+          "new_name": {"type": "string", "description": "New symbol name."}
+        },
+        "required": ["workspace", "path", "line", "column", "new_name"]
+      }
+    }
+  ]
+}
