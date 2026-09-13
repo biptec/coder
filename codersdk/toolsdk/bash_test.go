@@ -123,15 +123,22 @@ func TestWorkspaceBashObservationContract(t *testing.T) {
 
 	argsType := reflect.TypeOf(toolsdk.WorkspaceBashArgs{})
 	_, hasTimeout := argsType.FieldByName("TimeoutMs")
-	require.False(t, hasTimeout, "bash args must not expose a process execution timeout")
+	require.False(t, hasTimeout, "bash args must not expose a process lifetime timeout")
+	_, hasWaitTimeout := argsType.FieldByName("WaitTimeoutMs")
+	require.True(t, hasWaitTimeout, "bash args must expose an observation wait timeout")
 	_, hasBackground := argsType.FieldByName("Background")
 	require.False(t, hasBackground, "bash background mode must use process_start instead")
 
 	tool := toolsdk.WorkspaceBash
 	require.NotContains(t, tool.Schema.Properties, "timeout_ms")
+	require.Contains(t, tool.Schema.Properties, "wait_timeout_ms")
+	waitSchema := tool.Schema.Properties["wait_timeout_ms"].(map[string]any)
+	require.Equal(t, 0, waitSchema["minimum"])
+	require.NotContains(t, waitSchema, "default")
+	require.NotContains(t, waitSchema, "maximum")
 	require.NotContains(t, tool.Schema.Properties, "background")
-	require.Contains(t, tool.Description, "no process execution timeout")
-	require.Contains(t, tool.Description, "single shared 60-second observation budget")
+	require.Contains(t, tool.Description, "no process lifetime timeout")
+	require.Contains(t, tool.Description, "waits for completion up to the deployment-wide MCP tool timeout")
 	require.Contains(t, tool.Description, "process_id")
 	require.Contains(t, tool.Description, "running=true")
 	require.Contains(t, tool.Description, "continues independently")
@@ -155,11 +162,11 @@ func TestWorkspaceBashIntegration(t *testing.T) {
 
 	result, err := testTool(t, toolsdk.WorkspaceBash, deps, toolsdk.WorkspaceBashArgs{
 		Workspace: workspace.Name,
-		Command:   `printf 'before\\n'; sleep 0.1; printf 'after\\n'`,
+		Command:   `printf 'before\n'; sleep 0.1; printf 'after\n'`,
 	})
 	require.NoError(t, err)
 	require.Equal(t, 0, result.ExitCode)
-	require.Equal(t, "before\\nafter", result.Output)
+	require.Equal(t, "before\nafter", result.Output)
 	require.Empty(t, result.ProcessID)
 	require.False(t, result.Running)
 }

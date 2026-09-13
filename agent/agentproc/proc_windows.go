@@ -18,3 +18,7 @@ func procSysProcAttr() *syscall.SysProcAttr {
 func signalProcess(p *os.Process, _ syscall.Signal) error {
 	return p.Kill()
 }
+
+func killProcessGroup(p *os.Process) error {
+	return p.Kill()
+}

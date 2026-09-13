@@ -148,6 +148,12 @@ func TestPersistentActivityContentIsCompleteAndSecretsAreRedacted(t *testing.T) 
 		"replace":   "literal replacement value",
 		"data":      "literal data value",
 		"content":   "literal content value",
+		"url":       "https://user:password@example.com/api?token=signed-secret#fragment-secret",
+		"body":      "http-body-secret",
+		"headers": map[string]any{
+			"Authorization": "Bearer raw-header-secret",
+			"X-Safe-Name":   "still-redacted",
+		},
 		"nested": map[string]any{
 			"level2": map[string]any{
 				"level3": map[string]any{
@@ -169,12 +175,23 @@ func TestPersistentActivityContentIsCompleteAndSecretsAreRedacted(t *testing.T) 
 	require.Contains(t, input, `"value":"deep value"`)
 	require.NotContains(t, input, "top-secret")
 	require.NotContains(t, input, "raw-secret")
+	require.NotContains(t, input, "password")
+	require.NotContains(t, input, "signed-secret")
+	require.NotContains(t, input, "fragment-secret")
+	require.NotContains(t, input, "raw-header-secret")
+	require.NotContains(t, input, "still-redacted")
+	require.NotContains(t, input, "http-body-secret")
+	require.Contains(t, input, `"body":"<redacted `)
+	require.Contains(t, input, `"url":"https://example.com/api"`)
+	require.Contains(t, input, `"Authorization":"<redacted `)
 	require.Contains(t, input, `"SAFE_FLAG":"visible"`)
 	require.Contains(t, input, `"API_TOKEN":"***REDACTED***"`)
 
 	result := mcpgo.NewToolResultText(large)
 	require.Equal(t, large, persistentActivityOutput("read_file", result))
 	require.Empty(t, persistentActivityOutput("process_output", result))
+	require.Empty(t, persistentActivityOutput("http_fetch", result))
+	require.Empty(t, persistentActivityOutput("http_request", result))
 }
 
 func TestPersistAsToolActivity(t *testing.T) {

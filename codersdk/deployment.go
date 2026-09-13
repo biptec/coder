@@ -616,6 +616,7 @@ const (
 	DefaultWorkspaceActivityNowThreshold        = 5 * time.Minute
 	DefaultWorkspaceCommandActivityHistoryLimit = int64(0)
 	DefaultMCPTraceRetentionHours               = int64(24)
+	DefaultMCPToolTimeoutMax                    = 280 * time.Second
 )
 
 // DeploymentValues is the central configuration values the coder server.
@@ -656,6 +657,7 @@ type DeploymentValues struct {
 	WorkspaceCommandActivityHistoryLimit    serpent.Int64                        `json:"workspace_command_activity_history_limit,omitempty" typescript:",notnull"`
 	MCPTraceEnabled                         serpent.Bool                         `json:"mcp_trace_enabled,omitempty" typescript:",notnull"`
 	MCPTraceRetentionHours                  serpent.Int64                        `json:"mcp_trace_retention_hours,omitempty" typescript:",notnull"`
+	MCPToolTimeoutMax                       serpent.Duration                     `json:"mcp_tool_timeout_max,omitempty" typescript:",notnull"`
 	WorkspaceVolumeCopyEnabled              serpent.Bool                         `json:"workspace_volume_copy_enabled,omitempty" typescript:",notnull"`
 	WorkspaceVolumeCopyNamespace            serpent.String                       `json:"workspace_volume_copy_namespace,omitempty" typescript:",notnull"`
 	WorkspaceVolumeCopyImage                serpent.String                       `json:"workspace_volume_copy_image,omitempty" typescript:",notnull"`
@@ -3655,6 +3657,22 @@ communicating directly.`,
 				}
 				return nil
 			}),
+		},
+		{
+			Name:        "MCP Tool Timeout Max",
+			Description: "Maximum wall-clock duration of a single MCP tool call, including workspace readiness, agent connection, execution or observation, recovery, and response preparation. Durable processes continue independently after this limit.",
+			Flag:        "mcp-tool-timeout-max",
+			Env:         "CODER_MCP_TOOL_TIMEOUT_MAX",
+			YAML:        "mcpToolTimeoutMax",
+			Hidden:      true,
+			Default:     DefaultMCPToolTimeoutMax.String(),
+			Value: serpent.Validate(&c.MCPToolTimeoutMax, func(value *serpent.Duration) error {
+				if value.Value() <= 0 {
+					return xerrors.New("MCP tool timeout max must be greater than zero")
+				}
+				return nil
+			}),
+			Annotations: serpent.Annotations{}.Mark(annotationFormatDuration, "true"),
 		},
 		{
 			Name:        "Workspace Volume Copy Enabled",

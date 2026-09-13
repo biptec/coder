@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -18,6 +20,7 @@ import (
 
 	"cdr.dev/slog/v3"
 	"github.com/coder/coder/v2/agent/agentexec"
+	"github.com/coder/coder/v2/agent/sshconfig"
 	"github.com/coder/coder/v2/agent/usershell"
 	"github.com/coder/coder/v2/codersdk/workspacesdk"
 	"github.com/coder/quartz"
@@ -98,29 +101,96 @@ func normalizeCommandActivitySource(tool, chatID string) string {
 	return "agentproc"
 }
 
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+func validEnvironmentName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_' || (i > 0 && r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func trackedRemoteCommand(command, pidFile string) string {
+	inner := "printf '%s\\n' \"$$\" > " + shellQuote(pidFile) + "; exec sh -c " + shellQuote(command)
+	runner := "sh -c " + shellQuote(inner)
+	return "if setsid -w true >/dev/null 2>&1; then setsid -w " + runner + "; else " + runner + "; fi; status=$?; rm -f -- " + shellQuote(pidFile) + "; exit $status"
+}
+
+func buildSSHRemoteCommand(req workspacesdk.StartProcessRequest) (string, error) {
+	host := strings.TrimSpace(req.Host)
+	if host == "" {
+		return "", xerrors.New("host cannot be empty")
+	}
+	if strings.ContainsAny(host, "\r\n\x00") {
+		return "", xerrors.New("host cannot contain newline or NUL characters")
+	}
+
+	parts := make([]string, 0, 8+len(req.Argv)+len(req.Env))
+	if req.WorkDir != "" {
+		parts = append(parts, "cd", shellQuote(req.WorkDir), "&&")
+	}
+	parts = append(parts, "exec")
+	if len(req.Env) > 0 {
+		parts = append(parts, "env")
+		keys := make([]string, 0, len(req.Env))
+		for key := range req.Env {
+			if !validEnvironmentName(key) {
+				return "", xerrors.Errorf("invalid remote environment variable name %q", key)
+			}
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			parts = append(parts, shellQuote(key+"="+req.Env[key]))
+		}
+	}
+	if len(req.Argv) > 0 {
+		for _, arg := range req.Argv {
+			parts = append(parts, shellQuote(arg))
+		}
+	} else {
+		parts = append(parts, "sh", "-c", shellQuote(req.Command))
+	}
+	return strings.Join(parts, " "), nil
+}
+
 // process represents a running or completed process.
 type process struct {
-	mu          sync.Mutex
-	inputMu     sync.Mutex
-	id          string
-	command     string
-	argv        []string
-	workDir     string
-	tool        string
-	background  bool
-	interactive bool
-	chatID      string
-	cmd         *exec.Cmd
-	stdin       io.WriteCloser
-	stdinClosed bool
-	cancel      context.CancelFunc
-	buf         *HeadTailBuffer
-	logger      slog.Logger
-	running     bool
-	exitCode    *int
-	startedAt   int64
-	exitedAt    *int64
-	done        chan struct{} // closed when process exits
+	mu            sync.Mutex
+	inputMu       sync.Mutex
+	id            string
+	command       string
+	argv          []string
+	workDir       string
+	host          string
+	identityFile  string
+	remotePIDFile string
+	tool          string
+	background    bool
+	interactive   bool
+	chatID        string
+	cmd           *exec.Cmd
+	stdin         io.WriteCloser
+	stdinClosed   bool
+	cancel        context.CancelFunc
+	buf           *HeadTailBuffer
+	logger        slog.Logger
+	running       bool
+	exitCode      *int
+	startedAt     int64
+	exitedAt      *int64
+	done          chan struct{} // closed when process exits
 }
 
 // info returns a snapshot of the process state.
@@ -133,6 +203,7 @@ func (p *process) info() workspacesdk.ProcessInfo {
 		Command:     p.command,
 		Argv:        append([]string(nil), p.argv...),
 		WorkDir:     p.workDir,
+		Host:        p.host,
 		Tool:        p.tool,
 		Background:  p.background,
 		Interactive: p.interactive,
@@ -214,13 +285,50 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 
 	ctx, cancel := context.WithCancel(context.Background())
 	var cmd *exec.Cmd
-	if len(req.Argv) > 0 {
-		cmd = m.execer.CommandContext(ctx, req.Argv[0], req.Argv[1:]...)
+	processWorkDir := req.WorkDir
+	remotePIDFile := ""
+	if req.Host != "" {
+		if err := sshconfig.ValidateAlias(req.Host); err != nil {
+			cancel()
+			return nil, err
+		}
+		remoteCommand, err := buildSSHRemoteCommand(req)
+		if err != nil {
+			cancel()
+			return nil, err
+		}
+		remotePIDFile = "/tmp/coder-mcp-process-" + id + ".pid"
+		remoteCommand = trackedRemoteCommand(remoteCommand, remotePIDFile)
+		sshArgs := []string{"-o", "BatchMode=yes"}
+		if req.IdentityFile != "" {
+			if !filepath.IsAbs(req.IdentityFile) {
+				cancel()
+				return nil, xerrors.New("identity_file must be an absolute workspace path")
+			}
+			sshArgs = append(sshArgs, "-i", req.IdentityFile)
+		}
+		sshArgs = append(sshArgs, "--", req.Host, remoteCommand)
+		cmd = m.execer.CommandContext(ctx, "ssh", sshArgs...)
+		// workdir belongs to the remote command. The local ssh client starts from
+		// the normal workspace directory so remote-only paths never break startup.
+		cmd.Dir = m.resolveWorkingDirectory("")
 	} else {
-		cmd = m.execer.CommandContext(ctx, "sh", "-c", req.Command)
+		if req.IdentityFile != "" {
+			cancel()
+			return nil, xerrors.New("identity_file requires host")
+		}
+		if len(req.Argv) > 0 {
+			cmd = m.execer.CommandContext(ctx, req.Argv[0], req.Argv[1:]...)
+		} else {
+			cmd = m.execer.CommandContext(ctx, "sh", "-c", req.Command)
+		}
+		cmd.Dir = m.resolveWorkingDirectory(req.WorkDir)
+		processWorkDir = cmd.Dir
 	}
-	cmd.Dir = m.resolveWorkingDirectory(req.WorkDir)
 	cmd.SysProcAttr = procSysProcAttr()
+	cmd.Cancel = func() error {
+		return killProcessGroup(cmd.Process)
+	}
 
 	var stdin io.WriteCloser
 	if req.Interactive {
@@ -268,8 +376,10 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 	// Always set cmd.Env explicitly so that req.Env overrides
 	// are applied on top of the full agent environment.
 	cmd.Env = baseEnv
-	for k, v := range req.Env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+	if req.Host == "" {
+		for k, v := range req.Env {
+			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+		}
 	}
 	// Propagate the chat ID so child processes (e.g.
 	// GIT_ASKPASS) can send it back to the server.
@@ -293,22 +403,25 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 	tool := normalizeCommandActivityTool(req.Tool)
 	source := normalizeCommandActivitySource(tool, chatID)
 	proc := &process{
-		id:          id,
-		command:     req.Command,
-		argv:        append([]string(nil), req.Argv...),
-		workDir:     cmd.Dir,
-		tool:        tool,
-		background:  req.Background,
-		interactive: req.Interactive,
-		chatID:      chatID,
-		cmd:         cmd,
-		stdin:       stdin,
-		cancel:      cancel,
-		buf:         buf,
-		logger:      logger,
-		running:     true,
-		startedAt:   now,
-		done:        make(chan struct{}),
+		id:            id,
+		command:       req.Command,
+		argv:          append([]string(nil), req.Argv...),
+		workDir:       processWorkDir,
+		host:          strings.TrimSpace(req.Host),
+		identityFile:  req.IdentityFile,
+		remotePIDFile: remotePIDFile,
+		tool:          tool,
+		background:    req.Background,
+		interactive:   req.Interactive,
+		chatID:        chatID,
+		cmd:           cmd,
+		stdin:         stdin,
+		cancel:        cancel,
+		buf:           buf,
+		logger:        logger,
+		running:       true,
+		startedAt:     now,
+		done:          make(chan struct{}),
 	}
 
 	m.mu.Lock()
@@ -328,7 +441,7 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 		Finish: func(int) {},
 	}
 	if m.reportCommandActivity != nil {
-		activity = m.reportCommandActivity(source, req.Command, req.Argv, req.Env, cmd.Dir, tool)
+		activity = m.reportCommandActivity(source, req.Command, req.Argv, req.Env, processWorkDir, tool)
 		if activity.Output == nil {
 			activity.Output = io.Discard
 		}
@@ -467,42 +580,83 @@ func (m *manager) input(id string, data string, closeAfter bool) error {
 	return proc.writeInput(data, closeAfter)
 }
 
-// signal sends a signal to a running process. It returns
-// sentinel errors errProcessNotFound and errProcessNotRunning
-// so callers can distinguish failure modes.
-func (m *manager) signal(id string, sig string) error {
+func (m *manager) signalContext(ctx context.Context, id string, sig string) error {
 	m.mu.Lock()
 	proc, ok := m.procs[id]
 	m.mu.Unlock()
-
 	if !ok {
 		return errProcessNotFound
 	}
 
 	proc.mu.Lock()
-	defer proc.mu.Unlock()
-
 	if !proc.running {
+		proc.mu.Unlock()
 		return errProcessNotRunning
 	}
+	host := proc.host
+	identityFile := proc.identityFile
+	pidFile := proc.remotePIDFile
+	localProcess := proc.cmd.Process
+	proc.mu.Unlock()
 
+	var signal syscall.Signal
 	switch sig {
 	case "kill":
-		// Use process group kill to ensure child processes
-		// (e.g. from shell pipelines) are also killed.
-		if err := signalProcess(proc.cmd.Process, syscall.SIGKILL); err != nil {
-			return xerrors.Errorf("kill process: %w", err)
-		}
+		signal = syscall.SIGKILL
 	case "terminate":
-		// Use process group signal to ensure child processes
-		// are also terminated.
-		if err := signalProcess(proc.cmd.Process, syscall.SIGTERM); err != nil {
-			return xerrors.Errorf("terminate process: %w", err)
-		}
+		signal = syscall.SIGTERM
 	default:
 		return xerrors.Errorf("unsupported signal %q", sig)
 	}
 
+	if host != "" {
+		if err := m.signalRemoteProcess(ctx, host, identityFile, pidFile, signal); err != nil {
+			return xerrors.Errorf("signal remote process: %w", err)
+		}
+		return nil
+	}
+	if err := signalProcess(localProcess, signal); err != nil {
+		return xerrors.Errorf("signal process: %w", err)
+	}
+	return nil
+}
+
+func (m *manager) signalRemoteProcess(ctx context.Context, host, identityFile, pidFile string, signal syscall.Signal) error {
+	if host == "" || pidFile == "" {
+		return xerrors.New("remote process control metadata is incomplete")
+	}
+	signalName := "TERM"
+	if signal == syscall.SIGKILL {
+		signalName = "KILL"
+	}
+	remoteCommand := "i=0; while [ ! -s " + shellQuote(pidFile) + " ] && [ \"$i\" -lt 30 ]; do i=$((i+1)); sleep 0.1; done; " +
+		"if [ ! -s " + shellQuote(pidFile) + " ]; then echo 'remote process pid is not available' >&2; exit 3; fi; " +
+		"pid=$(cat -- " + shellQuote(pidFile) + "); case \"$pid\" in ''|*[!0-9]*) echo 'invalid remote process pid' >&2; exit 4;; esac; " +
+		"if ! kill -0 \"$pid\" 2>/dev/null; then exit 0; fi; " +
+		"kill -" + signalName + " -- \"-$pid\" 2>/dev/null || kill -" + signalName + " -- \"$pid\""
+	args := []string{"-o", "BatchMode=yes"}
+	if identityFile != "" {
+		args = append(args, "-i", identityFile)
+	}
+	args = append(args, "--", host, remoteCommand)
+	cmd := m.execer.CommandContext(ctx, "ssh", args...)
+	cmd.Dir = m.resolveWorkingDirectory("")
+	baseEnv := os.Environ()
+	if m.updateEnv != nil {
+		if updated, err := m.updateEnv(baseEnv); err == nil {
+			baseEnv = updated
+		}
+	}
+	cmd.Env = baseEnv
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		detail := strings.TrimSpace(stderr.String())
+		if detail == "" {
+			detail = err.Error()
+		}
+		return xerrors.Errorf("remote signal command failed: %s", detail)
+	}
 	return nil
 }
 
@@ -524,6 +678,15 @@ func (m *manager) Close() error {
 	m.mu.Unlock()
 
 	for _, p := range procs {
+		p.mu.Lock()
+		remote := p.running && p.host != ""
+		id := p.id
+		p.mu.Unlock()
+		if remote {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			_ = m.signalContext(ctx, id, "kill")
+			cancel()
+		}
 		_ = p.closeInput()
 		p.cancel()
 	}

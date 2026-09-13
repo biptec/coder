@@ -33,12 +33,6 @@ Capability information is workspace-specific; normally inspect it once per works
 
 	// Used in tests and aibridge.
 	MCPEndpoint = "/api/experimental/mcp/http"
-
-	// Long-running tools have an assistant-visible 60-second observation
-	// contract. Keep a small server-side grace period so those handlers can
-	// serialize a recoverable result, while ensuring no forgotten MCP handler
-	// can drift anywhere near the upstream ~5-minute request deadline.
-	mcpToolHandlerSafetyDeadline = 75 * time.Second
 )
 
 // Server represents an MCP HTTP server instance
@@ -183,6 +177,7 @@ func (s *Server) RegisterTools(client *codersdk.Client, opts ...func(*toolsdk.De
 		}
 
 		serverTool := mcpFromSDK(tool, toolDeps)
+		applyMCPTimeoutMaximum(serverTool.Tool.InputSchema.Properties, toolDeps.MCPToolTimeoutMax())
 		serverTool = s.withActivityTracking(serverTool, tool.Name)
 		serverTool = s.withTraceTracking(serverTool, tool.Name)
 		s.mcpServer.AddTools(serverTool)
@@ -209,6 +204,7 @@ type toolAlias struct {
 var developerToolAliases = []toolAlias{
 	{SDKName: toolsdk.ToolNameGetWorkspace, MCPName: "status"},
 	{SDKName: toolsdk.ToolNameListAccessibleWorkspaces, MCPName: "list_workspaces"},
+	{SDKName: toolsdk.ToolNameWorkspaceRemoteHosts, MCPName: "remote_hosts"},
 	{SDKName: toolsdk.ToolNameWorkspaceListDirectoryV2, MCPName: "list_directory"},
 	{SDKName: toolsdk.ToolNameWorkspaceReadFileV2, MCPName: "read_file"},
 	{SDKName: toolsdk.ToolNameWorkspaceReadFilesV2, MCPName: "read_files"},
@@ -216,6 +212,14 @@ var developerToolAliases = []toolAlias{
 	{SDKName: toolsdk.ToolNameWorkspaceFileInfo, MCPName: "file_info"},
 	{SDKName: toolsdk.ToolNameWorkspaceCreateDirectory, MCPName: "create_directory"},
 	{SDKName: toolsdk.ToolNameWorkspaceMoveFile, MCPName: "move_file"},
+	{SDKName: toolsdk.ToolNameWorkspaceCopyPath, MCPName: "copy_path"},
+	{SDKName: toolsdk.ToolNameWorkspaceRemovePath, MCPName: "remove_path"},
+	{SDKName: toolsdk.ToolNameWorkspaceHTTPFetch, MCPName: "http_fetch"},
+	{SDKName: toolsdk.ToolNameWorkspaceHTTPRequest, MCPName: "http_request"},
+	{SDKName: toolsdk.ToolNameWorkspaceGitQuery, MCPName: "git_query"},
+	{SDKName: toolsdk.ToolNameWorkspaceGitMutate, MCPName: "git_mutate"},
+	{SDKName: toolsdk.ToolNameWorkspaceCodeQuery, MCPName: "code_query"},
+	{SDKName: toolsdk.ToolNameWorkspaceCodeRename, MCPName: "code_rename"},
 	{SDKName: toolsdk.ToolNameWorkspaceSearchStart, MCPName: "search_start"},
 	{SDKName: toolsdk.ToolNameWorkspaceSearchResults, MCPName: "search_results"},
 	{SDKName: toolsdk.ToolNameWorkspaceSearchList, MCPName: "search_list"},
@@ -236,10 +240,14 @@ var developerToolAliases = []toolAlias{
 var readonlyToolAliases = []toolAlias{
 	{SDKName: toolsdk.ToolNameGetWorkspace, MCPName: "status"},
 	{SDKName: toolsdk.ToolNameListAccessibleWorkspaces, MCPName: "list_workspaces"},
+	{SDKName: toolsdk.ToolNameWorkspaceRemoteHosts, MCPName: "remote_hosts"},
 	{SDKName: toolsdk.ToolNameWorkspaceListDirectoryV2, MCPName: "list_directory"},
 	{SDKName: toolsdk.ToolNameWorkspaceReadFileV2, MCPName: "read_file"},
 	{SDKName: toolsdk.ToolNameWorkspaceReadFilesV2, MCPName: "read_files"},
 	{SDKName: toolsdk.ToolNameWorkspaceFileInfo, MCPName: "file_info"},
+	{SDKName: toolsdk.ToolNameWorkspaceHTTPFetch, MCPName: "http_fetch"},
+	{SDKName: toolsdk.ToolNameWorkspaceGitQuery, MCPName: "git_query"},
+	{SDKName: toolsdk.ToolNameWorkspaceCodeQuery, MCPName: "code_query"},
 	{SDKName: toolsdk.ToolNameWorkspaceSearchStart, MCPName: "search_start"},
 	{SDKName: toolsdk.ToolNameWorkspaceSearchResults, MCPName: "search_results"},
 	{SDKName: toolsdk.ToolNameWorkspaceSearchList, MCPName: "search_list"},
@@ -325,6 +333,15 @@ func (s *Server) registerAliasedTools(client *codersdk.Client, aliases []toolAli
 	toolsByName[toolsdk.ToolNameWorkspaceFileInfo] = toolsdk.WorkspaceFileInfoTool.Generic()
 	toolsByName[toolsdk.ToolNameWorkspaceCreateDirectory] = toolsdk.WorkspaceCreateDirectory.Generic()
 	toolsByName[toolsdk.ToolNameWorkspaceMoveFile] = toolsdk.WorkspaceMoveFile.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceCopyPath] = toolsdk.WorkspaceCopyPath.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceRemovePath] = toolsdk.WorkspaceRemovePath.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceRemoteHosts] = toolsdk.WorkspaceRemoteHosts.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceHTTPFetch] = toolsdk.WorkspaceHTTPFetch.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceHTTPRequest] = toolsdk.WorkspaceHTTPRequest.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceGitQuery] = toolsdk.WorkspaceGitQuery.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceGitMutate] = toolsdk.WorkspaceGitMutate.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceCodeQuery] = toolsdk.WorkspaceCodeQuery.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceCodeRename] = toolsdk.WorkspaceCodeRename.Generic()
 	toolsByName[toolsdk.ToolNameWorkspaceSearchStart] = toolsdk.WorkspaceSearchStart.Generic()
 	toolsByName[toolsdk.ToolNameWorkspaceSearchResults] = toolsdk.WorkspaceSearchResults.Generic()
 	toolsByName[toolsdk.ToolNameWorkspaceSearchList] = toolsdk.WorkspaceSearchList.Generic()
@@ -345,8 +362,13 @@ func (s *Server) registerAliasedTools(client *codersdk.Client, aliases []toolAli
 		serverTool := mcpFromSDK(tool, toolDeps)
 		serverTool.Tool.Name = alias.MCPName
 		serverTool.Tool.Description = replacer.Replace(serverTool.Tool.Description)
-		serverTool.Tool.InputSchema.Properties = rewriteSchemaStrings(serverTool.Tool.InputSchema.Properties, replacer).(map[string]any)
+		rewrittenProperties, ok := rewriteSchemaStrings(serverTool.Tool.InputSchema.Properties, replacer).(map[string]any)
+		if !ok {
+			return xerrors.Errorf("rewrite MCP schema for %q: unexpected property type", alias.SDKName)
+		}
+		serverTool.Tool.InputSchema.Properties = rewrittenProperties
 		rewriteAssistantWorkspaceDescriptions(serverTool.Tool.InputSchema.Properties)
+		applyMCPTimeoutMaximum(serverTool.Tool.InputSchema.Properties, toolDeps.MCPToolTimeoutMax())
 		serverTool = withSharedWorkspaceResolution(serverTool, client)
 		serverTool = s.withActivityTracking(serverTool, alias.MCPName)
 		serverTool = s.withTraceTracking(serverTool, alias.MCPName)
@@ -360,6 +382,17 @@ const (
 	assistantWorkspaceDescription      = "The workspace ID or name in the format [owner/]workspace. A bare name first checks the authenticated user's own workspace; if it is not found, a unique accessible shared workspace with that name is used. Use owner/workspace when a name is ambiguous."
 	assistantWorkspaceAgentDescription = "The workspace name in the format [owner/]workspace[.agent]. A bare name first checks the authenticated user's own workspace; if it is not found, a unique accessible shared workspace with that name is used. Use owner/workspace when a name is ambiguous."
 )
+
+func applyMCPTimeoutMaximum(properties map[string]any, maxTimeout time.Duration) {
+	maximum := maxTimeout.Milliseconds()
+	for _, key := range []string{"wait_timeout_ms", "timeout_ms"} {
+		property, ok := properties[key].(map[string]any)
+		if !ok {
+			continue
+		}
+		property["maximum"] = maximum
+	}
+}
 
 func rewriteAssistantWorkspaceDescriptions(properties map[string]any) {
 	for key, description := range map[string]string{
@@ -468,6 +501,31 @@ func isNotFoundError(err error) bool {
 	return errors.As(err, &sdkErr) && sdkErr.StatusCode() == http.StatusNotFound
 }
 
+func cloneSchemaMap(value map[string]any) map[string]any {
+	cloned := make(map[string]any, len(value))
+	for key, item := range value {
+		switch typed := item.(type) {
+		case map[string]any:
+			cloned[key] = cloneSchemaMap(typed)
+		case []any:
+			items := make([]any, len(typed))
+			for i, child := range typed {
+				if childMap, ok := child.(map[string]any); ok {
+					items[i] = cloneSchemaMap(childMap)
+				} else {
+					items[i] = child
+				}
+			}
+			cloned[key] = items
+		case []string:
+			cloned[key] = append([]string(nil), typed...)
+		default:
+			cloned[key] = item
+		}
+	}
+	return cloned
+}
+
 func rewriteSchemaStrings(value any, replacer *strings.Replacer) any {
 	switch value := value.(type) {
 	case string:
@@ -526,8 +584,8 @@ func mcpFromSDK(sdkTool toolsdk.GenericTool, tb toolsdk.Deps) server.ServerTool 
 			Description: sdkTool.Description,
 			InputSchema: mcp.ToolInputSchema{
 				Type:       "object",
-				Properties: sdkTool.Schema.Properties,
-				Required:   sdkTool.Schema.Required,
+				Properties: cloneSchemaMap(sdkTool.Schema.Properties),
+				Required:   append([]string(nil), sdkTool.Schema.Required...),
 			},
 			Annotations: mcp.ToolAnnotation{
 				ReadOnlyHint:    mcp.ToBoolPtr(sdkTool.MCPAnnotations.ReadOnlyHint),
@@ -542,10 +600,9 @@ func mcpFromSDK(sdkTool toolsdk.GenericTool, tb toolsdk.Deps) server.ServerTool 
 				return nil, xerrors.Errorf("failed to encode request arguments: %w", err)
 			}
 
-			// This is a last-resort MCP transport safeguard, not a process/job
-			// lifetime limit. Durable work already submitted to an Agent or
-			// provisioner continues independently if this context expires.
-			handlerCtx, cancel := context.WithTimeout(ctx, mcpToolHandlerSafetyDeadline)
+			// This bounds the entire MCP call, not a durable process/job lifetime.
+			// Work already submitted to an Agent or provisioner continues independently.
+			handlerCtx, cancel := context.WithTimeout(ctx, tb.MCPToolTimeoutMax())
 			defer cancel()
 			result, err := sdkTool.Handler(handlerCtx, tb, buf.Bytes())
 			if err != nil {

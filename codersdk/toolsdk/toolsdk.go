@@ -11,6 +11,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"golang.org/x/xerrors"
@@ -80,6 +81,15 @@ const (
 	ToolNameWorkspaceFileInfo           = "coder_workspace_file_info"
 	ToolNameWorkspaceCreateDirectory    = "coder_workspace_create_directory"
 	ToolNameWorkspaceMoveFile           = "coder_workspace_move_file"
+	ToolNameWorkspaceCopyPath           = "coder_workspace_copy_path"
+	ToolNameWorkspaceRemovePath         = "coder_workspace_remove_path"
+	ToolNameWorkspaceRemoteHosts        = "coder_workspace_remote_hosts"
+	ToolNameWorkspaceHTTPFetch          = "coder_workspace_http_fetch"
+	ToolNameWorkspaceHTTPRequest        = "coder_workspace_http_request"
+	ToolNameWorkspaceGitQuery           = "coder_workspace_git_query"
+	ToolNameWorkspaceGitMutate          = "coder_workspace_git_mutate"
+	ToolNameWorkspaceCodeQuery          = "coder_workspace_code_query"
+	ToolNameWorkspaceCodeRename         = "coder_workspace_code_rename"
 	ToolNameWorkspaceSearchStart        = "coder_workspace_search_start"
 	ToolNameWorkspaceSearchResults      = "coder_workspace_search_results"
 	ToolNameWorkspaceSearchList         = "coder_workspace_search_list"
@@ -99,7 +109,8 @@ const (
 
 func NewDeps(client *codersdk.Client, opts ...func(*Deps)) (Deps, error) {
 	d := Deps{
-		coderClient: client,
+		coderClient:       client,
+		mcpToolTimeoutMax: codersdk.DefaultMCPToolTimeoutMax,
 	}
 	for _, opt := range opts {
 		opt(&d)
@@ -121,9 +132,10 @@ func NewDeps(client *codersdk.Client, opts ...func(*Deps)) (Deps, error) {
 
 // Deps provides access to tool dependencies.
 type Deps struct {
-	coderClient *codersdk.Client
-	report      func(ReportTaskArgs) error
-	agentConnFn workspacesdk.AgentConnFunc
+	coderClient       *codersdk.Client
+	report            func(ReportTaskArgs) error
+	agentConnFn       workspacesdk.AgentConnFunc
+	mcpToolTimeoutMax time.Duration
 }
 
 func (d Deps) ServerURL() string {
@@ -139,6 +151,24 @@ func WithTaskReporter(fn func(ReportTaskArgs) error) func(*Deps) {
 	}
 }
 
+// WithMCPToolTimeoutMax configures the maximum wall-clock duration available to
+// one MCP tool invocation. It is a transport safety limit, not a process lifetime.
+func WithMCPToolTimeoutMax(timeout time.Duration) func(*Deps) {
+	return func(d *Deps) {
+		if timeout > 0 {
+			d.mcpToolTimeoutMax = timeout
+		}
+	}
+}
+
+// MCPToolTimeoutMax returns the configured maximum duration for one MCP tool call.
+func (d Deps) MCPToolTimeoutMax() time.Duration {
+	if d.mcpToolTimeoutMax <= 0 {
+		return codersdk.DefaultMCPToolTimeoutMax
+	}
+	return d.mcpToolTimeoutMax
+}
+
 // WithAgentConnFunc overrides how workspace tools open logical connections to
 // workspace agents.
 func WithAgentConnFunc(agentConnFn workspacesdk.AgentConnFunc) func(*Deps) {
@@ -150,7 +180,7 @@ func WithAgentConnFunc(agentConnFn workspacesdk.AgentConnFunc) func(*Deps) {
 // openAgentConn opens a ready workspace agent session for workspace inputs in
 // [owner/]workspace[.agent] format.
 func openAgentConn(ctx context.Context, deps Deps, workspace string) (workspacesdk.AgentConn, error) {
-	return openAgentConnWithBudget(ctx, deps, workspace, newMCPObservationBudget())
+	return openAgentConnWithBudget(ctx, deps, workspace, newMCPObservationBudget(deps))
 }
 
 func openAgentConnWithBudget(ctx context.Context, deps Deps, workspace string, budget mcpObservationBudget) (workspacesdk.AgentConn, error) {
@@ -169,7 +199,7 @@ func openAgentConnWithBudget(ctx context.Context, deps Deps, workspace string, b
 	workspaceName := NormalizeWorkspaceInput(workspace)
 	_, workspaceAgent, err := findWorkspaceAndAgent(observationCtx, deps.coderClient, workspaceName)
 	if err != nil {
-		return nil, workspaceAgentObservationError(ctx, observationCtx, xerrors.Errorf("failed to find workspace: %w", err))
+		return nil, workspaceAgentObservationError(ctx, observationCtx, budget, xerrors.Errorf("failed to find workspace: %w", err))
 	}
 
 	if err := cliui.Agent(observationCtx, io.Discard, workspaceAgent.ID, cliui.AgentOptions{
@@ -179,12 +209,12 @@ func openAgentConnWithBudget(ctx context.Context, deps Deps, workspace string, b
 		// Always wait for startup scripts.
 		Wait: true,
 	}); err != nil {
-		return nil, workspaceAgentObservationError(ctx, observationCtx, xerrors.Errorf("agent not ready: %w", err))
+		return nil, workspaceAgentObservationError(ctx, observationCtx, budget, xerrors.Errorf("agent not ready: %w", err))
 	}
 
 	conn, release, err := deps.agentConnFn(observationCtx, workspaceAgent.ID)
 	if err != nil {
-		return nil, workspaceAgentObservationError(ctx, observationCtx, xerrors.Errorf("failed to dial agent: %w", err))
+		return nil, workspaceAgentObservationError(ctx, observationCtx, budget, xerrors.Errorf("failed to dial agent: %w", err))
 	}
 
 	wrappedConn := workspacesdk.WrapAgentConn(conn, func() error {
@@ -200,9 +230,9 @@ func openAgentConnWithBudget(ctx context.Context, deps Deps, workspace string, b
 	return wrappedConn, nil
 }
 
-func workspaceAgentObservationError(parentCtx, observationCtx context.Context, err error) error {
+func workspaceAgentObservationError(parentCtx, observationCtx context.Context, budget mcpObservationBudget, err error) error {
 	if parentCtx.Err() == nil && errors.Is(observationCtx.Err(), context.DeadlineExceeded) {
-		return xerrors.Errorf("workspace readiness exceeded the %.0f-second MCP observation window; any workspace start/build already submitted continues independently. Retry the tool after the workspace is ready; the requested workspace operation itself was not submitted: %w", mcpToolObservationWindow.Seconds(), err)
+		return xerrors.Errorf("workspace readiness exceeded the %.0f-second MCP observation window; any workspace start/build already submitted continues independently. Retry the tool after the workspace is ready; the requested workspace operation itself was not submitted: %w", budget.window.Seconds(), err)
 	}
 	return err
 }
@@ -253,6 +283,24 @@ var (
 		DestructiveHint: true,
 		IdempotentHint:  false,
 		OpenWorldHint:   false,
+	}
+	mcpReadOnlyOpenWorldAnnotations = MCPToolAnnotations{
+		ReadOnlyHint:    true,
+		DestructiveHint: false,
+		IdempotentHint:  true,
+		OpenWorldHint:   true,
+	}
+	mcpMutationOpenWorldAnnotations = MCPToolAnnotations{
+		ReadOnlyHint:    false,
+		DestructiveHint: false,
+		IdempotentHint:  false,
+		OpenWorldHint:   true,
+	}
+	mcpDestructiveOpenWorldAnnotations = MCPToolAnnotations{
+		ReadOnlyHint:    false,
+		DestructiveHint: true,
+		IdempotentHint:  false,
+		OpenWorldHint:   true,
 	}
 )
 
@@ -1555,7 +1603,7 @@ var GetWorkspaceBuildLogs = Tool[GetWorkspaceBuildLogsArgs, ProvisionerLogObserv
 		Name: ToolNameGetWorkspaceBuildLogs,
 		Description: `Get a bounded observation of workspace build logs.
 
-A single MCP call uses at most a 60-second observation budget and never cancels the workspace build. The tool polls non-follow log snapshots, so cursor pagination is not dependent on a long-lived WebSocket. wait_timeout_ms controls only how long this observation waits for new logs (default 10000ms, maximum 60000ms). job_status reports the observed provisioner state. complete=true only when the job is terminal and the current snapshot after this cursor fits within the response limit. has_more=true means the response limit was reached and another cursor read is required. If complete=false or has_more=true, call this tool again with cursor=next_cursor to continue without duplicating earlier logs.`,
+A single MCP call is bounded by the deployment-wide MCP tool timeout and never cancels the workspace build. The tool polls non-follow log snapshots, so cursor pagination is not dependent on a long-lived WebSocket. Without wait_timeout_ms it returns an immediate snapshot; when provided, wait_timeout_ms controls only how long this observation waits for new logs. job_status reports the observed provisioner state. complete=true only when the job is terminal and the current snapshot after this cursor fits within the response limit. has_more=true means the response limit was reached and another cursor read is required. If complete=false or has_more=true, call this tool again with cursor=next_cursor to continue without duplicating earlier logs.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
 				"workspace_build_id": map[string]any{
@@ -1568,10 +1616,8 @@ A single MCP call uses at most a 60-second observation budget and never cancels 
 				},
 				"wait_timeout_ms": map[string]any{
 					"type":        "integer",
-					"description": "How long this observation may wait for new logs. Defaults to 10000ms. Use 0 for an immediate snapshot. Maximum 60000ms. This never limits the build itself.",
-					"default":     10000,
+					"description": "Optional wait for new logs in milliseconds. Omit it (or use 0) for an immediate snapshot. The deployment-wide MCP tool timeout is the maximum. This never limits the build itself.",
 					"minimum":     0,
-					"maximum":     60000,
 				},
 				"limit": map[string]any{
 					"type":        "integer",
@@ -1589,7 +1635,7 @@ A single MCP call uses at most a 60-second observation budget and never cancels 
 		if err != nil {
 			return ProvisionerLogObservationResult{}, xerrors.Errorf("workspace_build_id must be a valid UUID: %w", err)
 		}
-		budget := newMCPObservationBudget()
+		budget := newMCPObservationBudget(deps)
 		result, err := observeProvisionerLogs(ctx, budget, args.Cursor, args.WaitTimeoutMs, args.Limit, func(snapshotCtx context.Context, after int64) ([]codersdk.ProvisionerJobLog, error) {
 			return fetchProvisionerLogSnapshot(snapshotCtx, deps.coderClient, fmt.Sprintf("/api/v2/workspacebuilds/%s/logs", workspaceBuildID), after)
 		})
@@ -1620,7 +1666,7 @@ var GetTemplateVersionLogs = Tool[GetTemplateVersionLogsArgs, ProvisionerLogObse
 		Name: ToolNameGetTemplateVersionLogs,
 		Description: `Get a bounded observation of template-version provisioner logs.
 
-A single MCP call uses at most a 60-second observation budget and never cancels the template import/provisioner job. The tool polls non-follow log snapshots, so cursor pagination is not dependent on a long-lived WebSocket. wait_timeout_ms controls only how long this observation waits for new logs (default 10000ms, maximum 60000ms). job_status reports the observed provisioner state. complete=true only when the job is terminal and the current snapshot after this cursor fits within the response limit. has_more=true means the response limit was reached and another cursor read is required. If complete=false or has_more=true, call this tool again with cursor=next_cursor to continue without duplicating earlier logs.`,
+A single MCP call is bounded by the deployment-wide MCP tool timeout and never cancels the template import/provisioner job. The tool polls non-follow log snapshots, so cursor pagination is not dependent on a long-lived WebSocket. Without wait_timeout_ms it returns an immediate snapshot; when provided, wait_timeout_ms controls only how long this observation waits for new logs. job_status reports the observed provisioner state. complete=true only when the job is terminal and the current snapshot after this cursor fits within the response limit. has_more=true means the response limit was reached and another cursor read is required. If complete=false or has_more=true, call this tool again with cursor=next_cursor to continue without duplicating earlier logs.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
 				"template_version_id": map[string]any{
@@ -1633,10 +1679,8 @@ A single MCP call uses at most a 60-second observation budget and never cancels 
 				},
 				"wait_timeout_ms": map[string]any{
 					"type":        "integer",
-					"description": "How long this observation may wait for new logs. Defaults to 10000ms. Use 0 for an immediate snapshot. Maximum 60000ms. This never limits the template job itself.",
-					"default":     10000,
+					"description": "Optional wait for new logs in milliseconds. Omit it (or use 0) for an immediate snapshot. The deployment-wide MCP tool timeout is the maximum. This never limits the template job itself.",
 					"minimum":     0,
-					"maximum":     60000,
 				},
 				"limit": map[string]any{
 					"type":        "integer",
@@ -1654,7 +1698,7 @@ A single MCP call uses at most a 60-second observation budget and never cancels 
 		if err != nil {
 			return ProvisionerLogObservationResult{}, xerrors.Errorf("template_version_id must be a valid UUID: %w", err)
 		}
-		budget := newMCPObservationBudget()
+		budget := newMCPObservationBudget(deps)
 		result, err := observeProvisionerLogs(ctx, budget, args.Cursor, args.WaitTimeoutMs, args.Limit, func(snapshotCtx context.Context, after int64) ([]codersdk.ProvisionerJobLog, error) {
 			return fetchProvisionerLogSnapshot(snapshotCtx, deps.coderClient, fmt.Sprintf("/api/v2/templateversions/%s/logs", templateVersionID), after)
 		})
@@ -2078,9 +2122,12 @@ content you are trying to write, then re-encode it properly.
 }
 
 type WorkspaceEditFileArgs struct {
-	Workspace string                  `json:"workspace"`
-	Path      string                  `json:"path"`
-	Edits     []workspacesdk.FileEdit `json:"edits"`
+	Workspace    string                  `json:"workspace"`
+	Path         string                  `json:"path"`
+	Edits        []workspacesdk.FileEdit `json:"edits"`
+	Host         string                  `json:"host,omitempty"`
+	IdentityFile string                  `json:"identity_file,omitempty"`
+	DryRun       bool                    `json:"dry_run,omitempty"`
 }
 
 // WorkspaceEditFilesResponse is the response shape for the edit-file
@@ -2107,7 +2154,15 @@ var WorkspaceEditFile = Tool[WorkspaceEditFileArgs, WorkspaceEditFilesResponse]{
 				},
 				"path": map[string]any{
 					"type":        "string",
-					"description": "The absolute path of the file to write in the workspace.",
+					"description": "The absolute path of the file to write in the workspace or remote host.",
+				},
+				"host": map[string]any{
+					"type":        "string",
+					"description": "Optional SSH alias returned by remote_hosts. Omit for the workspace filesystem.",
+				},
+				"dry_run": map[string]any{
+					"type":        "boolean",
+					"description": "Validate edits and return diffs without writing the file.",
 				},
 				"edits": map[string]any{
 					"type":        "array",
@@ -2140,38 +2195,47 @@ var WorkspaceEditFile = Tool[WorkspaceEditFileArgs, WorkspaceEditFilesResponse]{
 			Required: []string{"path", "workspace", "edits"},
 		},
 	},
-	MCPAnnotations:     mcpDestructiveAnnotations,
+	MCPAnnotations:     mcpDestructiveOpenWorldAnnotations,
 	UserClientOptional: true,
 	Handler: func(ctx context.Context, deps Deps, args WorkspaceEditFileArgs) (WorkspaceEditFilesResponse, error) {
+		if err := validateRemoteTarget(args.Host, args.IdentityFile); err != nil {
+			return WorkspaceEditFilesResponse{}, err
+		}
 		conn, err := openAgentConn(ctx, deps, args.Workspace)
 		if err != nil {
 			return WorkspaceEditFilesResponse{}, err
 		}
 		defer conn.Close()
 
-		resp, err := conn.EditFiles(ctx, workspacesdk.FileEditRequest{
-			Files: []workspacesdk.FileEdits{
-				{
-					Path:  args.Path,
-					Edits: args.Edits,
-				},
-			},
-			IncludeDiff: true,
-		})
+		files := []workspacesdk.FileEdits{{Path: args.Path, Edits: args.Edits}}
+		var resp workspacesdk.FileEditResponse
+		if args.Host != "" {
+			resp, err = remoteEditFiles(ctx, conn, args.Host, args.IdentityFile, files, args.DryRun)
+		} else {
+			resp, err = conn.EditFiles(ctx, workspacesdk.FileEditRequest{
+				Files:       files,
+				IncludeDiff: true,
+				DryRun:      args.DryRun,
+			})
+		}
 		if err != nil {
 			return WorkspaceEditFilesResponse{}, err
 		}
 
-		return WorkspaceEditFilesResponse{
-			Message: "File edited successfully.",
-			Files:   resp.Files,
-		}, nil
+		message := "File edited successfully."
+		if args.DryRun {
+			message = "Dry run completed; file was not changed."
+		}
+		return WorkspaceEditFilesResponse{Message: message, Files: resp.Files}, nil
 	},
 }
 
 type WorkspaceEditFilesArgs struct {
-	Workspace string                   `json:"workspace"`
-	Files     []workspacesdk.FileEdits `json:"files"`
+	Workspace    string                   `json:"workspace"`
+	Files        []workspacesdk.FileEdits `json:"files"`
+	Host         string                   `json:"host,omitempty"`
+	IdentityFile string                   `json:"identity_file,omitempty"`
+	DryRun       bool                     `json:"dry_run,omitempty"`
 }
 
 var WorkspaceEditFiles = Tool[WorkspaceEditFilesArgs, WorkspaceEditFilesResponse]{
@@ -2184,6 +2248,14 @@ var WorkspaceEditFiles = Tool[WorkspaceEditFilesArgs, WorkspaceEditFilesResponse
 					"type":        "string",
 					"description": workspaceAgentDescription,
 				},
+				"host": map[string]any{
+					"type":        "string",
+					"description": "Optional SSH alias returned by remote_hosts applied to all files. Omit for the workspace filesystem.",
+				},
+				"dry_run": map[string]any{
+					"type":        "boolean",
+					"description": "Validate edits and return diffs without writing files.",
+				},
 				"files": map[string]any{
 					"type":        "array",
 					"description": "An array of files to edit.",
@@ -2192,7 +2264,7 @@ var WorkspaceEditFiles = Tool[WorkspaceEditFilesArgs, WorkspaceEditFilesResponse
 						"properties": map[string]any{
 							"path": map[string]any{
 								"type":        "string",
-								"description": "The absolute path of the file to write in the workspace.",
+								"description": "The absolute path of the file to edit.",
 							},
 							"edits": map[string]any{
 								"type":        "array",
@@ -2229,27 +2301,37 @@ var WorkspaceEditFiles = Tool[WorkspaceEditFilesArgs, WorkspaceEditFilesResponse
 			Required: []string{"workspace", "files"},
 		},
 	},
-	MCPAnnotations:     mcpDestructiveAnnotations,
+	MCPAnnotations:     mcpDestructiveOpenWorldAnnotations,
 	UserClientOptional: true,
 	Handler: func(ctx context.Context, deps Deps, args WorkspaceEditFilesArgs) (WorkspaceEditFilesResponse, error) {
+		if err := validateRemoteTarget(args.Host, args.IdentityFile); err != nil {
+			return WorkspaceEditFilesResponse{}, err
+		}
 		conn, err := openAgentConn(ctx, deps, args.Workspace)
 		if err != nil {
 			return WorkspaceEditFilesResponse{}, err
 		}
 		defer conn.Close()
 
-		resp, err := conn.EditFiles(ctx, workspacesdk.FileEditRequest{
-			Files:       args.Files,
-			IncludeDiff: true,
-		})
+		var resp workspacesdk.FileEditResponse
+		if args.Host != "" {
+			resp, err = remoteEditFiles(ctx, conn, args.Host, args.IdentityFile, args.Files, args.DryRun)
+		} else {
+			resp, err = conn.EditFiles(ctx, workspacesdk.FileEditRequest{
+				Files:       args.Files,
+				IncludeDiff: true,
+				DryRun:      args.DryRun,
+			})
+		}
 		if err != nil {
 			return WorkspaceEditFilesResponse{}, err
 		}
 
-		return WorkspaceEditFilesResponse{
-			Message: "File(s) edited successfully.",
-			Files:   resp.Files,
-		}, nil
+		message := "File(s) edited successfully."
+		if args.DryRun {
+			message = "Dry run completed; files were not changed."
+		}
+		return WorkspaceEditFilesResponse{Message: message, Files: resp.Files}, nil
 	},
 }
 
