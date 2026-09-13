@@ -6,72 +6,44 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/codersdk/workspacesdk"
 )
 
 func TestWorkspaceProcessWaitDuration(t *testing.T) {
 	t.Parallel()
 
-	maxWait := codersdk.DefaultMCPToolTimeoutMax
-
-	wait, err := workspaceProcessWaitDuration(nil, maxWait)
+	wait, err := workspaceProcessWaitDuration(nil)
 	require.NoError(t, err)
-	require.Zero(t, wait, "process_output without wait_timeout_ms must be an immediate snapshot")
+	require.Equal(t, defaultWorkspaceProcessWait, wait)
 
 	zero := 0
-	wait, err = workspaceProcessWaitDuration(&zero, maxWait)
+	wait, err = workspaceProcessWaitDuration(&zero)
 	require.NoError(t, err)
 	require.Zero(t, wait)
 
-	maxWaitMs := int(maxWait.Milliseconds())
-	wait, err = workspaceProcessWaitDuration(&maxWaitMs, maxWait)
+	max := int(maxWorkspaceProcessWait.Milliseconds())
+	wait, err = workspaceProcessWaitDuration(&max)
 	require.NoError(t, err)
-	require.Equal(t, maxWait, wait)
+	require.Equal(t, maxWorkspaceProcessWait, wait)
 
 	negative := -1
-	_, err = workspaceProcessWaitDuration(&negative, maxWait)
+	_, err = workspaceProcessWaitDuration(&negative)
 	require.ErrorContains(t, err, "cannot be negative")
 
-	tooLarge := maxWaitMs + 1
-	_, err = workspaceProcessWaitDuration(&tooLarge, maxWait)
+	tooLarge := max + 1
+	_, err = workspaceProcessWaitDuration(&tooLarge)
 	require.ErrorContains(t, err, "cannot exceed")
-}
-
-func TestWorkspaceExecutionWaitDuration(t *testing.T) {
-	t.Parallel()
-
-	maxWait := codersdk.DefaultMCPToolTimeoutMax
-	wait, err := workspaceExecutionWaitDuration(nil, maxWait)
-	require.NoError(t, err)
-	require.Equal(t, maxWait, wait, "exec/bash without wait_timeout_ms must wait up to the global maximum")
-
-	explicit := 2500
-	wait, err = workspaceExecutionWaitDuration(&explicit, maxWait)
-	require.NoError(t, err)
-	require.Equal(t, 2500*time.Millisecond, wait)
 }
 
 func TestWorkspaceProcessWaitWithinBudget(t *testing.T) {
 	t.Parallel()
 
 	full := mcpObservationBudget{deadline: time.Now().Add(30 * time.Second)}
-	require.LessOrEqual(t, workspaceProcessWaitWithinBudget(60*time.Second, full), 30*time.Second)
-	require.Greater(t, workspaceProcessWaitWithinBudget(60*time.Second, full), 29*time.Second)
+	require.LessOrEqual(t, workspaceProcessWaitWithinBudget(60*time.Second, full), 25*time.Second)
+	require.Greater(t, workspaceProcessWaitWithinBudget(60*time.Second, full), 24*time.Second)
 
 	short := mcpObservationBudget{deadline: time.Now().Add(4 * time.Second)}
-	require.LessOrEqual(t, workspaceProcessWaitWithinBudget(10*time.Second, short), 4*time.Second)
-	require.Greater(t, workspaceProcessWaitWithinBudget(10*time.Second, short), 3*time.Second)
-}
-
-func TestMCPObservationBudgetUsesDeploymentMaximum(t *testing.T) {
-	t.Parallel()
-
-	deps := Deps{}
-	budget := newMCPObservationBudget(deps)
-	require.Equal(t, codersdk.DefaultMCPToolTimeoutMax, budget.max)
-	require.Equal(t, codersdk.DefaultMCPToolTimeoutMax-processSnapshotTimeout, budget.window)
-	require.Equal(t, 5*time.Second, processSnapshotTimeout)
+	require.Zero(t, workspaceProcessWaitWithinBudget(10*time.Second, short))
 }
 
 func TestWorkspaceProcessResult(t *testing.T) {
@@ -124,4 +96,13 @@ func TestProcessToolsRegistered(t *testing.T) {
 	} {
 		require.True(t, found[name], "tool %q must be registered", name)
 	}
+}
+
+func TestWorkspaceProcessConstants(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, 10*time.Second, defaultWorkspaceProcessWait)
+	require.Equal(t, 60*time.Second, mcpToolObservationWindow)
+	require.Equal(t, mcpToolObservationWindow, maxWorkspaceProcessWait)
+	require.Equal(t, 5*time.Second, processSnapshotTimeout)
 }

@@ -547,11 +547,6 @@ mcpTraceEnabled: false
 # deletion.
 # (default: 24, type: int)
 mcpTraceRetentionHours: 24
-# Maximum wall-clock duration of a single MCP tool call, including workspace
-# readiness, agent connection, execution or observation, recovery, and response
-# preparation. Durable processes continue independently after this limit.
-# (default: 4m40s, type: duration)
-mcpToolTimeoutMax: 4m40s
 # Enable administrative copying of explicitly annotated Kubernetes workspace
 # persistent volumes.
 # (default: false, type: bool)

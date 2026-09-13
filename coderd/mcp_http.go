@@ -61,40 +61,37 @@ func (api *API) mcpHTTPHandler() http.Handler {
 		// on the workspace. Without this check, a user who can read
 		// a workspace but lacks SSH permission could still execute
 		// commands through MCP tools.
-		toolOpts := []func(*toolsdk.Deps){
-			toolsdk.WithMCPToolTimeoutMax(api.DeploymentValues.MCPToolTimeoutMax.Value()),
-			toolsdk.WithAgentConnFunc(func(ctx context.Context, agentID uuid.UUID) (workspacesdk.AgentConn, func(), error) {
-				if api.Entitlements.Enabled(codersdk.FeatureBrowserOnly) {
-					return nil, nil, xerrors.New("non-browser connections are disabled")
+		toolOpt := toolsdk.WithAgentConnFunc(func(ctx context.Context, agentID uuid.UUID) (workspacesdk.AgentConn, func(), error) {
+			if api.Entitlements.Enabled(codersdk.FeatureBrowserOnly) {
+				return nil, nil, xerrors.New("non-browser connections are disabled")
+			}
+			// Use system context for the lookup because the tool
+			// handler context does not carry a dbauthz actor. The
+			// real authorization happens in the Authorize call below.
+			//nolint:gocritic // The system query only fetches the workspace
+			// object so we can perform an ActionSSH check against it
+			// with the real user's roles via api.Authorize.
+			workspace, err := api.Database.GetWorkspaceByAgentID(dbauthz.AsSystemRestricted(ctx), agentID)
+			if err != nil {
+				return nil, nil, xerrors.Errorf("get workspace by agent ID: %w", err)
+			}
+			// Enforce the same ActionSSH check that the coordinate
+			// endpoint uses (workspaceagents.go:1317).
+			if !api.Authorize(r, policy.ActionSSH, workspace) {
+				return nil, nil, xerrors.New("unauthorized: you do not have SSH access to this workspace")
+			}
+			conn, release, err := api.agentProvider.AgentConn(ctx, agentID)
+			if err != nil {
+				return nil, nil, err
+			}
+			finishMCPActivity := api.workspaceMCPConnections.Start(ctx, workspace.ID, agentID)
+			return conn, func() {
+				finishMCPActivity()
+				if release != nil {
+					release()
 				}
-				// Use system context for the lookup because the tool
-				// handler context does not carry a dbauthz actor. The
-				// real authorization happens in the Authorize call below.
-				//nolint:gocritic // The system query only fetches the workspace
-				// object so we can perform an ActionSSH check against it
-				// with the real user's roles via api.Authorize.
-				workspace, err := api.Database.GetWorkspaceByAgentID(dbauthz.AsSystemRestricted(ctx), agentID)
-				if err != nil {
-					return nil, nil, xerrors.Errorf("get workspace by agent ID: %w", err)
-				}
-				// Enforce the same ActionSSH check that the coordinate
-				// endpoint uses (workspaceagents.go:1317).
-				if !api.Authorize(r, policy.ActionSSH, workspace) {
-					return nil, nil, xerrors.New("unauthorized: you do not have SSH access to this workspace")
-				}
-				conn, release, err := api.agentProvider.AgentConn(ctx, agentID)
-				if err != nil {
-					return nil, nil, err
-				}
-				finishMCPActivity := api.workspaceMCPConnections.Start(ctx, workspace.ID, agentID)
-				return conn, func() {
-					finishMCPActivity()
-					if release != nil {
-						release()
-					}
-				}, nil
-			}),
-		}
+			}, nil
+		})
 
 		requestedToolset := MCPToolset(r.URL.Query().Get("toolset"))
 		// The standard Remote MCP endpoint uses the server-side toolset assigned
@@ -118,23 +115,23 @@ func (api *API) mcpHTTPHandler() http.Handler {
 			var registerErr error
 			switch codersdk.MCPToolset(assignedToolset) {
 			case codersdk.MCPToolsetAdmin:
-				registerErr = mcpServer.RegisterTools(authenticatedClient, toolOpts...)
+				registerErr = mcpServer.RegisterTools(authenticatedClient, toolOpt)
 			case codersdk.MCPToolsetReadonly:
-				registerErr = mcpServer.RegisterReadonlyTools(authenticatedClient, toolOpts...)
+				registerErr = mcpServer.RegisterReadonlyTools(authenticatedClient, toolOpt)
 			case codersdk.MCPToolsetDeveloper:
-				registerErr = mcpServer.RegisterDeveloperTools(authenticatedClient, toolOpts...)
+				registerErr = mcpServer.RegisterDeveloperTools(authenticatedClient, toolOpt)
 			default:
 				// Fail safe if an invalid value somehow reaches the database.
 				api.Logger.Warn(r.Context(), "invalid stored MCP toolset; falling back to developer",
 					slog.F("toolset", assignedToolset),
 				)
-				registerErr = mcpServer.RegisterDeveloperTools(authenticatedClient, toolOpts...)
+				registerErr = mcpServer.RegisterDeveloperTools(authenticatedClient, toolOpt)
 			}
 			if registerErr != nil {
 				api.Logger.Warn(r.Context(), "failed to register MCP tools", slog.Error(registerErr))
 			}
 		case MCPToolsetChatGPT:
-			if err := mcpServer.RegisterChatGPTTools(authenticatedClient, toolOpts...); err != nil {
+			if err := mcpServer.RegisterChatGPTTools(authenticatedClient, toolOpt); err != nil {
 				api.Logger.Warn(r.Context(), "failed to register MCP tools", slog.Error(err))
 			}
 		default:

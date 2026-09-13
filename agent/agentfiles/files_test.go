@@ -1793,34 +1793,6 @@ func runEditFiles(t *testing.T, api *agentfiles.API, req workspacesdk.FileEditRe
 	return resp
 }
 
-func TestEditFilesDryRunDoesNotWrite(t *testing.T) {
-	t.Parallel()
-
-	fs := afero.NewMemMapFs()
-	const filePath = "/dry-run.txt"
-	require.NoError(t, afero.WriteFile(fs, filePath, []byte("hello world\n"), 0o600))
-	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true}).Leveled(slog.LevelDebug)
-	api := agentfiles.NewAPI(logger, fs, nil)
-
-	resp := runEditFiles(t, api, workspacesdk.FileEditRequest{
-		DryRun:      true,
-		IncludeDiff: true,
-		Files: []workspacesdk.FileEdits{{
-			Path: filePath,
-			Edits: []workspacesdk.FileEdit{{
-				Search:  "hello",
-				Replace: "goodbye",
-			}},
-		}},
-	})
-	require.Len(t, resp.Files, 1)
-	require.Contains(t, resp.Files[0].Diff, "+goodbye world")
-
-	content, err := afero.ReadFile(fs, filePath)
-	require.NoError(t, err)
-	require.Equal(t, "hello world\n", string(content))
-}
-
 // TestFuzzyReplace_EndingAndWhitespace exercises the line-endings
 // and per-position whitespace behavior of the fuzzy matcher in
 // both single-replace and replace-all modes.

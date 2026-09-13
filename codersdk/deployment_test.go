@@ -651,44 +651,6 @@ func TestDeploymentValues_MCPTrace(t *testing.T) {
 	})
 }
 
-func TestDeploymentValues_MCPToolTimeoutMax(t *testing.T) {
-	t.Parallel()
-
-	t.Run("Default", func(t *testing.T) {
-		t.Parallel()
-		dv := &codersdk.DeploymentValues{}
-		opts := dv.Options()
-		require.NoError(t, opts.SetDefaults())
-		require.Equal(t, codersdk.DefaultMCPToolTimeoutMax, dv.MCPToolTimeoutMax.Value())
-	})
-
-	t.Run("Environment", func(t *testing.T) {
-		t.Parallel()
-		dv := &codersdk.DeploymentValues{}
-		opts := dv.Options()
-		require.NoError(t, opts.SetDefaults())
-		require.NoError(t, opts.ParseEnv([]serpent.EnvVar{{
-			Name:  "CODER_MCP_TOOL_TIMEOUT_MAX",
-			Value: "4m",
-		}}))
-		require.Equal(t, 4*time.Minute, dv.MCPToolTimeoutMax.Value())
-	})
-
-	t.Run("RejectNonPositive", func(t *testing.T) {
-		t.Parallel()
-		for _, value := range []string{"0s", "-1s"} {
-			dv := &codersdk.DeploymentValues{}
-			opts := dv.Options()
-			require.NoError(t, opts.SetDefaults())
-			err := opts.ParseEnv([]serpent.EnvVar{{
-				Name:  "CODER_MCP_TOOL_TIMEOUT_MAX",
-				Value: value,
-			}})
-			require.ErrorContains(t, err, "MCP tool timeout max must be greater than zero")
-		}
-	})
-}
-
 func TestAIGatewayCompatibilityAliases(t *testing.T) {
 	t.Parallel()
 

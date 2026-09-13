@@ -20,8 +20,6 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/coder/coder/v2/agent/agentchat"
-	"github.com/coder/coder/v2/agent/agentexec"
-	"github.com/coder/coder/v2/agent/sshconfig"
 	"github.com/coder/coder/v2/coderd/httpapi"
 	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/codersdk/workspacesdk"
@@ -38,7 +36,7 @@ const (
 	searchMaxDuration     = 30 * time.Second
 )
 
-var errSearchLimit = xerrors.New("search result limit reached")
+var errSearchLimit = errors.New("search result limit reached")
 
 type searchSession struct {
 	mu      sync.Mutex
@@ -59,18 +57,14 @@ func (s *searchSession) snapshot() workspacesdk.SearchSessionInfo {
 type searchManager struct {
 	mu       sync.Mutex
 	fs       afero.Fs
-	execer   agentexec.Execer
 	sessions map[string]*searchSession
 }
 
-func newSearchManager(fs afero.Fs, execer agentexec.Execer) *searchManager {
+func newSearchManager(fs afero.Fs) *searchManager {
 	if fs == nil {
 		fs = afero.NewOsFs()
 	}
-	if execer == nil {
-		execer = agentexec.DefaultExecer
-	}
-	return &searchManager{fs: fs, execer: execer, sessions: make(map[string]*searchSession)}
+	return &searchManager{fs: fs, sessions: make(map[string]*searchSession)}
 }
 
 func (m *searchManager) cleanupLocked(now time.Time) {
@@ -102,19 +96,12 @@ func (m *searchManager) start(req workspacesdk.SearchStartRequest, chatID string
 	if req.Mode != "files" && req.Mode != "content" {
 		return "", xerrors.New(`search mode must be "files" or "content"`)
 	}
-	if req.Host != "" {
-		if err := sshconfig.ValidateAlias(req.Host); err != nil {
-			return "", err
-		}
+	info, err := m.fs.Stat(req.Root)
+	if err != nil {
+		return "", err
 	}
-	if req.Host == "" {
-		info, err := m.fs.Stat(req.Root)
-		if err != nil {
-			return "", err
-		}
-		if !info.IsDir() && req.Mode == "files" {
-			return "", xerrors.New("file-name search root must be a directory")
-		}
+	if !info.IsDir() && req.Mode == "files" {
+		return "", xerrors.New("file-name search root must be a directory")
 	}
 	maxResults := req.MaxResults
 	if maxResults == 0 {
@@ -136,7 +123,6 @@ func (m *searchManager) start(req workspacesdk.SearchStartRequest, chatID string
 			Root:      req.Root,
 			Query:     req.Query,
 			Mode:      req.Mode,
-			Host:      strings.TrimSpace(req.Host),
 			Status:    "running",
 			CreatedAt: time.Now().Unix(),
 		},
@@ -149,11 +135,7 @@ func (m *searchManager) start(req workspacesdk.SearchStartRequest, chatID string
 	m.sessions[id] = session
 	m.mu.Unlock()
 
-	if req.Host != "" {
-		go m.runRemote(ctx, session, req, matcher, maxResults)
-	} else {
-		go m.run(ctx, session, req, matcher, maxResults)
-	}
+	go m.run(ctx, session, req, matcher, maxResults)
 	return id, nil
 }
 

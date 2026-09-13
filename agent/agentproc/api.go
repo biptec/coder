@@ -19,7 +19,6 @@ import (
 	"github.com/coder/coder/v2/agent/agentchat"
 	"github.com/coder/coder/v2/agent/agentexec"
 	"github.com/coder/coder/v2/agent/agentgit"
-	"github.com/coder/coder/v2/agent/sshconfig"
 	"github.com/coder/coder/v2/agent/usershell"
 	"github.com/coder/coder/v2/coderd/httpapi"
 	"github.com/coder/coder/v2/codersdk"
@@ -85,9 +84,7 @@ func (api *API) Close() error {
 func (api *API) Routes() http.Handler {
 	r := chi.NewRouter()
 	r.Post("/start", api.handleStartProcess)
-	r.Post("/run", api.handleRunCommand)
 	r.Get("/list", api.handleListProcesses)
-	r.Get("/remote-hosts", api.handleRemoteHosts)
 	r.Get("/{id}/output", api.handleProcessOutput)
 	r.Post("/{id}/input", api.handleProcessInput)
 	r.Post("/{id}/signal", api.handleSignalProcess)
@@ -163,21 +160,7 @@ func (api *API) handleStartProcess(rw http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleRemoteHosts lists configured exact SSH aliases for semantic remote tools.
-func (*API) handleRemoteHosts(rw http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	hosts, err := sshconfig.List()
-	if err != nil {
-		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{Message: "Failed to list configured SSH aliases.", Detail: err.Error()})
-		return
-	}
-	result := workspacesdk.ListRemoteHostsResponse{Hosts: make([]workspacesdk.RemoteHostInfo, 0, len(hosts))}
-	for _, host := range hosts {
-		result.Hosts = append(result.Hosts, workspacesdk.RemoteHostInfo{Alias: host.Alias})
-	}
-	httpapi.Write(ctx, rw, http.StatusOK, result)
-}
-
+// handleListProcesses lists all tracked processes.
 func (api *API) handleListProcesses(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -399,7 +382,7 @@ func (api *API) handleSignalProcess(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := api.manager.signalContext(ctx, id, req.Signal); err != nil {
+	if err := api.manager.signal(id, req.Signal); err != nil {
 		switch {
 		case errors.Is(err, errProcessNotFound):
 			httpapi.Write(ctx, rw, http.StatusNotFound, codersdk.Response{
