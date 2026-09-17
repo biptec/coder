@@ -56,21 +56,26 @@ func TestActivityStoreRetentionAndRunningVisibility(t *testing.T) {
 	require.Empty(t, store.List("different-user", "", 3), "activity must be isolated by authenticated user")
 }
 
-func TestActivityTrackingPropagatesInvocationTool(t *testing.T) {
+func TestActivityTrackingPropagatesInvocationMetadata(t *testing.T) {
 	t.Parallel()
 
 	s := &Server{activityStore: NewActivityStore(20), activityUserID: "user-a"}
+	expectedTraceID := uuid.New()
 	var gotTool string
+	var gotTraceID uuid.UUID
 	wrapped := s.withActivityTracking(server.ServerTool{
 		Handler: func(ctx context.Context, _ mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
 			gotTool = toolsdk.InvocationToolFromContext(ctx)
+			gotTraceID, _ = toolsdk.MCPTraceIDFromContext(ctx)
 			return mcpgo.NewToolResultText("ok"), nil
 		},
 	}, "exec")
 
-	_, err := wrapped.Handler(context.Background(), mcpgo.CallToolRequest{})
+	ctx := WithTraceID(context.Background(), expectedTraceID)
+	_, err := wrapped.Handler(ctx, mcpgo.CallToolRequest{})
 	require.NoError(t, err)
 	require.Equal(t, "exec", gotTool)
+	require.Equal(t, expectedTraceID, gotTraceID)
 }
 
 type fakePersistentActivityRecorder struct {

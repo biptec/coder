@@ -23,7 +23,10 @@ import (
 	"github.com/coder/coder/v2/codersdk/workspacesdk"
 )
 
-type invocationToolContextKey struct{}
+type (
+	invocationToolContextKey struct{}
+	mcpTraceIDContextKey     struct{}
+)
 
 // WithInvocationTool records the assistant-facing MCP tool name on a tool
 // invocation context. Execution tools propagate this metadata to the workspace
@@ -38,6 +41,24 @@ func WithInvocationTool(ctx context.Context, tool string) context.Context {
 func InvocationToolFromContext(ctx context.Context) string {
 	tool, _ := ctx.Value(invocationToolContextKey{}).(string)
 	return tool
+}
+
+// WithMCPTraceID records the internal MCP diagnostic trace correlation on a tool
+// invocation context. This is intentionally one of the small set of internal
+// values preserved across WithCleanContext; arbitrary caller context values
+// remain stripped.
+func WithMCPTraceID(ctx context.Context, traceID uuid.UUID) context.Context {
+	if traceID == uuid.Nil {
+		return ctx
+	}
+	return context.WithValue(ctx, mcpTraceIDContextKey{}, traceID)
+}
+
+// MCPTraceIDFromContext returns the internal MCP diagnostic trace ID, if one
+// was explicitly attached by the MCP adapter.
+func MCPTraceIDFromContext(ctx context.Context) (uuid.UUID, bool) {
+	traceID, ok := ctx.Value(mcpTraceIDContextKey{}).(uuid.UUID)
+	return traceID, ok && traceID != uuid.Nil
 }
 
 // Tool name constants to avoid hardcoded strings
@@ -332,6 +353,7 @@ func WithCleanContext(h GenericHandlerFunc) GenericHandlerFunc {
 		// explicitly carrying the one internal value that execution tools need for
 		// Command Activity attribution.
 		invocationTool := InvocationToolFromContext(parent)
+		mcpTraceID, hasMCPTraceID := MCPTraceIDFromContext(parent)
 		child, childCancel := context.WithCancel(context.Background())
 		defer childCancel()
 		// Ensure that the child context has the same deadline as the parent
@@ -343,6 +365,9 @@ func WithCleanContext(h GenericHandlerFunc) GenericHandlerFunc {
 		}
 		if invocationTool != "" {
 			child = WithInvocationTool(child, invocationTool)
+		}
+		if hasMCPTraceID {
+			child = WithMCPTraceID(child, mcpTraceID)
 		}
 		// Ensure that cancellation propagates from the parent context to the child context.
 		go func() {

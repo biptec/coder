@@ -547,6 +547,12 @@ mcpTraceEnabled: false
 # deletion.
 # (default: 24, type: int)
 mcpTraceRetentionHours: 24
+# How long coderd keeps an unused workspace-agent destination subscribed in its
+# server tailnet before removing the tunnel. Active connections are never expired.
+# This applies to the shared coderd server tailnet, including MCP workspace
+# access.
+# (default: 30m0s, type: duration)
+serverTailnetAgentIdleTimeout: 30m0s
 # Enable administrative copying of explicitly annotated Kubernetes workspace
 # persistent volumes.
 # (default: false, type: bool)

@@ -616,6 +616,7 @@ const (
 	DefaultWorkspaceActivityNowThreshold        = 5 * time.Minute
 	DefaultWorkspaceCommandActivityHistoryLimit = int64(0)
 	DefaultMCPTraceRetentionHours               = int64(24)
+	DefaultServerTailnetAgentIdleTimeout        = 30 * time.Minute
 )
 
 // DeploymentValues is the central configuration values the coder server.
@@ -656,6 +657,7 @@ type DeploymentValues struct {
 	WorkspaceCommandActivityHistoryLimit    serpent.Int64                        `json:"workspace_command_activity_history_limit,omitempty" typescript:",notnull"`
 	MCPTraceEnabled                         serpent.Bool                         `json:"mcp_trace_enabled,omitempty" typescript:",notnull"`
 	MCPTraceRetentionHours                  serpent.Int64                        `json:"mcp_trace_retention_hours,omitempty" typescript:",notnull"`
+	ServerTailnetAgentIdleTimeout           serpent.Duration                     `json:"server_tailnet_agent_idle_timeout,omitempty" typescript:",notnull"`
 	WorkspaceVolumeCopyEnabled              serpent.Bool                         `json:"workspace_volume_copy_enabled,omitempty" typescript:",notnull"`
 	WorkspaceVolumeCopyNamespace            serpent.String                       `json:"workspace_volume_copy_namespace,omitempty" typescript:",notnull"`
 	WorkspaceVolumeCopyImage                serpent.String                       `json:"workspace_volume_copy_image,omitempty" typescript:",notnull"`
@@ -3655,6 +3657,22 @@ communicating directly.`,
 				}
 				return nil
 			}),
+		},
+		{
+			Name:        "Server Tailnet Agent Idle Timeout",
+			Description: "How long coderd keeps an unused workspace-agent destination subscribed in its server tailnet before removing the tunnel. Active connections are never expired. This applies to the shared coderd server tailnet, including MCP workspace access.",
+			Flag:        "server-tailnet-agent-idle-timeout",
+			Env:         "CODER_SERVER_TAILNET_AGENT_IDLE_TIMEOUT",
+			YAML:        "serverTailnetAgentIdleTimeout",
+			Hidden:      true,
+			Default:     DefaultServerTailnetAgentIdleTimeout.String(),
+			Value: serpent.Validate(&c.ServerTailnetAgentIdleTimeout, func(value *serpent.Duration) error {
+				if value.Value() <= 0 {
+					return xerrors.New("server tailnet agent idle timeout must be greater than zero")
+				}
+				return nil
+			}),
+			Annotations: serpent.Annotations{}.Mark(annotationFormatDuration, "true"),
 		},
 		{
 			Name:        "Workspace Volume Copy Enabled",

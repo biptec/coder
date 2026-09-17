@@ -3,6 +3,7 @@ package coderd
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/coder/coder/v2/coderd/database/dbauthz"
 	"github.com/coder/coder/v2/coderd/httpmw"
 	codermcp "github.com/coder/coder/v2/coderd/mcp"
+	"github.com/coder/coder/v2/codersdk/toolsdk"
 )
 
 const (
@@ -26,6 +28,35 @@ const (
 	mcpTraceQueueSize    = 8192
 	mcpTraceIDHeader     = "X-Coder-MCP-Trace-Id"
 )
+
+type mcpAgentTraceContextKey struct{}
+
+type mcpAgentTraceContext struct {
+	traceID     uuid.UUID
+	workspaceID uuid.UUID
+}
+
+func withMCPAgentTraceWorkspace(ctx context.Context, workspaceID uuid.UUID) context.Context {
+	if workspaceID == uuid.Nil {
+		return ctx
+	}
+	traceID, _ := toolsdk.MCPTraceIDFromContext(ctx)
+	return context.WithValue(ctx, mcpAgentTraceContextKey{}, mcpAgentTraceContext{
+		traceID:     traceID,
+		workspaceID: workspaceID,
+	})
+}
+
+func mcpAgentTraceMetadataFromContext(ctx context.Context) (uuid.UUID, uuid.UUID) {
+	metadata, _ := ctx.Value(mcpAgentTraceContextKey{}).(mcpAgentTraceContext)
+	if metadata.traceID == uuid.Nil {
+		metadata.traceID, _ = toolsdk.MCPTraceIDFromContext(ctx)
+	}
+	if metadata.traceID == uuid.Nil {
+		metadata.traceID, _ = codermcp.TraceIDFromContext(ctx)
+	}
+	return metadata.traceID, metadata.workspaceID
+}
 
 type mcpTraceWrite struct {
 	traceID uuid.UUID
@@ -129,6 +160,44 @@ func (r *mcpTraceRecorder) flush(ctx context.Context) error {
 	case <-done:
 		return nil
 	}
+}
+
+func (r *mcpTraceRecorder) AgentEvent(ctx context.Context, agentID uuid.UUID, event string, details any) {
+	traceID, workspaceID := mcpAgentTraceMetadataFromContext(ctx)
+	if traceID == uuid.Nil {
+		return
+	}
+	r.AgentEventFor(traceID, workspaceID, agentID, event, details)
+}
+
+func (r *mcpTraceRecorder) AgentEventFor(traceID, workspaceID, agentID uuid.UUID, event string, details any) {
+	if r == nil || traceID == uuid.Nil || agentID == uuid.Nil || event == "" {
+		return
+	}
+	detailsJSON := "{}"
+	if details != nil {
+		encoded, err := json.Marshal(details)
+		if err != nil {
+			r.logger.Debug(context.Background(), "marshal MCP agent trace details", slog.Error(err), slog.F("event", event))
+		} else {
+			detailsJSON = string(encoded)
+		}
+	}
+	now := time.Now().UTC()
+	replicaID := r.replicaID
+	workspace := uuid.NullUUID{UUID: workspaceID, Valid: workspaceID != uuid.Nil}
+	r.enqueue(traceID, "agent_"+event, func(writeCtx context.Context) error {
+		return r.db.InsertMCPTraceAgentEvent(writeCtx, database.InsertMCPTraceAgentEventParams{
+			ID:          uuid.New(),
+			RequestID:   traceID,
+			WorkspaceID: workspace,
+			AgentID:     agentID,
+			Event:       event,
+			Details:     detailsJSON,
+			OccurredAt:  now,
+			ReplicaID:   replicaID,
+		})
+	})
 }
 
 func (r *mcpTraceRecorder) isMCPRequest(req *http.Request) bool {

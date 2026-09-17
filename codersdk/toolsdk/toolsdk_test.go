@@ -2460,9 +2460,10 @@ func TestWithCleanContext(t *testing.T) {
 		_, _ = wrapped(ctx, toolsdk.Deps{}, []byte(`{}`))
 	})
 
-	t.Run("PropagateInvocationToolOnly", func(t *testing.T) {
+	t.Run("PropagateWhitelistedInvocationMetadataOnly", func(t *testing.T) {
 		t.Parallel()
 
+		expectedTraceID := uuid.New()
 		ctxTool := toolsdk.GenericTool{
 			Tool: aisdk.Tool{
 				Name:        "context_tool_invocation",
@@ -2470,6 +2471,9 @@ func TestWithCleanContext(t *testing.T) {
 			},
 			Handler: func(toolCtx context.Context, tb toolsdk.Deps, args json.RawMessage) (json.RawMessage, error) {
 				require.Equal(t, "exec", toolsdk.InvocationToolFromContext(toolCtx))
+				traceID, ok := toolsdk.MCPTraceIDFromContext(toolCtx)
+				require.True(t, ok)
+				require.Equal(t, expectedTraceID, traceID)
 				require.Nil(t, toolCtx.Value(testContextKey{}), "arbitrary context values must remain stripped")
 				return nil, nil
 			},
@@ -2478,6 +2482,7 @@ func TestWithCleanContext(t *testing.T) {
 		wrapped := toolsdk.WithCleanContext(ctxTool.Handler)
 		parent := context.WithValue(context.Background(), testContextKey{}, "must-not-leak")
 		parent = toolsdk.WithInvocationTool(parent, "exec")
+		parent = toolsdk.WithMCPTraceID(parent, expectedTraceID)
 		_, err := wrapped(parent, toolsdk.Deps{}, []byte(`{}`))
 		require.NoError(t, err)
 	})

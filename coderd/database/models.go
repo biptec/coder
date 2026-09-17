@@ -5276,6 +5276,17 @@ type MCPServerUserToken struct {
 	UpdatedAt         time.Time      `db:"updated_at" json:"updated_at"`
 }
 
+type McpTraceAgentEvent struct {
+	ID          uuid.UUID     `db:"id" json:"id"`
+	RequestID   uuid.UUID     `db:"request_id" json:"request_id"`
+	ReplicaID   uuid.UUID     `db:"replica_id" json:"replica_id"`
+	WorkspaceID uuid.NullUUID `db:"workspace_id" json:"workspace_id"`
+	AgentID     uuid.UUID     `db:"agent_id" json:"agent_id"`
+	Event       string        `db:"event" json:"event"`
+	Details     string        `db:"details" json:"details"`
+	OccurredAt  time.Time     `db:"occurred_at" json:"occurred_at"`
+}
+
 type McpTraceConnection struct {
 	ID           uuid.UUID     `db:"id" json:"id"`
 	RequestID    uuid.UUID     `db:"request_id" json:"request_id"`

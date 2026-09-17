@@ -304,6 +304,7 @@ func New(ctx context.Context, opts *Options) (*Server, error) {
 		regResp.DERPForceWebSockets,
 		opts.BlockDirect,
 		s.TracerProvider,
+		codersdk.DefaultServerTailnetAgentIdleTimeout,
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("create server tailnet: %w", err)

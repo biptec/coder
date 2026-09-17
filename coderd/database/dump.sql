@@ -2434,6 +2434,17 @@ CREATE TABLE mcp_server_user_tokens (
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
+CREATE TABLE mcp_trace_agent_events (
+    id uuid NOT NULL,
+    request_id uuid NOT NULL,
+    replica_id uuid NOT NULL,
+    workspace_id uuid,
+    agent_id uuid NOT NULL,
+    event text NOT NULL,
+    details text DEFAULT ''::text NOT NULL,
+    occurred_at timestamp with time zone NOT NULL
+);
+
 CREATE TABLE mcp_trace_connections (
     id uuid NOT NULL,
     request_id uuid NOT NULL,
@@ -4378,6 +4389,9 @@ ALTER TABLE ONLY mcp_server_user_tokens
 ALTER TABLE ONLY mcp_server_user_tokens
     ADD CONSTRAINT mcp_server_user_tokens_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY mcp_trace_agent_events
+    ADD CONSTRAINT mcp_trace_agent_events_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY mcp_trace_connections
     ADD CONSTRAINT mcp_trace_connections_pkey PRIMARY KEY (id);
 
@@ -4875,6 +4889,10 @@ CREATE INDEX idx_workspace_app_statuses_workspace_id_created_at ON workspace_app
 
 CREATE INDEX idx_workspace_builds_initiator_id ON workspace_builds USING btree (initiator_id);
 
+CREATE INDEX mcp_trace_agent_events_agent_idx ON mcp_trace_agent_events USING btree (agent_id, occurred_at DESC, id DESC);
+
+CREATE INDEX mcp_trace_agent_events_request_idx ON mcp_trace_agent_events USING btree (request_id, occurred_at, id);
+
 CREATE INDEX mcp_trace_connections_open_idx ON mcp_trace_connections USING btree (opened_at DESC) WHERE (closed_at IS NULL);
 
 CREATE INDEX mcp_trace_connections_opened_idx ON mcp_trace_connections USING btree (opened_at DESC, id DESC);
@@ -5307,6 +5325,12 @@ ALTER TABLE ONLY mcp_server_user_tokens
 
 ALTER TABLE ONLY mcp_server_user_tokens
     ADD CONSTRAINT mcp_server_user_tokens_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY mcp_trace_agent_events
+    ADD CONSTRAINT mcp_trace_agent_events_request_id_fkey FOREIGN KEY (request_id) REFERENCES mcp_trace_requests(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY mcp_trace_agent_events
+    ADD CONSTRAINT mcp_trace_agent_events_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE SET NULL;
 
 ALTER TABLE ONLY mcp_trace_connections
     ADD CONSTRAINT mcp_trace_connections_request_id_fkey FOREIGN KEY (request_id) REFERENCES mcp_trace_requests(id) ON DELETE CASCADE;

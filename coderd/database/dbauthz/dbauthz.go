@@ -4136,6 +4136,20 @@ func (q *querier) GetMCPServerUserTokensByUserID(ctx context.Context, userID uui
 	return q.db.GetMCPServerUserTokensByUserID(ctx, userID)
 }
 
+func (q *querier) GetMCPTraceAgentEventsByAgentIDAfter(ctx context.Context, arg database.GetMCPTraceAgentEventsByAgentIDAfterParams) ([]database.McpTraceAgentEvent, error) {
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceSystem); err != nil {
+		return nil, err
+	}
+	return q.db.GetMCPTraceAgentEventsByAgentIDAfter(ctx, arg)
+}
+
+func (q *querier) GetMCPTraceAgentEventsByRequestID(ctx context.Context, requestID uuid.UUID) ([]database.McpTraceAgentEvent, error) {
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceSystem); err != nil {
+		return nil, err
+	}
+	return q.db.GetMCPTraceAgentEventsByRequestID(ctx, requestID)
+}
+
 func (q *querier) GetMCPTraceConnectionByRequestID(ctx context.Context, requestID uuid.UUID) (database.McpTraceConnection, error) {
 	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceSystem); err != nil {
 		return database.McpTraceConnection{}, err
@@ -6255,6 +6269,13 @@ func (q *querier) InsertMCPServerConfig(ctx context.Context, arg database.Insert
 		return database.MCPServerConfig{}, err
 	}
 	return q.db.InsertMCPServerConfig(ctx, arg)
+}
+
+func (q *querier) InsertMCPTraceAgentEvent(ctx context.Context, arg database.InsertMCPTraceAgentEventParams) error {
+	if err := q.authorizeContext(ctx, policy.ActionCreate, rbac.ResourceSystem); err != nil {
+		return err
+	}
+	return q.db.InsertMCPTraceAgentEvent(ctx, arg)
 }
 
 func (q *querier) InsertMCPTraceConnection(ctx context.Context, arg database.InsertMCPTraceConnectionParams) error {

@@ -17520,6 +17520,90 @@ func (q *sqlQuerier) FinishMCPTraceRequest(ctx context.Context, arg FinishMCPTra
 	return err
 }
 
+const getMCPTraceAgentEventsByAgentIDAfter = `-- name: GetMCPTraceAgentEventsByAgentIDAfter :many
+SELECT id, request_id, replica_id, workspace_id, agent_id, event, details, occurred_at
+FROM mcp_trace_agent_events
+WHERE agent_id = $1
+  AND occurred_at >= $2
+ORDER BY occurred_at ASC, id ASC
+`
+
+type GetMCPTraceAgentEventsByAgentIDAfterParams struct {
+	AgentID   uuid.UUID `db:"agent_id" json:"agent_id"`
+	AfterTime time.Time `db:"after_time" json:"after_time"`
+}
+
+func (q *sqlQuerier) GetMCPTraceAgentEventsByAgentIDAfter(ctx context.Context, arg GetMCPTraceAgentEventsByAgentIDAfterParams) ([]McpTraceAgentEvent, error) {
+	rows, err := q.db.QueryContext(ctx, getMCPTraceAgentEventsByAgentIDAfter, arg.AgentID, arg.AfterTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []McpTraceAgentEvent
+	for rows.Next() {
+		var i McpTraceAgentEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.RequestID,
+			&i.ReplicaID,
+			&i.WorkspaceID,
+			&i.AgentID,
+			&i.Event,
+			&i.Details,
+			&i.OccurredAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getMCPTraceAgentEventsByRequestID = `-- name: GetMCPTraceAgentEventsByRequestID :many
+SELECT id, request_id, replica_id, workspace_id, agent_id, event, details, occurred_at
+FROM mcp_trace_agent_events
+WHERE request_id = $1
+ORDER BY occurred_at ASC, id ASC
+`
+
+func (q *sqlQuerier) GetMCPTraceAgentEventsByRequestID(ctx context.Context, requestID uuid.UUID) ([]McpTraceAgentEvent, error) {
+	rows, err := q.db.QueryContext(ctx, getMCPTraceAgentEventsByRequestID, requestID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []McpTraceAgentEvent
+	for rows.Next() {
+		var i McpTraceAgentEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.RequestID,
+			&i.ReplicaID,
+			&i.WorkspaceID,
+			&i.AgentID,
+			&i.Event,
+			&i.Details,
+			&i.OccurredAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getMCPTraceConnectionByRequestID = `-- name: GetMCPTraceConnectionByRequestID :one
 SELECT id, request_id, replica_id, user_id, session_id, http_protocol, status, opened_at, closed_at, close_reason FROM mcp_trace_connections WHERE request_id = $1
 `
@@ -17582,6 +17666,39 @@ func (q *sqlQuerier) GetMCPTraceRequestByID(ctx context.Context, id uuid.UUID) (
 		&i.FinishedAt,
 	)
 	return i, err
+}
+
+const insertMCPTraceAgentEvent = `-- name: InsertMCPTraceAgentEvent :exec
+INSERT INTO mcp_trace_agent_events (
+    id, request_id, replica_id, workspace_id, agent_id, event, details, occurred_at
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8
+)
+`
+
+type InsertMCPTraceAgentEventParams struct {
+	ID          uuid.UUID     `db:"id" json:"id"`
+	RequestID   uuid.UUID     `db:"request_id" json:"request_id"`
+	ReplicaID   uuid.UUID     `db:"replica_id" json:"replica_id"`
+	WorkspaceID uuid.NullUUID `db:"workspace_id" json:"workspace_id"`
+	AgentID     uuid.UUID     `db:"agent_id" json:"agent_id"`
+	Event       string        `db:"event" json:"event"`
+	Details     string        `db:"details" json:"details"`
+	OccurredAt  time.Time     `db:"occurred_at" json:"occurred_at"`
+}
+
+func (q *sqlQuerier) InsertMCPTraceAgentEvent(ctx context.Context, arg InsertMCPTraceAgentEventParams) error {
+	_, err := q.db.ExecContext(ctx, insertMCPTraceAgentEvent,
+		arg.ID,
+		arg.RequestID,
+		arg.ReplicaID,
+		arg.WorkspaceID,
+		arg.AgentID,
+		arg.Event,
+		arg.Details,
+		arg.OccurredAt,
+	)
+	return err
 }
 
 const insertMCPTraceConnection = `-- name: InsertMCPTraceConnection :exec

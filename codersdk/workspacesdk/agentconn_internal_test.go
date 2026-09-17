@@ -1,6 +1,7 @@
 package workspacesdk
 
 import (
+	"errors"
 	neturl "net/url"
 	"testing"
 	"time"
@@ -67,4 +68,19 @@ func TestAgentAPIPath(t *testing.T) {
 		require.Equal(t, "/debug/logs", parsed.Path)
 		require.Equal(t, after.UTC().Format(time.RFC3339Nano), parsed.Query().Get("after"))
 	})
+}
+
+func TestAgentConnTraceErrorRedactsURL(t *testing.T) {
+	t.Parallel()
+
+	err := &neturl.Error{
+		Op:  "Get",
+		URL: "http://agent/api/v0/read-file?path=%2Fhome%2Fcoder%2Fsecret.txt",
+		Err: errors.New("connection reset"),
+	}
+
+	got := agentConnTraceError(err)
+	require.Equal(t, "connection reset", got)
+	require.NotContains(t, got, "secret")
+	require.NotContains(t, got, "path=")
 }

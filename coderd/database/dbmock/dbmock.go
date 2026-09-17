@@ -4554,6 +4554,36 @@ func (mr *MockStoreMockRecorder) GetMCPServerUserTokensByUserID(ctx, userID any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMCPServerUserTokensByUserID", reflect.TypeOf((*MockStore)(nil).GetMCPServerUserTokensByUserID), ctx, userID)
 }
 
+// GetMCPTraceAgentEventsByAgentIDAfter mocks base method.
+func (m *MockStore) GetMCPTraceAgentEventsByAgentIDAfter(ctx context.Context, arg database.GetMCPTraceAgentEventsByAgentIDAfterParams) ([]database.McpTraceAgentEvent, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMCPTraceAgentEventsByAgentIDAfter", ctx, arg)
+	ret0, _ := ret[0].([]database.McpTraceAgentEvent)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMCPTraceAgentEventsByAgentIDAfter indicates an expected call of GetMCPTraceAgentEventsByAgentIDAfter.
+func (mr *MockStoreMockRecorder) GetMCPTraceAgentEventsByAgentIDAfter(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMCPTraceAgentEventsByAgentIDAfter", reflect.TypeOf((*MockStore)(nil).GetMCPTraceAgentEventsByAgentIDAfter), ctx, arg)
+}
+
+// GetMCPTraceAgentEventsByRequestID mocks base method.
+func (m *MockStore) GetMCPTraceAgentEventsByRequestID(ctx context.Context, requestID uuid.UUID) ([]database.McpTraceAgentEvent, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMCPTraceAgentEventsByRequestID", ctx, requestID)
+	ret0, _ := ret[0].([]database.McpTraceAgentEvent)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMCPTraceAgentEventsByRequestID indicates an expected call of GetMCPTraceAgentEventsByRequestID.
+func (mr *MockStoreMockRecorder) GetMCPTraceAgentEventsByRequestID(ctx, requestID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMCPTraceAgentEventsByRequestID", reflect.TypeOf((*MockStore)(nil).GetMCPTraceAgentEventsByRequestID), ctx, requestID)
+}
+
 // GetMCPTraceConnectionByRequestID mocks base method.
 func (m *MockStore) GetMCPTraceConnectionByRequestID(ctx context.Context, requestID uuid.UUID) (database.McpTraceConnection, error) {
 	m.ctrl.T.Helper()
@@ -8175,6 +8205,20 @@ func (m *MockStore) InsertMCPServerConfig(ctx context.Context, arg database.Inse
 func (mr *MockStoreMockRecorder) InsertMCPServerConfig(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertMCPServerConfig", reflect.TypeOf((*MockStore)(nil).InsertMCPServerConfig), ctx, arg)
+}
+
+// InsertMCPTraceAgentEvent mocks base method.
+func (m *MockStore) InsertMCPTraceAgentEvent(ctx context.Context, arg database.InsertMCPTraceAgentEventParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertMCPTraceAgentEvent", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertMCPTraceAgentEvent indicates an expected call of InsertMCPTraceAgentEvent.
+func (mr *MockStoreMockRecorder) InsertMCPTraceAgentEvent(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertMCPTraceAgentEvent", reflect.TypeOf((*MockStore)(nil).InsertMCPTraceAgentEvent), ctx, arg)
 }
 
 // InsertMCPTraceConnection mocks base method.

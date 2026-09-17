@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	neturl "net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -163,11 +164,31 @@ func (c *agentConn) SetExtraHeaders(h http.Header) {
 	c.headersMu.Unlock()
 }
 
+type AgentConnTraceFunc func(ctx context.Context, event string, details map[string]any)
+
 // @typescript-ignore AgentConnOptions
 type AgentConnOptions struct {
 	AgentID   uuid.UUID
 	CloseFunc func() error
 	Logger    slog.Logger
+	Trace     AgentConnTraceFunc
+}
+
+func (c *agentConn) trace(ctx context.Context, event string, details map[string]any) {
+	if c.opts.Trace != nil {
+		c.opts.Trace(ctx, event, details)
+	}
+}
+
+func agentConnTraceError(err error) string {
+	if err == nil {
+		return ""
+	}
+	var urlErr *neturl.Error
+	if errors.As(err, &urlErr) && urlErr.Err != nil {
+		return urlErr.Err.Error()
+	}
+	return err.Error()
 }
 
 func (c *agentConn) agentAddress() netip.Addr {
@@ -1665,7 +1686,29 @@ func (c *agentConn) apiRequest(ctx context.Context, method, path string, body in
 		}
 	}
 
-	return c.apiClient(ctx).Do(req)
+	route := path
+	if queryIndex := strings.IndexByte(route, '?'); queryIndex >= 0 {
+		route = route[:queryIndex]
+	}
+	started := time.Now()
+	c.trace(ctx, "agent_api_request_started", map[string]any{
+		"method": method,
+		"route":  route,
+	})
+	res, err := c.apiClient(ctx).Do(req)
+	details := map[string]any{
+		"method":      method,
+		"route":       route,
+		"duration_ms": time.Since(started).Milliseconds(),
+	}
+	if err != nil {
+		details["error"] = agentConnTraceError(err)
+		c.trace(ctx, "agent_api_request_failed", details)
+		return nil, err
+	}
+	details["status_code"] = res.StatusCode
+	c.trace(ctx, "agent_api_request_finished", details)
+	return res, nil
 }
 
 // apiClient returns an HTTP client that can be used to make
@@ -1684,8 +1727,18 @@ func (c *agentConn) apiClient(reqCtx context.Context) *http.Client {
 			// request, and this triggers goleak in tests
 			DisableKeepAlives: true,
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				dialStarted := time.Now()
+				c.trace(reqCtx, "agent_tcp_dial_started", map[string]any{
+					"network": network,
+				})
 				if network != "tcp" {
-					return nil, xerrors.Errorf("network must be tcp")
+					err := xerrors.Errorf("network must be tcp")
+					c.trace(reqCtx, "agent_tcp_dial_failed", map[string]any{
+						"stage":       "validate_network",
+						"duration_ms": time.Since(dialStarted).Milliseconds(),
+						"error":       err.Error(),
+					})
+					return nil, err
 				}
 
 				host, port, err := net.SplitHostPort(addr)
@@ -1717,15 +1770,30 @@ func (c *agentConn) apiClient(reqCtx context.Context) *http.Client {
 				defer stop()
 
 				if !c.AwaitReachable(ctx) {
-					return nil, xerrors.Errorf("workspace agent not reachable in time: %v", ctx.Err())
+					err := xerrors.Errorf("workspace agent not reachable in time: %v", ctx.Err())
+					c.trace(reqCtx, "agent_tcp_dial_failed", map[string]any{
+						"stage":       "await_reachable",
+						"duration_ms": time.Since(dialStarted).Milliseconds(),
+						"error":       err.Error(),
+					})
+					return nil, err
 				}
 
 				// Always dial the pinned agent address, never the request host.
 				conn, err := c.Conn.DialContextTCP(ctx, agentAddr)
 				if err != nil {
-					return nil, xerrors.Errorf("dial http api: %w", err)
+					wrapped := xerrors.Errorf("dial http api: %w", err)
+					c.trace(reqCtx, "agent_tcp_dial_failed", map[string]any{
+						"stage":       "dial_tcp",
+						"duration_ms": time.Since(dialStarted).Milliseconds(),
+						"error":       wrapped.Error(),
+					})
+					return nil, wrapped
 				}
 
+				c.trace(reqCtx, "agent_tcp_dial_finished", map[string]any{
+					"duration_ms": time.Since(dialStarted).Milliseconds(),
+				})
 				return conn, nil
 			},
 		},

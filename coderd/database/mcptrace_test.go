@@ -41,6 +41,15 @@ func TestMCPTraceLifecycleAndRetention(t *testing.T) {
 		HttpProtocol: "HTTP/2.0",
 		OpenedAt:     startedAt,
 	}))
+	require.NoError(t, db.InsertMCPTraceAgentEvent(ctx, database.InsertMCPTraceAgentEventParams{
+		ID:         uuid.New(),
+		RequestID:  traceID,
+		ReplicaID:  replicaID,
+		AgentID:    uuid.New(),
+		Event:      "ensure_agent",
+		Details:    `{"already_subscribed":true}`,
+		OccurredAt: startedAt.Add(time.Second),
+	}))
 
 	now := time.Now().UTC().Round(time.Microsecond)
 	require.NoError(t, db.UpdateMCPTraceRequestCoderRequestID(ctx, database.UpdateMCPTraceRequestCoderRequestIDParams{
@@ -136,6 +145,11 @@ func TestMCPTraceLifecycleAndRetention(t *testing.T) {
 	require.Equal(t, "completed", connection.Status)
 	require.True(t, connection.ClosedAt.Valid)
 
+	agentEvents, err := db.GetMCPTraceAgentEventsByRequestID(ctx, traceID)
+	require.NoError(t, err)
+	require.Len(t, agentEvents, 1)
+	require.Equal(t, "ensure_agent", agentEvents[0].Event)
+
 	deleted, err := db.DeleteOldMCPTraceRequests(ctx, database.DeleteOldMCPTraceRequestsParams{
 		BeforeTime: time.Now().UTC().Add(-24 * time.Hour),
 		LimitCount: 100,
@@ -147,4 +161,7 @@ func TestMCPTraceLifecycleAndRetention(t *testing.T) {
 	require.ErrorIs(t, err, sql.ErrNoRows)
 	_, err = db.GetMCPTraceConnectionByRequestID(ctx, traceID)
 	require.ErrorIs(t, err, sql.ErrNoRows)
+	agentEvents, err = db.GetMCPTraceAgentEventsByRequestID(ctx, traceID)
+	require.NoError(t, err)
+	require.Empty(t, agentEvents, "agent trace events must be cascade-deleted with their 24h-retained parent trace")
 }

@@ -271,6 +271,9 @@ func (s *Server) withActivityTracking(tool server.ServerTool, toolName string) s
 			defer stopHeartbeat()
 		}
 
+		if traceID, ok := TraceIDFromContext(ctx); ok {
+			ctx = toolsdk.WithMCPTraceID(ctx, traceID)
+		}
 		ctx = toolsdk.WithInvocationTool(ctx, toolName)
 		result, err := original(ctx, request)
 		// Stop heartbeats before finalizing. The returned cancel function is
