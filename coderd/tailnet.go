@@ -181,32 +181,26 @@ func (s *ServerTailnet) agentConnectionPath(agentID uuid.UUID) string {
 	if s == nil || s.conn == nil {
 		return "unknown"
 	}
+	// The coordination peer ID is the workspace agent UUID. Resolve that ID to
+	// the exact WireGuard node key first. PeerStatus.TailscaleIPs is not a
+	// reliable identity key for service-address peers.
+	diagnostics := s.conn.GetPeerDiagnostics(agentID)
+	if diagnostics.ReceivedNode == nil {
+		return "unknown"
+	}
 	status := s.conn.Status()
 	if status == nil {
 		return "unknown"
 	}
-	target := tailnet.TailscaleServicePrefix.AddrFromUUID(agentID)
-	for _, peer := range status.Peer {
-		if peer == nil {
-			continue
-		}
-		matched := false
-		for _, addr := range peer.TailscaleIPs {
-			if addr == target {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			continue
-		}
-		if peer.CurAddr != "" {
-			return "p2p"
-		}
-		if peer.Relay != "" {
-			return "derp"
-		}
+	peer, ok := status.Peer[diagnostics.ReceivedNode.Key]
+	if !ok || peer == nil {
 		return "unknown"
+	}
+	if peer.CurAddr != "" {
+		return "p2p"
+	}
+	if peer.Relay != "" {
+		return "derp"
 	}
 	return "unknown"
 }
