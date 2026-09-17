@@ -418,11 +418,18 @@ func TestMCPHTTP_E2E_ToolWithWorkspace(t *testing.T) {
 			found["agent_api_request_finished"] &&
 			found["ticket_released"]
 	}, testutil.WaitShort, testutil.IntervalFast)
+	var connectionPath string
 	for _, event := range requestEvents {
 		require.True(t, event.WorkspaceID.Valid, "event %q lost workspace correlation: details=%s", event.Event, event.Details)
 		require.Equal(t, r.Workspace.ID, event.WorkspaceID.UUID)
 		require.Equal(t, r.Agents[0].ID, event.AgentID)
+		if event.Event == "agent_conn_acquired" {
+			var details map[string]any
+			require.NoError(t, json.Unmarshal([]byte(event.Details), &details))
+			connectionPath, _ = details["path"].(string)
+		}
 	}
+	require.Contains(t, []string{"p2p", "derp"}, connectionPath)
 
 	var correlatedTrace database.McpTraceRequest
 	require.Eventually(t, func() bool {
