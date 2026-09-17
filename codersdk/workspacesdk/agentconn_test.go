@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/netip"
@@ -158,6 +159,54 @@ func TestAgentConnRejectsCrossAgentRedirects(t *testing.T) {
 			require.False(t, victimHit.Load())
 		})
 	}
+}
+
+func TestAgentConnTraceRedactsRequestQuery(t *testing.T) {
+	t.Parallel()
+
+	derpMap, _ := tailnettest.RunDERPAndSTUN(t)
+	ctx := testutil.Context(t, testutil.WaitMedium)
+	clientID := uuid.New()
+	agentID := uuid.New()
+	clientConn, _ := newTailnetConn(t, derpMap, clientID, "client")
+	agentConn, agentIP := newTailnetConn(t, derpMap, agentID, "agent")
+	stitchTailnet(t, map[uuid.UUID]*tailnet.Conn{
+		clientID: clientConn,
+		agentID:  agentConn,
+	})
+
+	router := http.NewServeMux()
+	router.HandleFunc("/api/v0/read-file", func(rw http.ResponseWriter, _ *http.Request) {
+		rw.Header().Set("Content-Type", "text/plain")
+		_, _ = rw.Write([]byte("ok"))
+	})
+	serveTailnetHTTP(t, agentConn, router)
+	require.True(t, clientConn.AwaitReachable(ctx, agentIP))
+
+	var tracedRoute atomic.Value
+	var tcpDialFinished atomic.Bool
+	conn := workspacesdk.NewAgentConn(clientConn, workspacesdk.AgentConnOptions{
+		AgentID: agentID,
+		Trace: func(_ context.Context, event string, details map[string]any) {
+			switch event {
+			case "agent_api_request_started":
+				if route, ok := details["route"].(string); ok {
+					tracedRoute.Store(route)
+				}
+			case "agent_tcp_dial_finished":
+				tcpDialFinished.Store(true)
+			}
+		},
+	})
+
+	reader, _, err := conn.ReadFile(ctx, "/home/coder/private/project-secret.txt", 0, 16)
+	require.NoError(t, err)
+	_, err = io.ReadAll(reader)
+	require.NoError(t, err)
+	require.NoError(t, reader.Close())
+
+	require.Equal(t, "/api/v0/read-file", tracedRoute.Load())
+	require.True(t, tcpDialFinished.Load())
 }
 
 // TestAgentConnAppHTTPClientRefusesRedirects verifies the app HTTP client does

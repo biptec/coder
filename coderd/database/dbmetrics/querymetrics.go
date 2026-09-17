@@ -2457,6 +2457,22 @@ func (m queryMetricsStore) GetMCPServerUserTokensByUserID(ctx context.Context, u
 	return r0, r1
 }
 
+func (m queryMetricsStore) GetMCPTraceAgentEventsByAgentIDAfter(ctx context.Context, arg database.GetMCPTraceAgentEventsByAgentIDAfterParams) ([]database.McpTraceAgentEvent, error) {
+	start := time.Now()
+	r0, r1 := m.s.GetMCPTraceAgentEventsByAgentIDAfter(ctx, arg)
+	m.queryLatencies.WithLabelValues("GetMCPTraceAgentEventsByAgentIDAfter").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetMCPTraceAgentEventsByAgentIDAfter").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) GetMCPTraceAgentEventsByRequestID(ctx context.Context, requestID uuid.UUID) ([]database.McpTraceAgentEvent, error) {
+	start := time.Now()
+	r0, r1 := m.s.GetMCPTraceAgentEventsByRequestID(ctx, requestID)
+	m.queryLatencies.WithLabelValues("GetMCPTraceAgentEventsByRequestID").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetMCPTraceAgentEventsByRequestID").Inc()
+	return r0, r1
+}
+
 func (m queryMetricsStore) GetMCPTraceConnectionByRequestID(ctx context.Context, requestID uuid.UUID) (database.McpTraceConnection, error) {
 	start := time.Now()
 	r0, r1 := m.s.GetMCPTraceConnectionByRequestID(ctx, requestID)
@@ -4367,6 +4383,14 @@ func (m queryMetricsStore) InsertMCPServerConfig(ctx context.Context, arg databa
 	m.queryLatencies.WithLabelValues("InsertMCPServerConfig").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "InsertMCPServerConfig").Inc()
 	return r0, r1
+}
+
+func (m queryMetricsStore) InsertMCPTraceAgentEvent(ctx context.Context, arg database.InsertMCPTraceAgentEventParams) error {
+	start := time.Now()
+	r0 := m.s.InsertMCPTraceAgentEvent(ctx, arg)
+	m.queryLatencies.WithLabelValues("InsertMCPTraceAgentEvent").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "InsertMCPTraceAgentEvent").Inc()
+	return r0
 }
 
 func (m queryMetricsStore) InsertMCPTraceConnection(ctx context.Context, arg database.InsertMCPTraceConnectionParams) error {

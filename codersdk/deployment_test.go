@@ -651,6 +651,44 @@ func TestDeploymentValues_MCPTrace(t *testing.T) {
 	})
 }
 
+func TestDeploymentValues_ServerTailnetAgentIdleTimeout(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Defaults", func(t *testing.T) {
+		t.Parallel()
+		dv := &codersdk.DeploymentValues{}
+		opts := dv.Options()
+		require.NoError(t, opts.SetDefaults())
+		require.Equal(t, 30*time.Minute, dv.ServerTailnetAgentIdleTimeout.Value())
+	})
+
+	t.Run("Environment", func(t *testing.T) {
+		t.Parallel()
+		dv := &codersdk.DeploymentValues{}
+		opts := dv.Options()
+		require.NoError(t, opts.SetDefaults())
+		require.NoError(t, opts.ParseEnv([]serpent.EnvVar{{
+			Name:  "CODER_SERVER_TAILNET_AGENT_IDLE_TIMEOUT",
+			Value: "120m",
+		}}))
+		require.Equal(t, 120*time.Minute, dv.ServerTailnetAgentIdleTimeout.Value())
+	})
+
+	t.Run("RejectNonPositive", func(t *testing.T) {
+		t.Parallel()
+		for _, value := range []string{"0s", "-1m"} {
+			dv := &codersdk.DeploymentValues{}
+			opts := dv.Options()
+			require.NoError(t, opts.SetDefaults())
+			err := opts.ParseEnv([]serpent.EnvVar{{
+				Name:  "CODER_SERVER_TAILNET_AGENT_IDLE_TIMEOUT",
+				Value: value,
+			}})
+			require.ErrorContains(t, err, "server tailnet agent idle timeout must be greater than zero")
+		}
+	})
+}
+
 func TestAIGatewayCompatibilityAliases(t *testing.T) {
 	t.Parallel()
 

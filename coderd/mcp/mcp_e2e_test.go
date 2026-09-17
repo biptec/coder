@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	mcpclient "github.com/mark3labs/mcp-go/client"
@@ -301,7 +302,9 @@ func TestMCPHTTP_E2E_UnauthenticatedAccess(t *testing.T) {
 func TestMCPHTTP_E2E_ToolWithWorkspace(t *testing.T) {
 	t.Parallel()
 
-	coderClient, closer, api := coderdtest.NewWithAPI(t, nil)
+	deploymentValues := coderdtest.DeploymentValues(t)
+	require.NoError(t, deploymentValues.MCPTraceEnabled.Set("true"))
+	coderClient, closer, api := coderdtest.NewWithAPI(t, &coderdtest.Options{DeploymentValues: deploymentValues})
 	defer closer.Close()
 
 	user := coderdtest.CreateFirstUser(t, coderClient)
@@ -348,6 +351,7 @@ func TestMCPHTTP_E2E_ToolWithWorkspace(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	traceAfter := time.Now().UTC().Add(-time.Second)
 	toolResult, err := mcpClient.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
 			Name: toolsdk.ToolNameWorkspaceLS,
@@ -369,6 +373,65 @@ func TestMCPHTTP_E2E_ToolWithWorkspace(t *testing.T) {
 		Path:  filePath,
 		IsDir: false,
 	})
+
+	var agentEvents []database.McpTraceAgentEvent
+	systemCtx := dbauthz.AsSystemRestricted(ctx)
+	var correlatedTraceID uuid.UUID
+	require.Eventually(t, func() bool {
+		var queryErr error
+		agentEvents, queryErr = api.Database.GetMCPTraceAgentEventsByAgentIDAfter(systemCtx, database.GetMCPTraceAgentEventsByAgentIDAfterParams{
+			AgentID:   r.Agents[0].ID,
+			AfterTime: traceAfter,
+		})
+		if queryErr != nil {
+			return false
+		}
+		for _, event := range agentEvents {
+			if event.Event == "agent_conn_acquire_started" &&
+				event.WorkspaceID.Valid &&
+				event.WorkspaceID.UUID == r.Workspace.ID {
+				correlatedTraceID = event.RequestID
+				return correlatedTraceID != uuid.Nil
+			}
+		}
+		return false
+	}, testutil.WaitShort, testutil.IntervalFast)
+	require.NotEqual(t, uuid.Nil, correlatedTraceID)
+
+	var requestEvents []database.McpTraceAgentEvent
+	require.Eventually(t, func() bool {
+		var queryErr error
+		requestEvents, queryErr = api.Database.GetMCPTraceAgentEventsByRequestID(systemCtx, correlatedTraceID)
+		if queryErr != nil {
+			return false
+		}
+		found := map[string]bool{}
+		for _, event := range requestEvents {
+			found[event.Event] = true
+		}
+		return found["agent_conn_acquire_started"] &&
+			found["ensure_agent"] &&
+			found["ticket_acquired"] &&
+			found["await_reachable_finished"] &&
+			found["agent_conn_acquired"] &&
+			found["agent_tcp_dial_finished"] &&
+			found["agent_api_request_finished"] &&
+			found["ticket_released"]
+	}, testutil.WaitShort, testutil.IntervalFast)
+	for _, event := range requestEvents {
+		require.True(t, event.WorkspaceID.Valid, "event %q lost workspace correlation: details=%s", event.Event, event.Details)
+		require.Equal(t, r.Workspace.ID, event.WorkspaceID.UUID)
+		require.Equal(t, r.Agents[0].ID, event.AgentID)
+	}
+
+	var correlatedTrace database.McpTraceRequest
+	require.Eventually(t, func() bool {
+		var queryErr error
+		correlatedTrace, queryErr = api.Database.GetMCPTraceRequestByID(systemCtx, correlatedTraceID)
+		return queryErr == nil && correlatedTrace.FinishedAt.Valid
+	}, testutil.WaitShort, testutil.IntervalFast)
+	require.Equal(t, toolsdk.ToolNameWorkspaceLS, correlatedTrace.Tool)
+	require.Equal(t, "completed", correlatedTrace.Status)
 }
 
 func TestMCPHTTP_E2E_ErrorHandling(t *testing.T) {

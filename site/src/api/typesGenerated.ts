@@ -4394,6 +4394,7 @@ export interface DeploymentValues {
 	readonly workspace_command_activity_history_limit?: number;
 	readonly mcp_trace_enabled?: boolean;
 	readonly mcp_trace_retention_hours?: number;
+	readonly server_tailnet_agent_idle_timeout?: number;
 	readonly workspace_volume_copy_enabled?: boolean;
 	readonly workspace_volume_copy_namespace?: string;
 	readonly workspace_volume_copy_image?: string;

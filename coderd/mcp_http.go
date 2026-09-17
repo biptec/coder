@@ -80,6 +80,7 @@ func (api *API) mcpHTTPHandler() http.Handler {
 			if !api.Authorize(r, policy.ActionSSH, workspace) {
 				return nil, nil, xerrors.New("unauthorized: you do not have SSH access to this workspace")
 			}
+			ctx = withMCPAgentTraceWorkspace(ctx, workspace.ID)
 			conn, release, err := api.agentProvider.AgentConn(ctx, agentID)
 			if err != nil {
 				return nil, nil, err

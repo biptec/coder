@@ -625,6 +625,8 @@ type sqlcQuerier interface {
 	GetMCPServerConfigsByIDs(ctx context.Context, ids []uuid.UUID) ([]MCPServerConfig, error)
 	GetMCPServerUserToken(ctx context.Context, arg GetMCPServerUserTokenParams) (MCPServerUserToken, error)
 	GetMCPServerUserTokensByUserID(ctx context.Context, userID uuid.UUID) ([]MCPServerUserToken, error)
+	GetMCPTraceAgentEventsByAgentIDAfter(ctx context.Context, arg GetMCPTraceAgentEventsByAgentIDAfterParams) ([]McpTraceAgentEvent, error)
+	GetMCPTraceAgentEventsByRequestID(ctx context.Context, requestID uuid.UUID) ([]McpTraceAgentEvent, error)
 	GetMCPTraceConnectionByRequestID(ctx context.Context, requestID uuid.UUID) (McpTraceConnection, error)
 	GetMCPTraceRequestByID(ctx context.Context, id uuid.UUID) (McpTraceRequest, error)
 	GetNotificationMessagesByStatus(ctx context.Context, arg GetNotificationMessagesByStatusParams) ([]NotificationMessage, error)
@@ -1078,6 +1080,7 @@ type sqlcQuerier interface {
 	InsertInboxNotification(ctx context.Context, arg InsertInboxNotificationParams) (InboxNotification, error)
 	InsertLicense(ctx context.Context, arg InsertLicenseParams) (License, error)
 	InsertMCPServerConfig(ctx context.Context, arg InsertMCPServerConfigParams) (MCPServerConfig, error)
+	InsertMCPTraceAgentEvent(ctx context.Context, arg InsertMCPTraceAgentEventParams) error
 	InsertMCPTraceConnection(ctx context.Context, arg InsertMCPTraceConnectionParams) error
 	InsertMCPTraceRequest(ctx context.Context, arg InsertMCPTraceRequestParams) error
 	InsertMemoryResourceMonitor(ctx context.Context, arg InsertMemoryResourceMonitorParams) (WorkspaceAgentMemoryResourceMonitor, error)

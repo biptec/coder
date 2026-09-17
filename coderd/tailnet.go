@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -58,6 +59,7 @@ func NewServerTailnet(
 	derpForceWebSockets bool,
 	blockEndpoints bool,
 	traceProvider trace.TracerProvider,
+	agentIdleTimeout time.Duration,
 ) (*ServerTailnet, error) {
 	logger = logger.Named("servertailnet")
 	conn, err := tailnet.NewConn(&tailnet.Options{
@@ -93,12 +95,15 @@ func NewServerTailnet(
 	}
 
 	tracer := traceProvider.Tracer(tracing.TracerName)
+	if agentIdleTimeout <= 0 {
+		agentIdleTimeout = codersdk.DefaultServerTailnetAgentIdleTimeout
+	}
 
 	controller := tailnet.NewController(logger, dialer)
 	// it's important to set the DERPRegionDialer above _before_ we set the DERP map so that if
 	// there is an embedded relay, we use the local in-memory dialer.
 	controller.DERPCtrl = tailnet.NewBasicDERPController(logger, nil, conn)
-	coordCtrl := NewMultiAgentController(serverCtx, logger, tracer, conn)
+	coordCtrl := NewMultiAgentController(serverCtx, logger, tracer, conn, agentIdleTimeout)
 	controller.CoordCtrl = coordCtrl
 	// TODO: support controller.TelemetryCtrl
 
@@ -163,6 +168,47 @@ func (s *ServerTailnet) Describe(descs chan<- *prometheus.Desc) {
 func (s *ServerTailnet) Collect(metrics chan<- prometheus.Metric) {
 	s.connsPerAgent.Collect(metrics)
 	s.totalConns.Collect(metrics)
+}
+
+func (s *ServerTailnet) setMCPTraceRecorder(recorder *mcpTraceRecorder) {
+	if s == nil || s.coordCtrl == nil {
+		return
+	}
+	s.coordCtrl.setMCPTraceRecorder(recorder)
+}
+
+func (s *ServerTailnet) agentConnectionPath(agentID uuid.UUID) string {
+	if s == nil || s.conn == nil {
+		return "unknown"
+	}
+	status := s.conn.Status()
+	if status == nil {
+		return "unknown"
+	}
+	target := tailnet.TailscaleServicePrefix.AddrFromUUID(agentID)
+	for _, peer := range status.Peer {
+		if peer == nil {
+			continue
+		}
+		matched := false
+		for _, addr := range peer.TailscaleIPs {
+			if addr == target {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		if peer.CurAddr != "" {
+			return "p2p"
+		}
+		if peer.Relay != "" {
+			return "derp"
+		}
+		return "unknown"
+	}
+	return "unknown"
 }
 
 type ServerTailnet struct {
@@ -288,28 +334,55 @@ func (s *ServerTailnet) AgentConn(ctx context.Context, agentID uuid.UUID) (works
 		ret  func()
 	)
 
-	s.logger.Debug(s.ctx, "acquiring agent", slog.F("agent_id", agentID))
-	err := s.coordCtrl.ensureAgent(agentID)
+	s.logger.Debug(ctx, "acquiring agent", slog.F("agent_id", agentID))
+	s.coordCtrl.traceAgentEvent(ctx, agentID, "agent_conn_acquire_started", nil)
+	err := s.coordCtrl.ensureAgent(ctx, agentID)
 	if err != nil {
+		s.coordCtrl.traceAgentEvent(ctx, agentID, "agent_conn_acquire_failed", map[string]any{
+			"stage": "ensure_agent",
+			"error": err.Error(),
+		})
 		return nil, nil, xerrors.Errorf("ensure agent: %w", err)
 	}
-	ret = s.coordCtrl.acquireTicket(agentID)
+	ret = s.coordCtrl.acquireTicket(ctx, agentID)
 
 	conn = workspacesdk.NewAgentConn(s.conn, workspacesdk.AgentConnOptions{
 		AgentID:   agentID,
 		CloseFunc: func() error { return workspacesdk.ErrSkipClose },
 		Logger:    s.logger,
+		Trace: func(_ context.Context, event string, details map[string]any) {
+			// The AgentConn wrapper is created per acquisition. Capture the
+			// acquisition context here so lower-level HTTP transports cannot lose
+			// MCP workspace correlation when net/http derives its own dial context.
+			s.coordCtrl.traceAgentEvent(ctx, agentID, event, details)
+		},
 	})
 
 	// Since we now have an open conn, be careful to close it if we error
 	// without returning it to the user.
 
+	waitStarted := time.Now()
+	s.coordCtrl.traceAgentEvent(ctx, agentID, "await_reachable_started", nil)
 	reachable := conn.AwaitReachable(ctx)
+	details := map[string]any{
+		"duration_ms": time.Since(waitStarted).Milliseconds(),
+		"reachable":   reachable,
+	}
+	if ctx.Err() != nil {
+		details["context_error"] = ctx.Err().Error()
+	}
+	s.coordCtrl.traceAgentEvent(ctx, agentID, "await_reachable_finished", details)
 	if !reachable {
 		ret()
+		s.coordCtrl.traceAgentEvent(ctx, agentID, "agent_conn_acquire_failed", map[string]any{
+			"stage": "await_reachable",
+		})
 		return nil, nil, xerrors.New("agent is unreachable")
 	}
 
+	s.coordCtrl.traceAgentEvent(ctx, agentID, "agent_conn_acquired", map[string]any{
+		"path": s.agentConnectionPath(agentID),
+	})
 	return conn, ret, nil
 }
 
@@ -374,20 +447,61 @@ func (c *instrumentedConn) Close() error {
 }
 
 // MultiAgentController is a tailnet.CoordinationController for connecting to multiple workspace
-// agents.  It keeps track of connection times to the agents, and removes them on a timer if they
+// agents. It keeps track of connection times to the agents, and removes them on a timer if they
 // have no active connections and haven't been used in a while.
+type multiAgentConnectionState struct {
+	lastConnection time.Time
+	traceID        uuid.UUID
+	workspaceID    uuid.UUID
+}
+
+type tracingCloserWaiter struct {
+	inner tailnet.CloserWaiter
+	wait  chan error
+}
+
+func newTracingCloserWaiter(inner tailnet.CloserWaiter, onDone func(error)) tailnet.CloserWaiter {
+	traced := &tracingCloserWaiter{
+		inner: inner,
+		wait:  make(chan error, 1),
+	}
+	go func() {
+		err, ok := <-inner.Wait()
+		if !ok {
+			err = nil
+		}
+		if onDone != nil {
+			onDone(err)
+		}
+		traced.wait <- err
+		close(traced.wait)
+	}()
+	return traced
+}
+
+func (t *tracingCloserWaiter) Close(ctx context.Context) error {
+	return t.inner.Close(ctx)
+}
+
+func (t *tracingCloserWaiter) Wait() <-chan error {
+	return t.wait
+}
+
 type MultiAgentController struct {
 	*tailnet.BasicCoordinationController
 
 	logger slog.Logger
 	tracer trace.Tracer
 
+	traceRecorder atomic.Pointer[mcpTraceRecorder]
+	idleTimeout   time.Duration
+
 	mu sync.Mutex
-	// connectionTimes is a map of agents the server wants to keep a connection to. It
-	// contains the last time the agent was connected to.
-	connectionTimes map[uuid.UUID]time.Time
+	// connectionTimes is a map of agents the server wants to keep a connection to.
+	// It contains the last use time plus the latest MCP trace correlation, when available.
+	connectionTimes map[uuid.UUID]multiAgentConnectionState
 	// tickets is a map of destinations to a set of connection tickets, representing open
-	// connections to the destination
+	// connections to the destination.
 	tickets      map[uuid.UUID]map[uuid.UUID]struct{}
 	coordination *tailnet.BasicCoordination
 
@@ -395,17 +509,69 @@ type MultiAgentController struct {
 	expireOldAgentsDone chan struct{}
 }
 
+func (m *MultiAgentController) setMCPTraceRecorder(recorder *mcpTraceRecorder) {
+	m.traceRecorder.Store(recorder)
+}
+
+func (m *MultiAgentController) traceAgentEvent(ctx context.Context, agentID uuid.UUID, event string, details any) {
+	recorder := m.traceRecorder.Load()
+	if recorder == nil {
+		return
+	}
+	recorder.AgentEvent(ctx, agentID, event, details)
+}
+
+func (m *MultiAgentController) traceAgentEventForState(state multiAgentConnectionState, agentID uuid.UUID, event string, details any) {
+	recorder := m.traceRecorder.Load()
+	if recorder == nil || state.traceID == uuid.Nil {
+		return
+	}
+	recorder.AgentEventFor(state.traceID, state.workspaceID, agentID, event, details)
+}
+
+func (m *MultiAgentController) traceCoordinationDisconnected(err error) {
+	reason := "closed"
+	details := map[string]any{}
+	switch {
+	case err == nil:
+	case errors.Is(err, io.EOF):
+		reason = "eof"
+	case errors.Is(err, context.Canceled):
+		reason = "context_canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		reason = "deadline_exceeded"
+	default:
+		reason = "error"
+		details["error"] = err.Error()
+	}
+	details["reason"] = reason
+
+	m.mu.Lock()
+	states := make(map[uuid.UUID]multiAgentConnectionState, len(m.connectionTimes))
+	for agentID, state := range m.connectionTimes {
+		states[agentID] = state
+	}
+	m.mu.Unlock()
+
+	for agentID, state := range states {
+		m.traceAgentEventForState(state, agentID, "coordination_disconnected", details)
+	}
+}
+
 func (m *MultiAgentController) New(client tailnet.CoordinatorClient) tailnet.CloserWaiter {
 	b := m.BasicCoordinationController.NewCoordination(client)
-	// resync all destinations
+	// Resync all destinations after a coordination reconnect.
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.coordination = b
-	for agentID := range m.connectionTimes {
+	for agentID, state := range m.connectionTimes {
 		err := b.SendRequest(&proto.CoordinateRequest{
 			AddTunnel: &proto.CoordinateRequest_Tunnel{Id: agentID[:]},
 		})
 		if err != nil {
+			m.traceAgentEventForState(state, agentID, "coordination_resubscribe_failed", map[string]any{
+				"error": err.Error(),
+			})
 			m.logger.Error(context.Background(), "failed to re-add tunnel", slog.F("agent_id", agentID),
 				slog.Error(err))
 			b.SendErr(err)
@@ -413,19 +579,29 @@ func (m *MultiAgentController) New(client tailnet.CoordinatorClient) tailnet.Clo
 			m.coordination = nil
 			break
 		}
+		m.traceAgentEventForState(state, agentID, "coordination_resubscribed", map[string]any{
+			"ticket_count": len(m.tickets[agentID]),
+		})
 	}
-	return b
+	return newTracingCloserWaiter(b, m.traceCoordinationDisconnected)
 }
 
-func (m *MultiAgentController) ensureAgent(agentID uuid.UUID) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (m *MultiAgentController) ensureAgent(ctx context.Context, agentID uuid.UUID) error {
+	now := time.Now()
+	traceID, workspaceID := mcpAgentTraceMetadataFromContext(ctx)
 
-	_, ok := m.connectionTimes[agentID]
+	m.mu.Lock()
+	state, exists := m.connectionTimes[agentID]
+	previousLastConnection := state.lastConnection
+	state.traceID = traceID
+	state.workspaceID = workspaceID
+	ticketCountBefore := len(m.tickets[agentID])
+	addedTunnel := false
+	deferredTunnel := false
+
 	// If we don't have the agent, subscribe.
-	if !ok {
-		m.logger.Debug(context.Background(),
-			"subscribing to agent", slog.F("agent_id", agentID))
+	if !exists {
+		m.logger.Debug(ctx, "subscribing to agent", slog.F("agent_id", agentID))
 		if m.coordination != nil {
 			err := m.coordination.SendRequest(&proto.CoordinateRequest{
 				AddTunnel: &proto.CoordinateRequest_Tunnel{Id: agentID[:]},
@@ -435,35 +611,71 @@ func (m *MultiAgentController) ensureAgent(agentID uuid.UUID) error {
 				m.coordination.SendErr(err)
 				_ = m.coordination.CloseClient()
 				m.coordination = nil
+				m.mu.Unlock()
+				m.traceAgentEventForState(state, agentID, "add_tunnel_failed", map[string]any{
+					"error": err.Error(),
+				})
 				return err
 			}
+			addedTunnel = true
+		} else {
+			deferredTunnel = true
 		}
 		m.tickets[agentID] = map[uuid.UUID]struct{}{}
 	}
-	m.connectionTimes[agentID] = time.Now()
+	state.lastConnection = now
+	m.connectionTimes[agentID] = state
+	m.mu.Unlock()
+
+	details := map[string]any{
+		"already_subscribed":  exists,
+		"ticket_count_before": ticketCountBefore,
+	}
+	if !previousLastConnection.IsZero() {
+		details["previous_last_connection_age_ms"] = now.Sub(previousLastConnection).Milliseconds()
+	}
+	m.traceAgentEventForState(state, agentID, "ensure_agent", details)
+	if addedTunnel {
+		m.traceAgentEventForState(state, agentID, "add_tunnel", map[string]any{"reason": "first_use"})
+	}
+	if deferredTunnel {
+		m.traceAgentEventForState(state, agentID, "add_tunnel_deferred", map[string]any{"reason": "coordination_unavailable"})
+	}
 	return nil
 }
 
-func (m *MultiAgentController) acquireTicket(agentID uuid.UUID) (release func()) {
+func (m *MultiAgentController) acquireTicket(ctx context.Context, agentID uuid.UUID) (release func()) {
 	id := uuid.New()
+	traceID, workspaceID := mcpAgentTraceMetadataFromContext(ctx)
+
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	state := m.connectionTimes[agentID]
+	state.traceID = traceID
+	state.workspaceID = workspaceID
+	m.connectionTimes[agentID] = state
 	m.tickets[agentID][id] = struct{}{}
+	ticketCount := len(m.tickets[agentID])
+	m.mu.Unlock()
+
+	m.traceAgentEventForState(state, agentID, "ticket_acquired", map[string]any{
+		"ticket_count": ticketCount,
+	})
 
 	return func() {
 		m.mu.Lock()
-		defer m.mu.Unlock()
 		delete(m.tickets[agentID], id)
+		remaining := len(m.tickets[agentID])
+		m.mu.Unlock()
+		m.traceAgentEventForState(state, agentID, "ticket_released", map[string]any{
+			"ticket_count": remaining,
+		})
 	}
 }
 
 func (m *MultiAgentController) expireOldAgents(ctx context.Context) {
 	defer close(m.expireOldAgentsDone)
 	defer m.logger.Debug(context.Background(), "stopped expiring old agents")
-	const (
-		tick   = 5 * time.Minute
-		cutoff = 30 * time.Minute
-	)
+	const tick = 5 * time.Minute
 
 	ticker := time.NewTicker(tick)
 	defer ticker.Stop()
@@ -475,12 +687,11 @@ func (m *MultiAgentController) expireOldAgents(ctx context.Context) {
 		case <-ticker.C:
 		}
 
-		m.doExpireOldAgents(ctx, cutoff)
+		m.doExpireOldAgents(ctx, m.idleTimeout)
 	}
 }
 
 func (m *MultiAgentController) doExpireOldAgents(ctx context.Context, cutoff time.Duration) {
-	// TODO: add some attrs to this.
 	ctx, span := m.tracer.Start(ctx, tracing.FuncName())
 	defer span.End()
 
@@ -489,25 +700,44 @@ func (m *MultiAgentController) doExpireOldAgents(ctx context.Context, cutoff tim
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.logger.Debug(ctx, "pruning inactive agents", slog.F("agent_count", len(m.connectionTimes)))
-	for agentID, lastConnection := range m.connectionTimes {
+	m.logger.Debug(ctx, "pruning inactive agents", slog.F("agent_count", len(m.connectionTimes)), slog.F("cutoff", cutoff))
+	for agentID, state := range m.connectionTimes {
+		idleFor := time.Since(state.lastConnection)
+		ticketCount := len(m.tickets[agentID])
 		// If no one has connected since the cutoff and there are no active
 		// connections, remove the agent.
-		if time.Since(lastConnection) > cutoff && len(m.tickets[agentID]) == 0 {
+		if idleFor > cutoff && ticketCount == 0 {
+			m.traceAgentEventForState(state, agentID, "idle_timeout_expired", map[string]any{
+				"idle_ms":      idleFor.Milliseconds(),
+				"cutoff_ms":    cutoff.Milliseconds(),
+				"ticket_count": ticketCount,
+			})
 			if m.coordination != nil {
 				err := m.coordination.SendRequest(&proto.CoordinateRequest{
 					RemoveTunnel: &proto.CoordinateRequest_Tunnel{Id: agentID[:]},
 				})
 				if err != nil {
+					m.traceAgentEventForState(state, agentID, "remove_tunnel_failed", map[string]any{
+						"reason": "idle_timeout",
+						"error":  err.Error(),
+					})
 					m.logger.Debug(ctx, "unsubscribe expired agent", slog.Error(err), slog.F("agent_id", agentID))
 					m.coordination.SendErr(xerrors.Errorf("unsubscribe expired agent: %w", err))
-					// close the client because we do not want to do a graceful disconnect by
+					// Close the client because we do not want to do a graceful disconnect by
 					// closing the coordination.
 					_ = m.coordination.CloseClient()
 					m.coordination = nil
-					// Here we continue deleting any inactive agents: there is no point in
-					// re-establishing tunnels to expired agents when we eventually reconnect.
+					// Continue deleting inactive agents: there is no point in re-establishing
+					// tunnels to expired agents when we eventually reconnect.
+				} else {
+					m.traceAgentEventForState(state, agentID, "remove_tunnel", map[string]any{
+						"reason": "idle_timeout",
+					})
 				}
+			} else {
+				m.traceAgentEventForState(state, agentID, "remove_tunnel_deferred", map[string]any{
+					"reason": "coordination_unavailable",
+				})
 			}
 			deletedCount++
 			delete(m.connectionTimes, agentID)
@@ -524,7 +754,10 @@ func (m *MultiAgentController) Close() {
 	<-m.expireOldAgentsDone
 }
 
-func NewMultiAgentController(ctx context.Context, logger slog.Logger, tracer trace.Tracer, coordinatee tailnet.Coordinatee) *MultiAgentController {
+func NewMultiAgentController(ctx context.Context, logger slog.Logger, tracer trace.Tracer, coordinatee tailnet.Coordinatee, idleTimeout time.Duration) *MultiAgentController {
+	if idleTimeout <= 0 {
+		idleTimeout = codersdk.DefaultServerTailnetAgentIdleTimeout
+	}
 	m := &MultiAgentController{
 		BasicCoordinationController: &tailnet.BasicCoordinationController{
 			Logger:      logger,
@@ -535,7 +768,8 @@ func NewMultiAgentController(ctx context.Context, logger slog.Logger, tracer tra
 		},
 		logger:              logger,
 		tracer:              tracer,
-		connectionTimes:     make(map[uuid.UUID]time.Time),
+		idleTimeout:         idleTimeout,
+		connectionTimes:     make(map[uuid.UUID]multiAgentConnectionState),
 		tickets:             make(map[uuid.UUID]map[uuid.UUID]struct{}),
 		expireOldAgentsDone: make(chan struct{}),
 	}

@@ -137,3 +137,24 @@ WHERE target.id IN (
     ORDER BY candidate.received_at ASC
     LIMIT @limit_count
 );
+
+
+-- name: InsertMCPTraceAgentEvent :exec
+INSERT INTO mcp_trace_agent_events (
+    id, request_id, replica_id, workspace_id, agent_id, event, details, occurred_at
+) VALUES (
+    @id, @request_id, @replica_id, @workspace_id, @agent_id, @event, @details, @occurred_at
+);
+
+-- name: GetMCPTraceAgentEventsByRequestID :many
+SELECT *
+FROM mcp_trace_agent_events
+WHERE request_id = @request_id
+ORDER BY occurred_at ASC, id ASC;
+
+-- name: GetMCPTraceAgentEventsByAgentIDAfter :many
+SELECT *
+FROM mcp_trace_agent_events
+WHERE agent_id = @agent_id
+  AND occurred_at >= @after_time
+ORDER BY occurred_at ASC, id ASC;

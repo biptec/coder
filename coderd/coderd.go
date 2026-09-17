@@ -828,10 +828,12 @@ func New(options *Options) *API {
 		options.DeploymentValues.DERP.Config.ForceWebSockets.Value(),
 		options.DeploymentValues.DERP.Config.BlockDirect.Value(),
 		api.TracerProvider,
+		options.DeploymentValues.ServerTailnetAgentIdleTimeout.Value(),
 	)
 	if err != nil {
 		panic("failed to setup server tailnet: " + err.Error())
 	}
+	stn.setMCPTraceRecorder(api.mcpTrace)
 	api.agentProvider = stn
 
 	{ // Chat daemon and git sync worker initialization.
