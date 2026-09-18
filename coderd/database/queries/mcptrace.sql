@@ -1,10 +1,10 @@
 -- name: InsertMCPTraceRequest :exec
 INSERT INTO mcp_trace_requests (
     id, replica_id, coder_request_id, user_id, session_id,
-    http_method, http_protocol, received_at
+    http_method, http_protocol, http_connection_id, received_at
 ) VALUES (
     @id, @replica_id, @coder_request_id, @user_id, @session_id,
-    @http_method, @http_protocol, @received_at
+    @http_method, @http_protocol, @http_connection_id, @received_at
 );
 
 -- name: UpdateMCPTraceRequestCoderRequestID :exec
@@ -158,3 +158,26 @@ FROM mcp_trace_agent_events
 WHERE agent_id = @agent_id
   AND occurred_at >= @after_time
 ORDER BY occurred_at ASC, id ASC;
+
+-- name: InsertMCPTraceHTTPConnectionEvent :exec
+INSERT INTO mcp_trace_http_connection_events (
+    id, connection_id, replica_id, state, occurred_at
+) VALUES (
+    @id, @connection_id, @replica_id, @state, @occurred_at
+);
+
+-- name: GetMCPTraceHTTPConnectionEventsByConnectionID :many
+SELECT *
+FROM mcp_trace_http_connection_events
+WHERE connection_id = @connection_id
+ORDER BY occurred_at ASC, id ASC;
+
+-- name: DeleteOldMCPTraceHTTPConnectionEvents :execrows
+DELETE FROM mcp_trace_http_connection_events AS target
+WHERE target.id IN (
+    SELECT candidate.id
+    FROM mcp_trace_http_connection_events AS candidate
+    WHERE candidate.occurred_at < @before_time
+    ORDER BY candidate.occurred_at ASC, candidate.id ASC
+    LIMIT @limit_count
+);

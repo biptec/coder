@@ -793,6 +793,14 @@ func (m queryMetricsStore) DeleteOldConnectionLogs(ctx context.Context, arg data
 	return r0, r1
 }
 
+func (m queryMetricsStore) DeleteOldMCPTraceHTTPConnectionEvents(ctx context.Context, arg database.DeleteOldMCPTraceHTTPConnectionEventsParams) (int64, error) {
+	start := time.Now()
+	r0, r1 := m.s.DeleteOldMCPTraceHTTPConnectionEvents(ctx, arg)
+	m.queryLatencies.WithLabelValues("DeleteOldMCPTraceHTTPConnectionEvents").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "DeleteOldMCPTraceHTTPConnectionEvents").Inc()
+	return r0, r1
+}
+
 func (m queryMetricsStore) DeleteOldMCPTraceRequests(ctx context.Context, arg database.DeleteOldMCPTraceRequestsParams) (int64, error) {
 	start := time.Now()
 	r0, r1 := m.s.DeleteOldMCPTraceRequests(ctx, arg)
@@ -2478,6 +2486,14 @@ func (m queryMetricsStore) GetMCPTraceConnectionByRequestID(ctx context.Context,
 	r0, r1 := m.s.GetMCPTraceConnectionByRequestID(ctx, requestID)
 	m.queryLatencies.WithLabelValues("GetMCPTraceConnectionByRequestID").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetMCPTraceConnectionByRequestID").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) GetMCPTraceHTTPConnectionEventsByConnectionID(ctx context.Context, connectionID uuid.UUID) ([]database.McpTraceHttpConnectionEvent, error) {
+	start := time.Now()
+	r0, r1 := m.s.GetMCPTraceHTTPConnectionEventsByConnectionID(ctx, connectionID)
+	m.queryLatencies.WithLabelValues("GetMCPTraceHTTPConnectionEventsByConnectionID").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetMCPTraceHTTPConnectionEventsByConnectionID").Inc()
 	return r0, r1
 }
 
@@ -4398,6 +4414,14 @@ func (m queryMetricsStore) InsertMCPTraceConnection(ctx context.Context, arg dat
 	r0 := m.s.InsertMCPTraceConnection(ctx, arg)
 	m.queryLatencies.WithLabelValues("InsertMCPTraceConnection").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "InsertMCPTraceConnection").Inc()
+	return r0
+}
+
+func (m queryMetricsStore) InsertMCPTraceHTTPConnectionEvent(ctx context.Context, arg database.InsertMCPTraceHTTPConnectionEventParams) error {
+	start := time.Now()
+	r0 := m.s.InsertMCPTraceHTTPConnectionEvent(ctx, arg)
+	m.queryLatencies.WithLabelValues("InsertMCPTraceHTTPConnectionEvent").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "InsertMCPTraceHTTPConnectionEvent").Inc()
 	return r0
 }
 

@@ -2425,6 +2425,10 @@ func (q *querier) DeleteOldConnectionLogs(ctx context.Context, arg database.Dele
 	return q.db.DeleteOldConnectionLogs(ctx, arg)
 }
 
+func (q *querier) DeleteOldMCPTraceHTTPConnectionEvents(ctx context.Context, arg database.DeleteOldMCPTraceHTTPConnectionEventsParams) (int64, error) {
+	panic("not implemented")
+}
+
 func (q *querier) DeleteOldMCPTraceRequests(ctx context.Context, arg database.DeleteOldMCPTraceRequestsParams) (int64, error) {
 	if err := q.authorizeContext(ctx, policy.ActionDelete, rbac.ResourceSystem); err != nil {
 		return 0, err
@@ -4155,6 +4159,10 @@ func (q *querier) GetMCPTraceConnectionByRequestID(ctx context.Context, requestI
 		return database.McpTraceConnection{}, err
 	}
 	return q.db.GetMCPTraceConnectionByRequestID(ctx, requestID)
+}
+
+func (q *querier) GetMCPTraceHTTPConnectionEventsByConnectionID(ctx context.Context, connectionID uuid.UUID) ([]database.McpTraceHttpConnectionEvent, error) {
+	panic("not implemented")
 }
 
 func (q *querier) GetMCPTraceRequestByID(ctx context.Context, id uuid.UUID) (database.McpTraceRequest, error) {
@@ -6283,6 +6291,10 @@ func (q *querier) InsertMCPTraceConnection(ctx context.Context, arg database.Ins
 		return err
 	}
 	return q.db.InsertMCPTraceConnection(ctx, arg)
+}
+
+func (q *querier) InsertMCPTraceHTTPConnectionEvent(ctx context.Context, arg database.InsertMCPTraceHTTPConnectionEventParams) error {
+	panic("not implemented")
 }
 
 func (q *querier) InsertMCPTraceRequest(ctx context.Context, arg database.InsertMCPTraceRequestParams) error {

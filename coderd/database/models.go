@@ -5300,6 +5300,14 @@ type McpTraceConnection struct {
 	CloseReason  string        `db:"close_reason" json:"close_reason"`
 }
 
+type McpTraceHttpConnectionEvent struct {
+	ID           uuid.UUID `db:"id" json:"id"`
+	ConnectionID uuid.UUID `db:"connection_id" json:"connection_id"`
+	ReplicaID    uuid.UUID `db:"replica_id" json:"replica_id"`
+	State        string    `db:"state" json:"state"`
+	OccurredAt   time.Time `db:"occurred_at" json:"occurred_at"`
+}
+
 type McpTraceRequest struct {
 	ID                    uuid.UUID     `db:"id" json:"id"`
 	ReplicaID             uuid.UUID     `db:"replica_id" json:"replica_id"`
@@ -5331,6 +5339,7 @@ type McpTraceRequest struct {
 	SessionRegisteredAt   sql.NullTime  `db:"session_registered_at" json:"session_registered_at"`
 	SessionUnregisteredAt sql.NullTime  `db:"session_unregistered_at" json:"session_unregistered_at"`
 	FinishedAt            sql.NullTime  `db:"finished_at" json:"finished_at"`
+	HttpConnectionID      uuid.NullUUID `db:"http_connection_id" json:"http_connection_id"`
 }
 
 type NotificationMessage struct {
