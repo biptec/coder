@@ -187,23 +187,24 @@ func (r *mcpTraceRecorder) httpConnState(conn net.Conn, state http.ConnState) {
 	}
 }
 
-func (r *mcpTraceRecorder) httpConnectionIDForRequest(ctx context.Context, traceID uuid.UUID) uuid.NullUUID {
+func (r *mcpTraceRecorder) httpConnectionForRequest(ctx context.Context, traceID uuid.UUID) (connectionID uuid.UUID, firstMCPRequest bool, acceptedAt, activeAt time.Time) {
 	meta, _ := ctx.Value(mcpTraceHTTPConnectionContextKey{}).(*mcpTraceHTTPConnection)
 	if meta == nil || traceID == uuid.Nil {
-		return uuid.NullUUID{}
+		return uuid.Nil, false, time.Time{}, time.Time{}
 	}
 
 	now := time.Now().UTC()
 	meta.mu.Lock()
-	firstMCPRequest := !meta.traced
+	firstMCPRequest = !meta.traced
 	meta.traced = true
 	meta.lastTraceID = traceID
-	connectionID := meta.id
+	connectionID = meta.id
 	conn := meta.conn
-	acceptedAt := meta.acceptedAt
+	acceptedAt = meta.acceptedAt
 	if firstMCPRequest {
 		meta.lastState = http.StateActive
 		meta.lastStateAt = now
+		activeAt = now
 	}
 	meta.mu.Unlock()
 
@@ -211,25 +212,30 @@ func (r *mcpTraceRecorder) httpConnectionIDForRequest(ctx context.Context, trace
 		r.httpConnectionsMu.Lock()
 		r.httpConnections[conn] = meta
 		r.httpConnectionsMu.Unlock()
-		r.httpConnectionEventAt(traceID, connectionID, "new", acceptedAt)
-		r.httpConnectionEventAt(traceID, connectionID, "active", now)
 	}
 
-	return uuid.NullUUID{UUID: connectionID, Valid: true}
+	return connectionID, firstMCPRequest, acceptedAt, activeAt
 }
 
 func (r *mcpTraceRecorder) httpConnectionEventAt(traceID, connectionID uuid.UUID, state string, occurredAt time.Time) {
 	if r == nil || traceID == uuid.Nil || connectionID == uuid.Nil || state == "" {
 		return
 	}
+	details, err := json.Marshal(map[string]string{"connection_id": connectionID.String()})
+	if err != nil {
+		return
+	}
 	replicaID := r.replicaID
 	r.enqueue(traceID, "http_connection_"+state, func(writeCtx context.Context) error {
-		return r.db.InsertMCPTraceHTTPConnectionEvent(writeCtx, database.InsertMCPTraceHTTPConnectionEventParams{
-			ID:           uuid.New(),
-			ConnectionID: connectionID,
-			ReplicaID:    replicaID,
-			State:        state,
-			OccurredAt:   occurredAt,
+		return r.db.InsertMCPTraceAgentEvent(writeCtx, database.InsertMCPTraceAgentEventParams{
+			ID:          uuid.New(),
+			RequestID:   traceID,
+			ReplicaID:   replicaID,
+			WorkspaceID: uuid.NullUUID{},
+			AgentID:     uuid.Nil,
+			Event:       "http_connection_" + state,
+			Details:     string(details),
+			OccurredAt:  occurredAt,
 		})
 	})
 }
@@ -362,19 +368,18 @@ func (r *mcpTraceRecorder) begin(req *http.Request) (uuid.UUID, bool) {
 	protocol := req.Proto
 	sessionID := req.Header.Get("Mcp-Session-Id")
 	replicaID := r.replicaID
-	httpConnectionID := r.httpConnectionIDForRequest(req.Context(), traceID)
+	connectionID, firstMCPRequest, acceptedAt, activeAt := r.httpConnectionForRequest(req.Context(), traceID)
 
 	r.enqueue(traceID, "http_received", func(ctx context.Context) error {
 		if err := r.db.InsertMCPTraceRequest(ctx, database.InsertMCPTraceRequestParams{
-			ID:               traceID,
-			ReplicaID:        replicaID,
-			CoderRequestID:   uuid.NullUUID{UUID: requestID, Valid: hasRequestID},
-			UserID:           uuid.NullUUID{},
-			SessionID:        sessionID,
-			HttpMethod:       method,
-			HttpProtocol:     protocol,
-			HttpConnectionID: httpConnectionID,
-			ReceivedAt:       now,
+			ID:             traceID,
+			ReplicaID:      replicaID,
+			CoderRequestID: uuid.NullUUID{UUID: requestID, Valid: hasRequestID},
+			UserID:         uuid.NullUUID{},
+			SessionID:      sessionID,
+			HttpMethod:     method,
+			HttpProtocol:   protocol,
+			ReceivedAt:     now,
 		}); err != nil {
 			return err
 		}
@@ -391,6 +396,13 @@ func (r *mcpTraceRecorder) begin(req *http.Request) (uuid.UUID, bool) {
 			OpenedAt:     now,
 		})
 	})
+	if connectionID != uuid.Nil {
+		r.httpConnectionEventAt(traceID, connectionID, "request", now)
+		if firstMCPRequest {
+			r.httpConnectionEventAt(traceID, connectionID, "new", acceptedAt)
+			r.httpConnectionEventAt(traceID, connectionID, "active", activeAt)
+		}
+	}
 	return traceID, true
 }
 

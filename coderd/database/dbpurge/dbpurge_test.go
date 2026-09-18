@@ -77,15 +77,6 @@ func TestMetrics(t *testing.T) {
 		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true})
 		user := dbgen.User(t, db, database.User{})
 
-		oldMCPHTTPConnectionID := uuid.New()
-		require.NoError(t, db.InsertMCPTraceHTTPConnectionEvent(ctx, database.InsertMCPTraceHTTPConnectionEventParams{
-			ID:           uuid.New(),
-			ConnectionID: oldMCPHTTPConnectionID,
-			ReplicaID:    uuid.New(),
-			State:        "closed",
-			OccurredAt:   now.Add(-25 * time.Hour),
-		}))
-
 		oldExpiredKey, _ := dbgen.APIKey(t, db, database.APIKey{
 			UserID:    user.ID,
 			ExpiresAt: now.Add(-8 * 24 * time.Hour), // Expired 8 days ago
@@ -100,7 +91,6 @@ func TestMetrics(t *testing.T) {
 			Retention: codersdk.RetentionConfig{
 				APIKeys: serpent.Duration(7 * 24 * time.Hour), // 7 days retention
 			},
-			MCPTraceRetentionHours: serpent.Int64(24),
 		}, reg, dbpurge.WithClock(clk))
 		defer closer.Close()
 		testutil.TryReceive(ctx, t, done)
@@ -133,14 +123,6 @@ func TestMetrics(t *testing.T) {
 			"record_type": "connection_logs",
 		})
 		require.GreaterOrEqual(t, connectionLogs, 0)
-
-		mcpHTTPConnectionEvents := promhelp.CounterValue(t, reg, "coderd_dbpurge_records_purged_total", prometheus.Labels{
-			"record_type": "mcp_trace_http_connection_events",
-		})
-		require.Greater(t, mcpHTTPConnectionEvents, 0)
-		events, err := db.GetMCPTraceHTTPConnectionEventsByConnectionID(ctx, oldMCPHTTPConnectionID)
-		require.NoError(t, err)
-		require.Empty(t, events)
 
 		auditLogs := promhelp.CounterValue(t, reg, "coderd_dbpurge_records_purged_total", prometheus.Labels{
 			"record_type": "audit_logs",
