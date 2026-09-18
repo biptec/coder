@@ -2,6 +2,7 @@ package coderd
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -159,6 +160,71 @@ func TestMCPTraceMiddlewareConnectionLifecycle(t *testing.T) {
 	handler.ServeHTTP(rw, req)
 	require.NoError(t, recorder.flush(testContext(t)))
 	require.Equal(t, traceID.String(), rw.Header().Get(mcpTraceIDHeader))
+}
+
+func TestMCPTracePhysicalHTTPConnectionReuse(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctrl := gomock.NewController(t)
+	db := dbmock.NewMockStore(ctrl)
+	recorder := newMCPTraceRecorder(ctx, db, testutil.Logger(t), uuid.New())
+	api := &API{mcpTrace: recorder}
+
+	var connectionIDs []uuid.UUID
+	var states []string
+	db.EXPECT().InsertMCPTraceHTTPConnectionEvent(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, params database.InsertMCPTraceHTTPConnectionEventParams) error {
+			states = append(states, params.State)
+			return nil
+		},
+	).AnyTimes()
+	db.EXPECT().InsertMCPTraceRequest(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, params database.InsertMCPTraceRequestParams) error {
+			require.True(t, params.HttpConnectionID.Valid)
+			connectionIDs = append(connectionIDs, params.HttpConnectionID.UUID)
+			return nil
+		},
+	).Times(2)
+	db.EXPECT().UpdateMCPTraceRequestResponseProgress(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	db.EXPECT().FinishMCPTraceRequest(gomock.Any(), gomock.Any()).Return(nil).Times(2)
+
+	handler := api.mcpTraceMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, err := io.WriteString(w, "ok")
+		require.NoError(t, err)
+	}))
+	server := httptest.NewUnstartedServer(handler)
+	server.Config.ConnContext = api.MCPTraceConnContext
+	server.Config.ConnState = api.MCPTraceConnState
+	server.Start()
+
+	client := server.Client()
+	for range 2 {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+codermcp.MCPEndpoint, nil)
+		require.NoError(t, err)
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		_, err = io.Copy(io.Discard, resp.Body)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+	}
+	server.Close()
+	require.NoError(t, recorder.flush(testContext(t)))
+
+	require.Len(t, connectionIDs, 2)
+	require.NotEqual(t, uuid.Nil, connectionIDs[0])
+	require.Equal(t, connectionIDs[0], connectionIDs[1], "HTTP keep-alive requests must share one physical connection ID")
+	require.NotEmpty(t, states)
+	require.Equal(t, "new", states[0])
+	require.Contains(t, states, "active")
+	require.Contains(t, states, "idle")
+	require.Equal(t, "closed", states[len(states)-1])
+
+	recorder.httpConnectionsMu.Lock()
+	defer recorder.httpConnectionsMu.Unlock()
+	require.Empty(t, recorder.httpConnections)
 }
 
 func testContext(t *testing.T) context.Context {

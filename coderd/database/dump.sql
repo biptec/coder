@@ -2458,6 +2458,14 @@ CREATE TABLE mcp_trace_connections (
     close_reason text DEFAULT ''::text NOT NULL
 );
 
+CREATE TABLE mcp_trace_http_connection_events (
+    id uuid NOT NULL,
+    connection_id uuid NOT NULL,
+    replica_id uuid NOT NULL,
+    state text NOT NULL,
+    occurred_at timestamp with time zone NOT NULL
+);
+
 CREATE TABLE mcp_trace_requests (
     id uuid NOT NULL,
     replica_id uuid NOT NULL,
@@ -2488,7 +2496,8 @@ CREATE TABLE mcp_trace_requests (
     canceled_at timestamp with time zone,
     session_registered_at timestamp with time zone,
     session_unregistered_at timestamp with time zone,
-    finished_at timestamp with time zone
+    finished_at timestamp with time zone,
+    http_connection_id uuid
 );
 
 CREATE TABLE notification_messages (
@@ -4398,6 +4407,9 @@ ALTER TABLE ONLY mcp_trace_connections
 ALTER TABLE ONLY mcp_trace_connections
     ADD CONSTRAINT mcp_trace_connections_request_id_key UNIQUE (request_id);
 
+ALTER TABLE ONLY mcp_trace_http_connection_events
+    ADD CONSTRAINT mcp_trace_http_connection_events_pkey PRIMARY KEY (id);
+
 ALTER TABLE ONLY mcp_trace_requests
     ADD CONSTRAINT mcp_trace_requests_pkey PRIMARY KEY (id);
 
@@ -4899,7 +4911,13 @@ CREATE INDEX mcp_trace_connections_opened_idx ON mcp_trace_connections USING btr
 
 CREATE INDEX mcp_trace_connections_session_opened_idx ON mcp_trace_connections USING btree (session_id, opened_at DESC) WHERE (session_id <> ''::text);
 
+CREATE INDEX mcp_trace_http_connection_events_connection_idx ON mcp_trace_http_connection_events USING btree (connection_id, occurred_at, id);
+
+CREATE INDEX mcp_trace_http_connection_events_occurred_idx ON mcp_trace_http_connection_events USING btree (occurred_at, id);
+
 CREATE INDEX mcp_trace_requests_coder_request_idx ON mcp_trace_requests USING btree (coder_request_id);
+
+CREATE INDEX mcp_trace_requests_http_connection_idx ON mcp_trace_requests USING btree (http_connection_id, received_at, id) WHERE (http_connection_id IS NOT NULL);
 
 CREATE INDEX mcp_trace_requests_received_idx ON mcp_trace_requests USING btree (received_at DESC, id DESC);
 

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -30,6 +31,19 @@ const (
 )
 
 type mcpAgentTraceContextKey struct{}
+type mcpTraceHTTPConnectionContextKey struct{}
+
+type mcpTraceHTTPConnection struct {
+	id         uuid.UUID
+	conn       net.Conn
+	acceptedAt time.Time
+
+	mu          sync.Mutex
+	lastState   http.ConnState
+	lastStateAt time.Time
+	traced      bool
+	lastTraceID uuid.UUID
+}
 
 type mcpAgentTraceContext struct {
 	traceID     uuid.UUID
@@ -72,6 +86,9 @@ type mcpTraceRecorder struct {
 	replicaID uuid.UUID
 	queue     chan mcpTraceWrite
 	dropped   atomic.Uint64
+
+	httpConnectionsMu sync.Mutex
+	httpConnections   map[net.Conn]*mcpTraceHTTPConnection
 }
 
 func newMCPTraceRecorder(ctx context.Context, db database.Store, logger slog.Logger, replicaID uuid.UUID) *mcpTraceRecorder {
@@ -79,14 +96,142 @@ func newMCPTraceRecorder(ctx context.Context, db database.Store, logger slog.Log
 		ctx = context.Background()
 	}
 	r := &mcpTraceRecorder{
-		ctx:       ctx,
-		db:        db,
-		logger:    logger.Named("mcp-trace"),
-		replicaID: replicaID,
-		queue:     make(chan mcpTraceWrite, mcpTraceQueueSize),
+		ctx:             ctx,
+		db:              db,
+		logger:          logger.Named("mcp-trace"),
+		replicaID:       replicaID,
+		queue:           make(chan mcpTraceWrite, mcpTraceQueueSize),
+		httpConnections: make(map[net.Conn]*mcpTraceHTTPConnection),
 	}
 	go r.run()
 	return r
+}
+
+func mcpTraceHTTPConnStateName(state http.ConnState) string {
+	switch state {
+	case http.StateNew:
+		return "new"
+	case http.StateActive:
+		return "active"
+	case http.StateIdle:
+		return "idle"
+	case http.StateHijacked:
+		return "hijacked"
+	case http.StateClosed:
+		return "closed"
+	default:
+		return "unknown"
+	}
+}
+
+// MCPTraceConnContext attaches a stable physical HTTP connection identifier to
+// requests accepted on conn. Connections are only persisted if they later carry
+// an MCP request.
+func (api *API) MCPTraceConnContext(ctx context.Context, conn net.Conn) context.Context {
+	if api == nil || api.mcpTrace == nil || conn == nil {
+		return ctx
+	}
+	return api.mcpTrace.httpConnContext(ctx, conn)
+}
+
+// MCPTraceConnState records net/http connection-state transitions for physical
+// connections that have carried at least one MCP request.
+func (api *API) MCPTraceConnState(conn net.Conn, state http.ConnState) {
+	if api == nil || api.mcpTrace == nil || conn == nil {
+		return
+	}
+	api.mcpTrace.httpConnState(conn, state)
+}
+
+func (r *mcpTraceRecorder) httpConnContext(ctx context.Context, conn net.Conn) context.Context {
+	if r == nil || conn == nil {
+		return ctx
+	}
+	now := time.Now().UTC()
+	meta := &mcpTraceHTTPConnection{
+		id:          uuid.New(),
+		conn:        conn,
+		acceptedAt:  now,
+		lastState:   http.StateNew,
+		lastStateAt: now,
+	}
+	return context.WithValue(ctx, mcpTraceHTTPConnectionContextKey{}, meta)
+}
+
+func (r *mcpTraceRecorder) httpConnState(conn net.Conn, state http.ConnState) {
+	if r == nil || conn == nil {
+		return
+	}
+
+	r.httpConnectionsMu.Lock()
+	meta := r.httpConnections[conn]
+	if state == http.StateClosed || state == http.StateHijacked {
+		delete(r.httpConnections, conn)
+	}
+	r.httpConnectionsMu.Unlock()
+	if meta == nil {
+		return
+	}
+
+	now := time.Now().UTC()
+	meta.mu.Lock()
+	meta.lastState = state
+	meta.lastStateAt = now
+	traced := meta.traced
+	traceID := meta.lastTraceID
+	connectionID := meta.id
+	meta.mu.Unlock()
+
+	if traced {
+		r.httpConnectionEventAt(traceID, connectionID, mcpTraceHTTPConnStateName(state), now)
+	}
+}
+
+func (r *mcpTraceRecorder) httpConnectionIDForRequest(ctx context.Context, traceID uuid.UUID) uuid.NullUUID {
+	meta, _ := ctx.Value(mcpTraceHTTPConnectionContextKey{}).(*mcpTraceHTTPConnection)
+	if meta == nil || traceID == uuid.Nil {
+		return uuid.NullUUID{}
+	}
+
+	now := time.Now().UTC()
+	meta.mu.Lock()
+	firstMCPRequest := !meta.traced
+	meta.traced = true
+	meta.lastTraceID = traceID
+	connectionID := meta.id
+	conn := meta.conn
+	acceptedAt := meta.acceptedAt
+	if firstMCPRequest {
+		meta.lastState = http.StateActive
+		meta.lastStateAt = now
+	}
+	meta.mu.Unlock()
+
+	if firstMCPRequest {
+		r.httpConnectionsMu.Lock()
+		r.httpConnections[conn] = meta
+		r.httpConnectionsMu.Unlock()
+		r.httpConnectionEventAt(traceID, connectionID, "new", acceptedAt)
+		r.httpConnectionEventAt(traceID, connectionID, "active", now)
+	}
+
+	return uuid.NullUUID{UUID: connectionID, Valid: true}
+}
+
+func (r *mcpTraceRecorder) httpConnectionEventAt(traceID, connectionID uuid.UUID, state string, occurredAt time.Time) {
+	if r == nil || traceID == uuid.Nil || connectionID == uuid.Nil || state == "" {
+		return
+	}
+	replicaID := r.replicaID
+	r.enqueue(traceID, "http_connection_"+state, func(writeCtx context.Context) error {
+		return r.db.InsertMCPTraceHTTPConnectionEvent(writeCtx, database.InsertMCPTraceHTTPConnectionEventParams{
+			ID:           uuid.New(),
+			ConnectionID: connectionID,
+			ReplicaID:    replicaID,
+			State:        state,
+			OccurredAt:   occurredAt,
+		})
+	})
 }
 
 func (r *mcpTraceRecorder) run() {
@@ -217,17 +362,19 @@ func (r *mcpTraceRecorder) begin(req *http.Request) (uuid.UUID, bool) {
 	protocol := req.Proto
 	sessionID := req.Header.Get("Mcp-Session-Id")
 	replicaID := r.replicaID
+	httpConnectionID := r.httpConnectionIDForRequest(req.Context(), traceID)
 
 	r.enqueue(traceID, "http_received", func(ctx context.Context) error {
 		if err := r.db.InsertMCPTraceRequest(ctx, database.InsertMCPTraceRequestParams{
-			ID:             traceID,
-			ReplicaID:      replicaID,
-			CoderRequestID: uuid.NullUUID{UUID: requestID, Valid: hasRequestID},
-			UserID:         uuid.NullUUID{},
-			SessionID:      sessionID,
-			HttpMethod:     method,
-			HttpProtocol:   protocol,
-			ReceivedAt:     now,
+			ID:               traceID,
+			ReplicaID:        replicaID,
+			CoderRequestID:   uuid.NullUUID{UUID: requestID, Valid: hasRequestID},
+			UserID:           uuid.NullUUID{},
+			SessionID:        sessionID,
+			HttpMethod:       method,
+			HttpProtocol:     protocol,
+			HttpConnectionID: httpConnectionID,
+			ReceivedAt:       now,
 		}); err != nil {
 			return err
 		}

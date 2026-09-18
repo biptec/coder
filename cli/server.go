@@ -1245,8 +1245,10 @@ func (r *RootCmd) Server(newAPI func(context.Context, *coderd.Options) (*coderd.
 				// These errors are typically noise like "TLS: EOF". Vault does
 				// similar:
 				// https://github.com/hashicorp/vault/blob/e2490059d0711635e529a4efcbaa1b26998d6e1c/command/server.go#L2714
-				ErrorLog: log.New(io.Discard, "", 0),
-				Handler:  handler,
+				ErrorLog:    log.New(io.Discard, "", 0),
+				Handler:     handler,
+				ConnContext: coderAPI.MCPTraceConnContext,
+				ConnState:   coderAPI.MCPTraceConnState,
 				BaseContext: func(_ net.Listener) context.Context {
 					return shutdownConnsCtx
 				},

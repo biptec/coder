@@ -1340,6 +1340,21 @@ func (mr *MockStoreMockRecorder) DeleteOldConnectionLogs(ctx, arg any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOldConnectionLogs", reflect.TypeOf((*MockStore)(nil).DeleteOldConnectionLogs), ctx, arg)
 }
 
+// DeleteOldMCPTraceHTTPConnectionEvents mocks base method.
+func (m *MockStore) DeleteOldMCPTraceHTTPConnectionEvents(ctx context.Context, arg database.DeleteOldMCPTraceHTTPConnectionEventsParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteOldMCPTraceHTTPConnectionEvents", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteOldMCPTraceHTTPConnectionEvents indicates an expected call of DeleteOldMCPTraceHTTPConnectionEvents.
+func (mr *MockStoreMockRecorder) DeleteOldMCPTraceHTTPConnectionEvents(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOldMCPTraceHTTPConnectionEvents", reflect.TypeOf((*MockStore)(nil).DeleteOldMCPTraceHTTPConnectionEvents), ctx, arg)
+}
+
 // DeleteOldMCPTraceRequests mocks base method.
 func (m *MockStore) DeleteOldMCPTraceRequests(ctx context.Context, arg database.DeleteOldMCPTraceRequestsParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -4597,6 +4612,21 @@ func (m *MockStore) GetMCPTraceConnectionByRequestID(ctx context.Context, reques
 func (mr *MockStoreMockRecorder) GetMCPTraceConnectionByRequestID(ctx, requestID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMCPTraceConnectionByRequestID", reflect.TypeOf((*MockStore)(nil).GetMCPTraceConnectionByRequestID), ctx, requestID)
+}
+
+// GetMCPTraceHTTPConnectionEventsByConnectionID mocks base method.
+func (m *MockStore) GetMCPTraceHTTPConnectionEventsByConnectionID(ctx context.Context, connectionID uuid.UUID) ([]database.McpTraceHttpConnectionEvent, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMCPTraceHTTPConnectionEventsByConnectionID", ctx, connectionID)
+	ret0, _ := ret[0].([]database.McpTraceHttpConnectionEvent)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMCPTraceHTTPConnectionEventsByConnectionID indicates an expected call of GetMCPTraceHTTPConnectionEventsByConnectionID.
+func (mr *MockStoreMockRecorder) GetMCPTraceHTTPConnectionEventsByConnectionID(ctx, connectionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMCPTraceHTTPConnectionEventsByConnectionID", reflect.TypeOf((*MockStore)(nil).GetMCPTraceHTTPConnectionEventsByConnectionID), ctx, connectionID)
 }
 
 // GetMCPTraceRequestByID mocks base method.
@@ -8233,6 +8263,20 @@ func (m *MockStore) InsertMCPTraceConnection(ctx context.Context, arg database.I
 func (mr *MockStoreMockRecorder) InsertMCPTraceConnection(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertMCPTraceConnection", reflect.TypeOf((*MockStore)(nil).InsertMCPTraceConnection), ctx, arg)
+}
+
+// InsertMCPTraceHTTPConnectionEvent mocks base method.
+func (m *MockStore) InsertMCPTraceHTTPConnectionEvent(ctx context.Context, arg database.InsertMCPTraceHTTPConnectionEventParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertMCPTraceHTTPConnectionEvent", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertMCPTraceHTTPConnectionEvent indicates an expected call of InsertMCPTraceHTTPConnectionEvent.
+func (mr *MockStoreMockRecorder) InsertMCPTraceHTTPConnectionEvent(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertMCPTraceHTTPConnectionEvent", reflect.TypeOf((*MockStore)(nil).InsertMCPTraceHTTPConnectionEvent), ctx, arg)
 }
 
 // InsertMCPTraceRequest mocks base method.
