@@ -17425,30 +17425,6 @@ func (q *sqlQuerier) UpsertMCPServerUserToken(ctx context.Context, arg UpsertMCP
 	return i, err
 }
 
-const deleteOldMCPTraceHTTPConnectionEvents = `-- name: DeleteOldMCPTraceHTTPConnectionEvents :execrows
-DELETE FROM mcp_trace_http_connection_events AS target
-WHERE target.id IN (
-    SELECT candidate.id
-    FROM mcp_trace_http_connection_events AS candidate
-    WHERE candidate.occurred_at < $1
-    ORDER BY candidate.occurred_at ASC, candidate.id ASC
-    LIMIT $2
-)
-`
-
-type DeleteOldMCPTraceHTTPConnectionEventsParams struct {
-	BeforeTime time.Time `db:"before_time" json:"before_time"`
-	LimitCount int32     `db:"limit_count" json:"limit_count"`
-}
-
-func (q *sqlQuerier) DeleteOldMCPTraceHTTPConnectionEvents(ctx context.Context, arg DeleteOldMCPTraceHTTPConnectionEventsParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteOldMCPTraceHTTPConnectionEvents, arg.BeforeTime, arg.LimitCount)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const deleteOldMCPTraceRequests = `-- name: DeleteOldMCPTraceRequests :execrows
 DELETE FROM mcp_trace_requests AS target
 WHERE target.id IN (
@@ -17650,44 +17626,8 @@ func (q *sqlQuerier) GetMCPTraceConnectionByRequestID(ctx context.Context, reque
 	return i, err
 }
 
-const getMCPTraceHTTPConnectionEventsByConnectionID = `-- name: GetMCPTraceHTTPConnectionEventsByConnectionID :many
-SELECT id, connection_id, replica_id, state, occurred_at
-FROM mcp_trace_http_connection_events
-WHERE connection_id = $1
-ORDER BY occurred_at ASC, id ASC
-`
-
-func (q *sqlQuerier) GetMCPTraceHTTPConnectionEventsByConnectionID(ctx context.Context, connectionID uuid.UUID) ([]McpTraceHttpConnectionEvent, error) {
-	rows, err := q.db.QueryContext(ctx, getMCPTraceHTTPConnectionEventsByConnectionID, connectionID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []McpTraceHttpConnectionEvent
-	for rows.Next() {
-		var i McpTraceHttpConnectionEvent
-		if err := rows.Scan(
-			&i.ID,
-			&i.ConnectionID,
-			&i.ReplicaID,
-			&i.State,
-			&i.OccurredAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const getMCPTraceRequestByID = `-- name: GetMCPTraceRequestByID :one
-SELECT id, replica_id, coder_request_id, user_id, session_id, http_method, http_protocol, mcp_method, jsonrpc_id, tool, status, last_stage, error_kind, http_status, response_bytes, response_write_count, received_at, authenticated_at, transport_entered_at, parsed_at, dispatched_at, handler_started_at, handler_finished_at, mcp_finished_at, response_started_at, last_response_write_at, canceled_at, session_registered_at, session_unregistered_at, finished_at, http_connection_id FROM mcp_trace_requests WHERE id = $1
+SELECT id, replica_id, coder_request_id, user_id, session_id, http_method, http_protocol, mcp_method, jsonrpc_id, tool, status, last_stage, error_kind, http_status, response_bytes, response_write_count, received_at, authenticated_at, transport_entered_at, parsed_at, dispatched_at, handler_started_at, handler_finished_at, mcp_finished_at, response_started_at, last_response_write_at, canceled_at, session_registered_at, session_unregistered_at, finished_at FROM mcp_trace_requests WHERE id = $1
 `
 
 func (q *sqlQuerier) GetMCPTraceRequestByID(ctx context.Context, id uuid.UUID) (McpTraceRequest, error) {
@@ -17724,7 +17664,6 @@ func (q *sqlQuerier) GetMCPTraceRequestByID(ctx context.Context, id uuid.UUID) (
 		&i.SessionRegisteredAt,
 		&i.SessionUnregisteredAt,
 		&i.FinishedAt,
-		&i.HttpConnectionID,
 	)
 	return i, err
 }
@@ -17794,53 +17733,25 @@ func (q *sqlQuerier) InsertMCPTraceConnection(ctx context.Context, arg InsertMCP
 	return err
 }
 
-const insertMCPTraceHTTPConnectionEvent = `-- name: InsertMCPTraceHTTPConnectionEvent :exec
-INSERT INTO mcp_trace_http_connection_events (
-    id, connection_id, replica_id, state, occurred_at
-) VALUES (
-    $1, $2, $3, $4, $5
-)
-`
-
-type InsertMCPTraceHTTPConnectionEventParams struct {
-	ID           uuid.UUID `db:"id" json:"id"`
-	ConnectionID uuid.UUID `db:"connection_id" json:"connection_id"`
-	ReplicaID    uuid.UUID `db:"replica_id" json:"replica_id"`
-	State        string    `db:"state" json:"state"`
-	OccurredAt   time.Time `db:"occurred_at" json:"occurred_at"`
-}
-
-func (q *sqlQuerier) InsertMCPTraceHTTPConnectionEvent(ctx context.Context, arg InsertMCPTraceHTTPConnectionEventParams) error {
-	_, err := q.db.ExecContext(ctx, insertMCPTraceHTTPConnectionEvent,
-		arg.ID,
-		arg.ConnectionID,
-		arg.ReplicaID,
-		arg.State,
-		arg.OccurredAt,
-	)
-	return err
-}
-
 const insertMCPTraceRequest = `-- name: InsertMCPTraceRequest :exec
 INSERT INTO mcp_trace_requests (
     id, replica_id, coder_request_id, user_id, session_id,
-    http_method, http_protocol, http_connection_id, received_at
+    http_method, http_protocol, received_at
 ) VALUES (
     $1, $2, $3, $4, $5,
-    $6, $7, $8, $9
+    $6, $7, $8
 )
 `
 
 type InsertMCPTraceRequestParams struct {
-	ID               uuid.UUID     `db:"id" json:"id"`
-	ReplicaID        uuid.UUID     `db:"replica_id" json:"replica_id"`
-	CoderRequestID   uuid.NullUUID `db:"coder_request_id" json:"coder_request_id"`
-	UserID           uuid.NullUUID `db:"user_id" json:"user_id"`
-	SessionID        string        `db:"session_id" json:"session_id"`
-	HttpMethod       string        `db:"http_method" json:"http_method"`
-	HttpProtocol     string        `db:"http_protocol" json:"http_protocol"`
-	HttpConnectionID uuid.NullUUID `db:"http_connection_id" json:"http_connection_id"`
-	ReceivedAt       time.Time     `db:"received_at" json:"received_at"`
+	ID             uuid.UUID     `db:"id" json:"id"`
+	ReplicaID      uuid.UUID     `db:"replica_id" json:"replica_id"`
+	CoderRequestID uuid.NullUUID `db:"coder_request_id" json:"coder_request_id"`
+	UserID         uuid.NullUUID `db:"user_id" json:"user_id"`
+	SessionID      string        `db:"session_id" json:"session_id"`
+	HttpMethod     string        `db:"http_method" json:"http_method"`
+	HttpProtocol   string        `db:"http_protocol" json:"http_protocol"`
+	ReceivedAt     time.Time     `db:"received_at" json:"received_at"`
 }
 
 func (q *sqlQuerier) InsertMCPTraceRequest(ctx context.Context, arg InsertMCPTraceRequestParams) error {
@@ -17852,7 +17763,6 @@ func (q *sqlQuerier) InsertMCPTraceRequest(ctx context.Context, arg InsertMCPTra
 		arg.SessionID,
 		arg.HttpMethod,
 		arg.HttpProtocol,
-		arg.HttpConnectionID,
 		arg.ReceivedAt,
 	)
 	return err

@@ -2,9 +2,11 @@ package coderd
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -174,19 +176,25 @@ func TestMCPTracePhysicalHTTPConnectionReuse(t *testing.T) {
 
 	var connectionIDs []uuid.UUID
 	var states []string
-	db.EXPECT().InsertMCPTraceHTTPConnectionEvent(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, params database.InsertMCPTraceHTTPConnectionEventParams) error {
-			states = append(states, params.State)
+	db.EXPECT().InsertMCPTraceAgentEvent(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, params database.InsertMCPTraceAgentEventParams) error {
+			if !strings.HasPrefix(params.Event, "http_connection_") {
+				return nil
+			}
+			require.Equal(t, uuid.Nil, params.AgentID)
+			require.False(t, params.WorkspaceID.Valid)
+			var details map[string]string
+			require.NoError(t, json.Unmarshal([]byte(params.Details), &details))
+			connectionID, err := uuid.Parse(details["connection_id"])
+			require.NoError(t, err)
+			if params.Event == "http_connection_request" {
+				connectionIDs = append(connectionIDs, connectionID)
+			}
+			states = append(states, strings.TrimPrefix(params.Event, "http_connection_"))
 			return nil
 		},
 	).AnyTimes()
-	db.EXPECT().InsertMCPTraceRequest(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, params database.InsertMCPTraceRequestParams) error {
-			require.True(t, params.HttpConnectionID.Valid)
-			connectionIDs = append(connectionIDs, params.HttpConnectionID.UUID)
-			return nil
-		},
-	).Times(2)
+	db.EXPECT().InsertMCPTraceRequest(gomock.Any(), gomock.Any()).Return(nil).Times(2)
 	db.EXPECT().UpdateMCPTraceRequestResponseProgress(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	db.EXPECT().FinishMCPTraceRequest(gomock.Any(), gomock.Any()).Return(nil).Times(2)
 
@@ -217,7 +225,8 @@ func TestMCPTracePhysicalHTTPConnectionReuse(t *testing.T) {
 	require.NotEqual(t, uuid.Nil, connectionIDs[0])
 	require.Equal(t, connectionIDs[0], connectionIDs[1], "HTTP keep-alive requests must share one physical connection ID")
 	require.NotEmpty(t, states)
-	require.Equal(t, "new", states[0])
+	require.Equal(t, "request", states[0])
+	require.Contains(t, states, "new")
 	require.Contains(t, states, "active")
 	require.Contains(t, states, "idle")
 	require.Equal(t, "closed", states[len(states)-1])

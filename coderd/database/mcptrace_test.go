@@ -22,18 +22,16 @@ func TestMCPTraceLifecycleAndRetention(t *testing.T) {
 	traceID := uuid.New()
 	replicaID := uuid.New()
 	requestID := uuid.New()
-	httpConnectionID := uuid.New()
 	startedAt := time.Now().UTC().Add(-25 * time.Hour).Round(time.Microsecond)
 
 	require.NoError(t, db.InsertMCPTraceRequest(ctx, database.InsertMCPTraceRequestParams{
-		ID:               traceID,
-		ReplicaID:        replicaID,
-		CoderRequestID:   uuid.NullUUID{},
-		SessionID:        "session-test",
-		HttpMethod:       "GET",
-		HttpProtocol:     "HTTP/2.0",
-		HttpConnectionID: uuid.NullUUID{UUID: httpConnectionID, Valid: true},
-		ReceivedAt:       startedAt,
+		ID:             traceID,
+		ReplicaID:      replicaID,
+		CoderRequestID: uuid.NullUUID{},
+		SessionID:      "session-test",
+		HttpMethod:     "GET",
+		HttpProtocol:   "HTTP/2.0",
+		ReceivedAt:     startedAt,
 	}))
 	require.NoError(t, db.InsertMCPTraceConnection(ctx, database.InsertMCPTraceConnectionParams{
 		ID:           uuid.New(),
@@ -51,13 +49,6 @@ func TestMCPTraceLifecycleAndRetention(t *testing.T) {
 		Event:      "ensure_agent",
 		Details:    `{"already_subscribed":true}`,
 		OccurredAt: startedAt.Add(time.Second),
-	}))
-	require.NoError(t, db.InsertMCPTraceHTTPConnectionEvent(ctx, database.InsertMCPTraceHTTPConnectionEventParams{
-		ID:           uuid.New(),
-		ConnectionID: httpConnectionID,
-		ReplicaID:    replicaID,
-		State:        "new",
-		OccurredAt:   startedAt,
 	}))
 
 	now := time.Now().UTC().Round(time.Microsecond)
@@ -137,8 +128,6 @@ func TestMCPTraceLifecycleAndRetention(t *testing.T) {
 	require.Equal(t, "response_finished", request.LastStage)
 	require.Equal(t, int64(17), request.ResponseBytes)
 	require.Equal(t, int64(1), request.ResponseWriteCount)
-	require.True(t, request.HttpConnectionID.Valid)
-	require.Equal(t, httpConnectionID, request.HttpConnectionID.UUID)
 	require.True(t, request.TransportEnteredAt.Valid)
 	require.True(t, request.ParsedAt.Valid)
 	require.True(t, request.DispatchedAt.Valid)
@@ -160,22 +149,6 @@ func TestMCPTraceLifecycleAndRetention(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, agentEvents, 1)
 	require.Equal(t, "ensure_agent", agentEvents[0].Event)
-
-	httpConnectionEvents, err := db.GetMCPTraceHTTPConnectionEventsByConnectionID(ctx, httpConnectionID)
-	require.NoError(t, err)
-	require.Len(t, httpConnectionEvents, 1)
-	require.Equal(t, "new", httpConnectionEvents[0].State)
-
-	deletedHTTPConnectionEvents, err := db.DeleteOldMCPTraceHTTPConnectionEvents(ctx, database.DeleteOldMCPTraceHTTPConnectionEventsParams{
-		BeforeTime: time.Now().UTC().Add(-24 * time.Hour),
-		LimitCount: 100,
-	})
-	require.NoError(t, err)
-	require.Equal(t, int64(1), deletedHTTPConnectionEvents)
-
-	httpConnectionEvents, err = db.GetMCPTraceHTTPConnectionEventsByConnectionID(ctx, httpConnectionID)
-	require.NoError(t, err)
-	require.Empty(t, httpConnectionEvents, "physical HTTP connection events must use the same 24h retention window as MCP traces")
 
 	deleted, err := db.DeleteOldMCPTraceRequests(ctx, database.DeleteOldMCPTraceRequestsParams{
 		BeforeTime: time.Now().UTC().Add(-24 * time.Hour),

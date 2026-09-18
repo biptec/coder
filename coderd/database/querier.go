@@ -205,7 +205,6 @@ type sqlcQuerier interface {
 	// Parent/root references on child chats are SET NULL.
 	DeleteOldChats(ctx context.Context, arg DeleteOldChatsParams) (int64, error)
 	DeleteOldConnectionLogs(ctx context.Context, arg DeleteOldConnectionLogsParams) (int64, error)
-	DeleteOldMCPTraceHTTPConnectionEvents(ctx context.Context, arg DeleteOldMCPTraceHTTPConnectionEventsParams) (int64, error)
 	DeleteOldMCPTraceRequests(ctx context.Context, arg DeleteOldMCPTraceRequestsParams) (int64, error)
 	// Delete all notification messages which have not been updated for over a week.
 	DeleteOldNotificationMessages(ctx context.Context) error
@@ -629,7 +628,6 @@ type sqlcQuerier interface {
 	GetMCPTraceAgentEventsByAgentIDAfter(ctx context.Context, arg GetMCPTraceAgentEventsByAgentIDAfterParams) ([]McpTraceAgentEvent, error)
 	GetMCPTraceAgentEventsByRequestID(ctx context.Context, requestID uuid.UUID) ([]McpTraceAgentEvent, error)
 	GetMCPTraceConnectionByRequestID(ctx context.Context, requestID uuid.UUID) (McpTraceConnection, error)
-	GetMCPTraceHTTPConnectionEventsByConnectionID(ctx context.Context, connectionID uuid.UUID) ([]McpTraceHttpConnectionEvent, error)
 	GetMCPTraceRequestByID(ctx context.Context, id uuid.UUID) (McpTraceRequest, error)
 	GetNotificationMessagesByStatus(ctx context.Context, arg GetNotificationMessagesByStatusParams) ([]NotificationMessage, error)
 	// Fetch the notification report generator log indicating recent activity.
@@ -1084,7 +1082,6 @@ type sqlcQuerier interface {
 	InsertMCPServerConfig(ctx context.Context, arg InsertMCPServerConfigParams) (MCPServerConfig, error)
 	InsertMCPTraceAgentEvent(ctx context.Context, arg InsertMCPTraceAgentEventParams) error
 	InsertMCPTraceConnection(ctx context.Context, arg InsertMCPTraceConnectionParams) error
-	InsertMCPTraceHTTPConnectionEvent(ctx context.Context, arg InsertMCPTraceHTTPConnectionEventParams) error
 	InsertMCPTraceRequest(ctx context.Context, arg InsertMCPTraceRequestParams) error
 	InsertMemoryResourceMonitor(ctx context.Context, arg InsertMemoryResourceMonitorParams) (WorkspaceAgentMemoryResourceMonitor, error)
 	// Inserts any group by name that does not exist. All new groups are given
