@@ -31,4 +31,5 @@ func TestTextPreservesFullContentAndRepairsInvalidUTF8(t *testing.T) {
 	large := strings.Repeat("activity-output-", 10_000)
 	require.Equal(t, large, Text(large))
 	require.Equal(t, "before�after", Text("before\xffafter"))
+	require.Equal(t, "before�after", Text("before\x00after"))
 }

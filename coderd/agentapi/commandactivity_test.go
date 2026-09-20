@@ -69,7 +69,7 @@ func TestCommandActivity(t *testing.T) {
 		require.NoError(t, err)
 
 		mDB.EXPECT().AppendWorkspaceCommandActivityOutput(gomock.Any(), database.AppendWorkspaceCommandActivityOutputParams{
-			Output:      "hello from streamed output",
+			Output:      "hello from streamed � output",
 			ID:          activityID,
 			WorkspaceID: workspaceID,
 			AgentID:     agentID,
@@ -81,7 +81,7 @@ func TestCommandActivity(t *testing.T) {
 				SessionId: sessionID[:],
 				Action:    agentproto.CommandActivity_OUTPUT,
 				Timestamp: timestamppb.New(activityTime),
-				Output:    "hello from streamed output",
+				Output:    "hello from streamed \x00 output",
 			},
 		})
 		require.NoError(t, err)
