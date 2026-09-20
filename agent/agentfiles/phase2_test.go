@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -175,6 +177,51 @@ func TestPhase2SearchPaginationAndChatIsolation(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, w.Code)
 }
 
+func TestPhase2SearchHasNoHiddenFileOrPreviewLimit(t *testing.T) {
+	t.Parallel()
+
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll("/root", 0o755))
+
+	largeFile := []byte("needle-in-large-file\n" + strings.Repeat("x", (2<<20)+1))
+	require.NoError(t, afero.WriteFile(fs, "/root/large.txt", largeFile, 0o644))
+
+	longPreview := strings.Repeat("p", 600) + " needle-in-long-preview"
+	require.NoError(t, afero.WriteFile(fs, "/root/preview.txt", []byte(longPreview+"\n"), 0o644))
+
+	_, handler := phase2FilesAPI(t, fs)
+	w := phase2JSONRequest(t, handler, http.MethodPost, "/search/start", workspacesdk.SearchStartRequest{
+		Root:  "/root",
+		Query: "needle",
+		Mode:  "content",
+	})
+	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
+	var started workspacesdk.SearchStartResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&started))
+
+	var result workspacesdk.SearchResultsResponse
+	deadline := time.Now().Add(testutil.WaitLong)
+	for {
+		w = phase2JSONRequest(t, handler, http.MethodGet, "/search/"+started.ID+"/results?cursor=0", nil)
+		require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&result))
+		if result.Search.Status != "running" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for unbounded search completion")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	require.Equal(t, "complete", result.Search.Status)
+	require.Len(t, result.Results, 2)
+	require.Equal(t, "/root/large.txt", result.Results[0].Path)
+	require.Equal(t, "needle-in-large-file", result.Results[0].Text)
+	require.Equal(t, "/root/preview.txt", result.Results[1].Path)
+	require.Equal(t, longPreview, result.Results[1].Text, "search result text must not be silently preview-truncated")
+}
+
 func TestPhase2ListDirectoryV2(t *testing.T) {
 	t.Parallel()
 
@@ -214,6 +261,27 @@ func TestPhase2ListDirectoryV2(t *testing.T) {
 	require.Nil(t, second.NextCursor)
 }
 
+func TestPhase2ListDirectoryHasNoHiddenTraversalCap(t *testing.T) {
+	t.Parallel()
+
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll("/root", 0o755))
+	for i := 0; i < 5001; i++ {
+		require.NoError(t, afero.WriteFile(fs, fmt.Sprintf("/root/file-%04d", i), nil, 0o644))
+	}
+	_, handler := phase2FilesAPI(t, fs)
+
+	w := phase2JSONRequest(t, handler, http.MethodPost, "/list-directory-v2", workspacesdk.ListDirectoryRequest{
+		Path:  "/root",
+		Depth: 1,
+	})
+	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
+	var result workspacesdk.ListDirectoryResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&result))
+	require.Len(t, result.Entries, 5001)
+	require.Nil(t, result.NextCursor, "omitted limit must not manufacture a pagination boundary")
+}
+
 func TestPhase2MoveFileDanglingSymlinkOverwriteGuard(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink creation can require elevated privileges on Windows")
@@ -226,7 +294,7 @@ func TestPhase2MoveFileDanglingSymlinkOverwriteGuard(t *testing.T) {
 	source := filepath.Join(root, "source.txt")
 	dest := filepath.Join(root, "dest.txt")
 	missingTarget := filepath.Join(root, "missing-target")
-	require.NoError(t, os.WriteFile(source, []byte("payload"), 0o640))
+	require.NoError(t, os.WriteFile(source, []byte("payload"), 0o600))
 	require.NoError(t, os.Symlink(missingTarget, dest))
 
 	w := phase2JSONRequest(t, handler, http.MethodGet, "/file-info?path="+dest, nil)

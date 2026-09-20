@@ -127,7 +127,7 @@ func TestCommandActivity(t *testing.T) {
 		mDB.EXPECT().ListWorkspaceMCPRequestActivityCandidates(gomock.Any(), database.ListWorkspaceMCPRequestActivityCandidatesParams{
 			WorkspaceID: workspaceID,
 			Tools: []string{
-				"exec", "bash", "process_start",
+				"exec", "bash", "execute_shell_command", "process_start", "start_process",
 				toolsdk.ToolNameWorkspaceExec,
 				toolsdk.ToolNameWorkspaceBash,
 				toolsdk.ToolNameWorkspaceProcessStart,
@@ -178,7 +178,7 @@ func TestCommandActivity(t *testing.T) {
 		mDB.EXPECT().ListWorkspaceMCPRequestActivityCandidates(gomock.Any(), database.ListWorkspaceMCPRequestActivityCandidatesParams{
 			WorkspaceID: workspaceID,
 			Tools: []string{
-				"exec", "bash", "process_start",
+				"exec", "bash", "execute_shell_command", "process_start", "start_process",
 				toolsdk.ToolNameWorkspaceExec,
 				toolsdk.ToolNameWorkspaceBash,
 				toolsdk.ToolNameWorkspaceProcessStart,
@@ -203,7 +203,7 @@ func TestCommandActivity(t *testing.T) {
 			AgentID:     agentID,
 			SessionID:   sessionID,
 			Source:      "mcp",
-			Tool:        "bash",
+			Tool:        "execute_shell_command",
 			Command:     "echo from old agent",
 			Argv:        []string{},
 			Environment: []byte("{}"),

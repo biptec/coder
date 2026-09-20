@@ -6,22 +6,21 @@ import (
 	"encoding/base64"
 	"io"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"golang.org/x/xerrors"
 
 	"github.com/coder/aisdk-go"
-	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/codersdk/workspacesdk"
 )
-
-const maxDirectoryTraversalEntries = 5000
 
 type WorkspaceListDirectoryV2Args struct {
 	Workspace     string `json:"workspace"`
 	Path          string `json:"path"`
 	Depth         int    `json:"depth,omitempty"`
 	IncludeHidden bool   `json:"include_hidden,omitempty"`
-	Cursor        int    `json:"cursor,omitempty"`
+	Cursor        string `json:"cursor,omitempty"`
 	Limit         int    `json:"limit,omitempty"`
 }
 
@@ -37,26 +36,49 @@ type WorkspaceDirectoryEntry struct {
 
 type WorkspaceListDirectoryV2Result struct {
 	Entries    []WorkspaceDirectoryEntry `json:"entries"`
-	NextCursor *int                      `json:"next_cursor,omitempty"`
+	NextCursor string                    `json:"next_cursor,omitempty"`
+}
+
+func directorySortKey(root, path string) string {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return filepath.ToSlash(path)
+	}
+	return filepath.ToSlash(rel)
+}
+
+func encodeDirectoryCursor(sortKey string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte("v1:" + sortKey))
+}
+
+func decodeDirectoryCursor(cursor string) (string, error) {
+	decoded, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return "", xerrors.New("invalid directory cursor")
+	}
+	value := string(decoded)
+	if !strings.HasPrefix(value, "v1:") {
+		return "", xerrors.New("invalid directory cursor")
+	}
+	return strings.TrimPrefix(value, "v1:"), nil
 }
 
 var WorkspaceListDirectoryV2 = Tool[WorkspaceListDirectoryV2Args, WorkspaceListDirectoryV2Result]{
 	Tool: aisdk.Tool{
 		Name:        ToolNameWorkspaceListDirectoryV2,
-		Description: `List a workspace directory with optional bounded recursion, metadata, hidden-file control, and pagination.`,
+		Description: `List a workspace directory with optional recursion, metadata, hidden-file control, deterministic alphabetical ordering, and assistant-controlled pagination.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
 				"workspace": map[string]any{"type": "string", "description": workspaceAgentDescription},
 				"path":      map[string]any{"type": "string", "description": "Absolute directory path."},
 				"depth": map[string]any{
 					"type":        "integer",
-					"description": "Directory depth to return. 1 lists direct children only. Defaults to 1, maximum 10.",
+					"description": "Directory depth to return. 1 lists direct children only. Defaults to 1.",
 					"minimum":     1,
-					"maximum":     10,
 				},
 				"include_hidden": map[string]any{"type": "boolean", "description": "Include entries whose basename starts with a dot."},
-				"cursor":         map[string]any{"type": "integer", "description": "Zero-based result cursor. Maximum 5000.", "minimum": 0, "maximum": maxDirectoryTraversalEntries},
-				"limit":          map[string]any{"type": "integer", "description": "Maximum entries returned. Defaults to 200, maximum 1000.", "minimum": 1, "maximum": 1000},
+				"cursor":         map[string]any{"type": "string", "description": "Opaque alphabetical continuation cursor returned by a previous limited call.", "minLength": 1},
+				"limit":          map[string]any{"type": "integer", "description": "Optional maximum entries returned. If omitted, return the complete directory result.", "minimum": 1},
 			},
 			Required: []string{"workspace", "path"},
 		},
@@ -67,22 +89,15 @@ var WorkspaceListDirectoryV2 = Tool[WorkspaceListDirectoryV2Args, WorkspaceListD
 		if args.Workspace == "" || args.Path == "" {
 			return WorkspaceListDirectoryV2Result{}, xerrors.New("workspace and path are required")
 		}
-		if args.Cursor < 0 || args.Cursor > maxDirectoryTraversalEntries {
-			return WorkspaceListDirectoryV2Result{}, xerrors.Errorf("cursor must be between 0 and %d", maxDirectoryTraversalEntries)
+		if args.Limit < 0 {
+			return WorkspaceListDirectoryV2Result{}, xerrors.New("limit cannot be negative")
 		}
 		depth := args.Depth
 		if depth == 0 {
 			depth = 1
 		}
-		if depth < 1 || depth > 10 {
-			return WorkspaceListDirectoryV2Result{}, xerrors.New("depth must be between 1 and 10")
-		}
-		limit := args.Limit
-		if limit == 0 {
-			limit = 200
-		}
-		if limit < 1 || limit > 1000 {
-			return WorkspaceListDirectoryV2Result{}, xerrors.New("limit must be between 1 and 1000")
+		if depth < 1 {
+			return WorkspaceListDirectoryV2Result{}, xerrors.New("depth must be positive")
 		}
 		conn, err := openAgentConn(ctx, deps, args.Workspace)
 		if err != nil {
@@ -90,18 +105,39 @@ var WorkspaceListDirectoryV2 = Tool[WorkspaceListDirectoryV2Args, WorkspaceListD
 		}
 		defer conn.Close()
 
+		cursorKey := ""
+		if args.Cursor != "" {
+			cursorKey, err = decodeDirectoryCursor(args.Cursor)
+			if err != nil {
+				return WorkspaceListDirectoryV2Result{}, err
+			}
+		}
+
 		resp, err := conn.ListDirectory(ctx, workspacesdk.ListDirectoryRequest{
 			Path:          args.Path,
 			Depth:         depth,
 			IncludeHidden: args.IncludeHidden,
-			Cursor:        args.Cursor,
-			Limit:         limit,
 		})
 		if err != nil {
 			return WorkspaceListDirectoryV2Result{}, xerrors.Errorf("list directory: %w", err)
 		}
-		entries := make([]WorkspaceDirectoryEntry, 0, len(resp.Entries))
+		sort.Slice(resp.Entries, func(i, j int) bool {
+			return directorySortKey(args.Path, resp.Entries[i].Path) < directorySortKey(args.Path, resp.Entries[j].Path)
+		})
+
+		eligible := make([]workspacesdk.WorkspaceFileInfo, 0, len(resp.Entries))
 		for _, info := range resp.Entries {
+			if cursorKey != "" && directorySortKey(args.Path, info.Path) <= cursorKey {
+				continue
+			}
+			eligible = append(eligible, info)
+		}
+		hasMore := args.Limit > 0 && len(eligible) > args.Limit
+		if hasMore {
+			eligible = eligible[:args.Limit]
+		}
+		entries := make([]WorkspaceDirectoryEntry, 0, len(eligible))
+		for _, info := range eligible {
 			entries = append(entries, WorkspaceDirectoryEntry{
 				Path:        info.Path,
 				Name:        info.Name,
@@ -112,7 +148,11 @@ var WorkspaceListDirectoryV2 = Tool[WorkspaceListDirectoryV2Args, WorkspaceListD
 				ModTimeUnix: info.ModTimeUnix,
 			})
 		}
-		return WorkspaceListDirectoryV2Result{Entries: entries, NextCursor: resp.NextCursor}, nil
+		result := WorkspaceListDirectoryV2Result{Entries: entries}
+		if hasMore && len(eligible) > 0 {
+			result.NextCursor = encodeDirectoryCursor(directorySortKey(args.Path, eligible[len(eligible)-1].Path))
+		}
+		return result, nil
 	},
 }
 
@@ -138,30 +178,26 @@ type WorkspaceReadFileV2Result struct {
 }
 
 func readWorkspaceFileV2(ctx context.Context, conn workspacesdk.AgentConn, args WorkspaceReadFileV2Args) (WorkspaceReadFileV2Result, error) {
+	resolvedPath, err := conn.ResolvePath(ctx, args.Path)
+	if err != nil {
+		return WorkspaceReadFileV2Result{}, xerrors.Errorf("resolve file path: %w", err)
+	}
+	info, err := conn.FileInfo(ctx, resolvedPath)
+	if err != nil {
+		return WorkspaceReadFileV2Result{}, err
+	}
+	if info.IsDir {
+		return WorkspaceReadFileV2Result{}, xerrors.Errorf("path %q is a directory", args.Path)
+	}
+
 	if args.Binary {
-		resolvedPath, err := conn.ResolvePath(ctx, args.Path)
-		if err != nil {
-			return WorkspaceReadFileV2Result{}, xerrors.Errorf("resolve file path: %w", err)
-		}
-		info, err := conn.FileInfo(ctx, resolvedPath)
-		if err != nil {
-			return WorkspaceReadFileV2Result{}, err
-		}
-		if info.IsDir {
-			return WorkspaceReadFileV2Result{}, xerrors.Errorf("path %q is a directory", args.Path)
-		}
-		offset := args.Offset
-		if offset < 0 {
+		if args.Offset < 0 {
 			return WorkspaceReadFileV2Result{}, xerrors.New("binary offset cannot be negative")
 		}
-		limit := args.Limit
-		if limit == 0 {
-			limit = 64 << 10
+		if args.Limit < 0 {
+			return WorkspaceReadFileV2Result{}, xerrors.New("binary limit cannot be negative")
 		}
-		if limit < 1 || limit > maxFileLimit {
-			return WorkspaceReadFileV2Result{}, xerrors.Errorf("binary limit must be between 1 and %d bytes", maxFileLimit)
-		}
-		reader, mimeType, err := conn.ReadFile(ctx, args.Path, offset, limit)
+		reader, mimeType, err := conn.ReadFile(ctx, args.Path, args.Offset, args.Limit)
 		if err != nil {
 			return WorkspaceReadFileV2Result{}, err
 		}
@@ -170,7 +206,7 @@ func readWorkspaceFileV2(ctx context.Context, conn workspacesdk.AgentConn, args 
 		if err != nil {
 			return WorkspaceReadFileV2Result{}, err
 		}
-		next := offset + int64(len(data))
+		next := args.Offset + int64(len(data))
 		return WorkspaceReadFileV2Result{
 			Path:       args.Path,
 			Content:    base64.StdEncoding.EncodeToString(data),
@@ -189,45 +225,77 @@ func readWorkspaceFileV2(ctx context.Context, conn workspacesdk.AgentConn, args 
 	if offset < 1 {
 		return WorkspaceReadFileV2Result{}, xerrors.New("text offset is a 1-based line number and must be positive")
 	}
-	limit := args.Limit
-	if limit == 0 {
-		limit = 200
+	if args.Limit < 0 {
+		return WorkspaceReadFileV2Result{}, xerrors.New("text limit cannot be negative")
 	}
-	if limit < 1 || limit > int64(workspacesdk.DefaultMaxResponseLines) {
-		return WorkspaceReadFileV2Result{}, xerrors.Errorf("text limit must be between 1 and %d lines", workspacesdk.DefaultMaxResponseLines)
-	}
-	resp, err := conn.ReadFileLines(ctx, args.Path, offset, limit, workspacesdk.DefaultReadFileLinesLimits())
+
+	reader, mimeType, err := conn.ReadFile(ctx, args.Path, 0, 0)
 	if err != nil {
 		return WorkspaceReadFileV2Result{}, err
 	}
-	if !resp.Success {
-		return WorkspaceReadFileV2Result{}, xerrors.New(resp.Error)
+	defer reader.Close()
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return WorkspaceReadFileV2Result{}, err
 	}
-	next := offset + int64(resp.LinesRead)
-	eof := resp.TotalLines == 0 || next > int64(resp.TotalLines)
+
+	var lines []string
+	if len(data) > 0 {
+		lines = strings.SplitAfter(string(data), "\n")
+		if len(lines) > 0 && lines[len(lines)-1] == "" {
+			lines = lines[:len(lines)-1]
+		}
+	}
+	totalLines := len(lines)
+	if totalLines == 0 {
+		return WorkspaceReadFileV2Result{
+			Path:       args.Path,
+			Content:    "",
+			Encoding:   "text",
+			MimeType:   mimeType,
+			FileSize:   info.Size,
+			TotalLines: 0,
+			LinesRead:  0,
+			NextOffset: 1,
+			EndOfFile:  true,
+		}, nil
+	}
+	if offset > int64(totalLines) {
+		return WorkspaceReadFileV2Result{}, xerrors.Errorf("offset %d is beyond the file length of %d lines", offset, totalLines)
+	}
+
+	start := int(offset - 1)
+	end := totalLines
+	if args.Limit > 0 && int64(start)+args.Limit < int64(end) {
+		end = start + int(args.Limit)
+	}
+	content := strings.Join(lines[start:end], "")
+	linesRead := end - start
+	next := offset + int64(linesRead)
 	return WorkspaceReadFileV2Result{
 		Path:       args.Path,
-		Content:    resp.Content,
+		Content:    content,
 		Encoding:   "text",
-		FileSize:   resp.FileSize,
-		TotalLines: resp.TotalLines,
-		LinesRead:  resp.LinesRead,
+		MimeType:   mimeType,
+		FileSize:   info.Size,
+		TotalLines: totalLines,
+		LinesRead:  linesRead,
 		NextOffset: next,
-		EndOfFile:  eof,
+		EndOfFile:  end >= totalLines,
 	}, nil
 }
 
 var WorkspaceReadFileV2 = Tool[WorkspaceReadFileV2Args, WorkspaceReadFileV2Result]{
 	Tool: aisdk.Tool{
 		Name:        ToolNameWorkspaceReadFileV2,
-		Description: `Read a workspace file. Text mode is the default and uses 1-based line offsets with line-numbered output. Set binary=true for byte offsets and base64 content.`,
+		Description: `Read a workspace file. Text mode is the default and uses 1-based line offsets while preserving the literal file text. Set binary=true for byte offsets and base64 content. limit is optional; when omitted the complete remaining content is returned.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
 				"workspace": map[string]any{"type": "string", "description": workspaceAgentDescription},
 				"path":      map[string]any{"type": "string", "description": "Absolute file path."},
 				"offset":    map[string]any{"type": "integer", "description": "Text: 1-based line number (default 1). Binary: 0-based byte offset (default 0).", "minimum": 0},
-				"limit":     map[string]any{"type": "integer", "description": "Text: lines (default 200). Binary: bytes (default 65536, maximum 1 MiB).", "minimum": 1},
-				"binary":    map[string]any{"type": "boolean", "description": "Read bytes and return base64 instead of line-numbered text."},
+				"limit":     map[string]any{"type": "integer", "description": "Optional amount to read. Text: line count. Binary: byte count. If omitted, read the complete remaining content from offset.", "minimum": 1},
+				"binary":    map[string]any{"type": "boolean", "description": "Read bytes and return base64 instead of literal text."},
 			},
 			Required: []string{"workspace", "path"},
 		},
@@ -262,9 +330,8 @@ var WorkspaceReadFilesV2 = Tool[WorkspaceReadFilesV2Args, WorkspaceReadFilesV2Re
 				"workspace": map[string]any{"type": "string", "description": workspaceAgentDescription},
 				"files": map[string]any{
 					"type":        "array",
-					"description": "Up to 20 file read specifications.",
+					"description": "One or more file read specifications.",
 					"minItems":    1,
-					"maxItems":    20,
 					"items": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
@@ -283,8 +350,8 @@ var WorkspaceReadFilesV2 = Tool[WorkspaceReadFilesV2Args, WorkspaceReadFilesV2Re
 	MCPAnnotations:     mcpReadOnlyAnnotations,
 	UserClientOptional: true,
 	Handler: func(ctx context.Context, deps Deps, args WorkspaceReadFilesV2Args) (WorkspaceReadFilesV2Result, error) {
-		if len(args.Files) == 0 || len(args.Files) > 20 {
-			return WorkspaceReadFilesV2Result{}, xerrors.New("files must contain between 1 and 20 entries")
+		if len(args.Files) == 0 {
+			return WorkspaceReadFilesV2Result{}, xerrors.New("files must contain at least one entry")
 		}
 		conn, err := openAgentConn(ctx, deps, args.Workspace)
 		if err != nil {
@@ -312,7 +379,12 @@ type WorkspaceWriteFileV2Args struct {
 	Encoding  string `json:"encoding,omitempty"`
 }
 
-var WorkspaceWriteFileV2 = Tool[WorkspaceWriteFileV2Args, codersdk.Response]{
+type WorkspaceWriteFileV2Result struct {
+	Path         string `json:"path"`
+	BytesWritten int    `json:"bytes_written"`
+}
+
+var WorkspaceWriteFileV2 = Tool[WorkspaceWriteFileV2Args, WorkspaceWriteFileV2Result]{
 	Tool: aisdk.Tool{
 		Name:        ToolNameWorkspaceWriteFileV2,
 		Description: `Write a complete workspace file. Content is UTF-8 text by default; set encoding=base64 for binary bytes. This tool replaces the file and never appends.`,
@@ -326,9 +398,9 @@ var WorkspaceWriteFileV2 = Tool[WorkspaceWriteFileV2Args, codersdk.Response]{
 			Required: []string{"workspace", "path", "content"},
 		},
 	},
-	MCPAnnotations:     mcpDestructiveAnnotations,
+	MCPAnnotations:     mcpDestructiveIdempotentAnnotations,
 	UserClientOptional: true,
-	Handler: func(ctx context.Context, deps Deps, args WorkspaceWriteFileV2Args) (codersdk.Response, error) {
+	Handler: func(ctx context.Context, deps Deps, args WorkspaceWriteFileV2Args) (WorkspaceWriteFileV2Result, error) {
 		encoding := args.Encoding
 		if encoding == "" {
 			encoding = "text"
@@ -340,21 +412,21 @@ var WorkspaceWriteFileV2 = Tool[WorkspaceWriteFileV2Args, codersdk.Response]{
 		case "base64":
 			decoded, err := base64.StdEncoding.DecodeString(args.Content)
 			if err != nil {
-				return codersdk.Response{}, xerrors.Errorf("decode base64 content: %w", err)
+				return WorkspaceWriteFileV2Result{}, xerrors.Errorf("decode base64 content: %w", err)
 			}
 			data = decoded
 		default:
-			return codersdk.Response{}, xerrors.New("encoding must be text or base64")
+			return WorkspaceWriteFileV2Result{}, xerrors.New("encoding must be text or base64")
 		}
 		conn, err := openAgentConn(ctx, deps, args.Workspace)
 		if err != nil {
-			return codersdk.Response{}, err
+			return WorkspaceWriteFileV2Result{}, err
 		}
 		defer conn.Close()
 		if err := conn.WriteFile(ctx, args.Path, bytes.NewReader(data)); err != nil {
-			return codersdk.Response{}, err
+			return WorkspaceWriteFileV2Result{}, err
 		}
-		return codersdk.Response{Message: "File written successfully."}, nil
+		return WorkspaceWriteFileV2Result{Path: args.Path, BytesWritten: len(data)}, nil
 	},
 }
 
@@ -393,7 +465,12 @@ type WorkspaceCreateDirectoryArgs struct {
 	Parents   bool   `json:"parents,omitempty"`
 }
 
-var WorkspaceCreateDirectory = Tool[WorkspaceCreateDirectoryArgs, codersdk.Response]{
+type WorkspaceCreateDirectoryResult struct {
+	Path    string `json:"path"`
+	Created bool   `json:"created"`
+}
+
+var WorkspaceCreateDirectory = Tool[WorkspaceCreateDirectoryArgs, WorkspaceCreateDirectoryResult]{
 	Tool: aisdk.Tool{
 		Name:        ToolNameWorkspaceCreateDirectory,
 		Description: `Create a directory in a workspace. Existing directories are treated as success.`,
@@ -406,18 +483,29 @@ var WorkspaceCreateDirectory = Tool[WorkspaceCreateDirectoryArgs, codersdk.Respo
 			Required: []string{"workspace", "path"},
 		},
 	},
-	MCPAnnotations:     mcpMutationAnnotations,
+	MCPAnnotations:     mcpMutationIdempotentAnnotations,
 	UserClientOptional: true,
-	Handler: func(ctx context.Context, deps Deps, args WorkspaceCreateDirectoryArgs) (codersdk.Response, error) {
+	Handler: func(ctx context.Context, deps Deps, args WorkspaceCreateDirectoryArgs) (WorkspaceCreateDirectoryResult, error) {
 		conn, err := openAgentConn(ctx, deps, args.Workspace)
 		if err != nil {
-			return codersdk.Response{}, err
+			return WorkspaceCreateDirectoryResult{}, err
 		}
 		defer conn.Close()
-		if err := conn.CreateDirectory(ctx, workspacesdk.CreateDirectoryRequest{Path: args.Path, Parents: args.Parents}); err != nil {
-			return codersdk.Response{}, err
+
+		info, infoErr := conn.FileInfo(ctx, args.Path)
+		if infoErr == nil {
+			if !info.IsDir {
+				return WorkspaceCreateDirectoryResult{}, xerrors.Errorf("path %q already exists and is not a directory", args.Path)
+			}
+			return WorkspaceCreateDirectoryResult{Path: args.Path, Created: false}, nil
 		}
-		return codersdk.Response{Message: "Directory created."}, nil
+		if !isWorkspaceFileNotFound(infoErr) {
+			return WorkspaceCreateDirectoryResult{}, xerrors.Errorf("inspect directory path: %w", infoErr)
+		}
+		if err := conn.CreateDirectory(ctx, workspacesdk.CreateDirectoryRequest{Path: args.Path, Parents: args.Parents}); err != nil {
+			return WorkspaceCreateDirectoryResult{}, err
+		}
+		return WorkspaceCreateDirectoryResult{Path: args.Path, Created: true}, nil
 	},
 }
 
@@ -428,7 +516,12 @@ type WorkspaceMoveFileArgs struct {
 	Overwrite bool   `json:"overwrite,omitempty"`
 }
 
-var WorkspaceMoveFile = Tool[WorkspaceMoveFileArgs, codersdk.Response]{
+type WorkspaceMoveFileResult struct {
+	Source string `json:"source"`
+	Dest   string `json:"dest"`
+}
+
+var WorkspaceMoveFile = Tool[WorkspaceMoveFileArgs, WorkspaceMoveFileResult]{
 	Tool: aisdk.Tool{
 		Name:        ToolNameWorkspaceMoveFile,
 		Description: `Move or rename a workspace file or directory without shell quoting. Destination overwrite is disabled by default.`,
@@ -444,18 +537,18 @@ var WorkspaceMoveFile = Tool[WorkspaceMoveFileArgs, codersdk.Response]{
 	},
 	MCPAnnotations:     mcpDestructiveAnnotations,
 	UserClientOptional: true,
-	Handler: func(ctx context.Context, deps Deps, args WorkspaceMoveFileArgs) (codersdk.Response, error) {
+	Handler: func(ctx context.Context, deps Deps, args WorkspaceMoveFileArgs) (WorkspaceMoveFileResult, error) {
 		if filepath.Clean(args.Source) == filepath.Clean(args.Dest) {
-			return codersdk.Response{Message: "Source and destination are identical."}, nil
+			return WorkspaceMoveFileResult{Source: args.Source, Dest: args.Dest}, nil
 		}
 		conn, err := openAgentConn(ctx, deps, args.Workspace)
 		if err != nil {
-			return codersdk.Response{}, err
+			return WorkspaceMoveFileResult{}, err
 		}
 		defer conn.Close()
 		if err := conn.MoveFile(ctx, workspacesdk.MoveFileRequest{Source: args.Source, Dest: args.Dest, Overwrite: args.Overwrite}); err != nil {
-			return codersdk.Response{}, err
+			return WorkspaceMoveFileResult{}, err
 		}
-		return codersdk.Response{Message: "Path moved."}, nil
+		return WorkspaceMoveFileResult{Source: args.Source, Dest: args.Dest}, nil
 	},
 }

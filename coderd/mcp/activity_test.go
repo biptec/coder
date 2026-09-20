@@ -1,3 +1,4 @@
+//nolint:testpackage // tests intentionally exercise unexported activity-store helpers.
 package mcp
 
 import (
@@ -22,38 +23,76 @@ func TestActivityStoreRetentionAndRunningVisibility(t *testing.T) {
 
 	store := NewActivityStore(3)
 	userID := "user-a"
-	runningID := store.Start(userID, "exec", "owner/workspace")
-	require.NotEmpty(t, runningID)
 
 	for i := 0; i < 5; i++ {
-		id := store.Start(userID, "process_start", "owner/workspace")
+		id := store.Start(userID, "start_process", "owner/workspace")
 		result := mcpgo.NewToolResultText(fmt.Sprintf(`{"process_id":"process-%d","ignored_secret":"do-not-store"}`, i))
 		store.Finish(userID, id, "success", result)
 	}
+	runningID := store.Start(userID, "exec", "owner/workspace")
+	require.NotEmpty(t, runningID)
 
-	records := store.List(userID, "", 3)
-	require.Len(t, records, 4, "three completed records plus the still-running record")
-
-	runningFound := false
-	for _, rec := range records {
-		if rec.ID == runningID {
-			runningFound = true
-			require.Equal(t, "running", rec.Status)
-			require.Empty(t, rec.FinishedAt)
-		}
-		require.NotContains(t, rec.Summary, "do-not-store")
-	}
-	require.True(t, runningFound)
+	records := store.List(userID, "owner/workspace", 3)
+	require.Len(t, records, 3, "limit applies to all records, including running calls")
+	require.Equal(t, runningID, records[0].ID)
+	require.Equal(t, "running", records[0].Status)
+	require.Empty(t, records[0].FinishedAt)
 
 	completed := 0
 	for _, rec := range records {
+		require.NotContains(t, rec.Summary, "do-not-store")
 		if rec.Status != "running" {
 			completed++
 			require.NotEmpty(t, rec.ProcessID)
 		}
 	}
-	require.Equal(t, 3, completed)
-	require.Empty(t, store.List("different-user", "", 3), "activity must be isolated by authenticated user")
+	require.Equal(t, 2, completed)
+	require.Empty(t, store.List("different-user", "owner/workspace", 3), "activity must be isolated by authenticated user")
+}
+
+func TestActivityStorePageStableCursor(t *testing.T) {
+	t.Parallel()
+
+	store := NewActivityStore(20)
+	userID := "user-a"
+	workspace := "owner/workspace"
+	ids := make([]string, 0, 5)
+	for i := 0; i < 5; i++ {
+		id := store.Start(userID, "read_file", workspace)
+		store.Finish(userID, id, "success", nil)
+		ids = append(ids, id)
+	}
+
+	first, err := store.Page(userID, workspace, 2, "")
+	require.NoError(t, err)
+	require.Len(t, first.Records, 2)
+	require.Equal(t, []string{ids[4], ids[3]}, []string{first.Records[0].ID, first.Records[1].ID})
+	require.True(t, first.HasMore)
+	require.NotEmpty(t, first.NextCursor)
+
+	// A new record arriving after page one must not shift the continuation.
+	newID := store.Start(userID, "write_file", workspace)
+	store.Finish(userID, newID, "success", nil)
+
+	second, err := store.Page(userID, workspace, 2, first.NextCursor)
+	require.NoError(t, err)
+	require.Len(t, second.Records, 2)
+	require.Equal(t, []string{ids[2], ids[1]}, []string{second.Records[0].ID, second.Records[1].ID})
+	require.True(t, second.HasMore)
+	require.NotEmpty(t, second.NextCursor)
+
+	third, err := store.Page(userID, workspace, 2, second.NextCursor)
+	require.NoError(t, err)
+	require.Len(t, third.Records, 1)
+	require.Equal(t, ids[0], third.Records[0].ID)
+	require.False(t, third.HasMore)
+	require.Empty(t, third.NextCursor)
+
+	_, err = store.Page(userID, workspace, 2, "not-a-cursor")
+	require.ErrorContains(t, err, "invalid activity cursor")
+
+	_, err = store.Page(userID, "owner/other", 2, first.NextCursor)
+	require.ErrorContains(t, err, "no longer available")
 }
 
 func TestActivityTrackingPropagatesInvocationMetadata(t *testing.T) {
@@ -116,10 +155,10 @@ func TestActivityTrackingPersistsWorkspaceToolCallsWithoutDuplicatingCommands(t 
 		return mcpgo.NewToolResultText("ok"), nil
 	}
 
-	processOutput := s.withActivityTracking(server.ServerTool{Handler: okHandler}, "process_output")
+	processOutput := s.withActivityTracking(server.ServerTool{Handler: okHandler}, "read_process_output")
 	_, err := processOutput.Handler(context.Background(), request)
 	require.NoError(t, err)
-	require.Equal(t, []string{"process_output@owner/workspace"}, recorder.starts)
+	require.Equal(t, []string{"read_process_output@owner/workspace"}, recorder.starts)
 	require.Len(t, recorder.inputs, 1)
 	require.Contains(t, recorder.inputs[0], `"process_id":"process-123"`)
 	require.Contains(t, recorder.inputs[0], `"wait_timeout_ms":10000`)
@@ -135,7 +174,7 @@ func TestActivityTrackingPersistsWorkspaceToolCallsWithoutDuplicatingCommands(t 
 	execTool := s.withActivityTracking(server.ServerTool{Handler: okHandler}, "exec")
 	_, err = execTool.Handler(context.Background(), execRequest)
 	require.NoError(t, err)
-	require.Equal(t, []string{"process_output@owner/workspace", "exec@owner/workspace"}, recorder.starts)
+	require.Equal(t, []string{"read_process_output@owner/workspace", "exec@owner/workspace"}, recorder.starts)
 	require.Equal(t, []bool{true, false}, recorder.persistTools, "command tools need an MCP request span but no duplicate user-facing tool row")
 	require.Equal(t, []string{"", toolsdk.CommandActivityCorrelation("", []string{"echo", "hello"})}, recorder.correlations)
 	require.Len(t, recorder.finishes, 2)
@@ -179,7 +218,7 @@ func TestPersistentActivityContentIsCompleteAndSecretsAreRedacted(t *testing.T) 
 
 	result := mcpgo.NewToolResultText(large)
 	require.Equal(t, large, persistentActivityOutput("read_file", result))
-	require.Empty(t, persistentActivityOutput("process_output", result))
+	require.Empty(t, persistentActivityOutput("read_process_output", result))
 }
 
 func TestPersistAsToolActivity(t *testing.T) {
@@ -187,8 +226,8 @@ func TestPersistAsToolActivity(t *testing.T) {
 
 	for _, toolName := range []string{
 		"exec",
-		"bash",
-		"process_start",
+		"execute_shell_command",
+		"start_process",
 		toolsdk.ToolNameWorkspaceExec,
 		toolsdk.ToolNameWorkspaceBash,
 		toolsdk.ToolNameWorkspaceProcessStart,
@@ -197,10 +236,10 @@ func TestPersistAsToolActivity(t *testing.T) {
 		require.False(t, persistAsToolActivity(toolName), toolName)
 	}
 	for _, toolName := range []string{
-		"process_output",
-		"process_list",
+		"read_process_output",
+		"list_sessions",
 		"read_file",
-		"search_results",
+		"get_search_results",
 		toolsdk.ToolNameWorkspaceProcessOutput,
 	} {
 		require.True(t, persistAsToolActivity(toolName), toolName)
@@ -212,18 +251,20 @@ func TestActivityToolNames(t *testing.T) {
 
 	developer := ActivityToolNames(codersdk.MCPToolsetDeveloper)
 	require.True(t, sort.StringsAreSorted(developer))
-	for _, toolName := range []string{"exec", "process_output", "read_file", "capabilities", "recent_activity"} {
+	require.Len(t, developer, 25)
+	for _, toolName := range []string{"start_process", "execute_shell_command", "read_process_output", "read_file", "get_workspace_capabilities", "list_recent_tool_calls"} {
 		require.Contains(t, developer, toolName)
 	}
+	require.NotContains(t, developer, "exec")
 
 	readonly := ActivityToolNames(codersdk.MCPToolsetReadonly)
-	require.Contains(t, readonly, "process_output")
+	require.Contains(t, readonly, "read_process_output")
 	require.Contains(t, readonly, "read_file")
-	require.Contains(t, readonly, "capabilities")
-	require.Contains(t, readonly, "recent_activity")
+	require.Contains(t, readonly, "get_workspace_capabilities")
+	require.Contains(t, readonly, "list_recent_tool_calls")
 	require.NotContains(t, readonly, "exec")
 	require.NotContains(t, readonly, "write_file")
-	require.NotContains(t, readonly, "process_signal")
+	require.NotContains(t, readonly, "signal_process")
 }
 
 func TestActivityStoreWorkspaceFilter(t *testing.T) {

@@ -1767,6 +1767,100 @@ func TestEditFiles_FileResults(t *testing.T) {
 		require.Contains(t, resp.Files[0].Diff, "--- "+linkPath+"\n")
 		require.Contains(t, resp.Files[0].Diff, "+++ "+linkPath+"\n")
 	})
+
+	t.Run("DryRunSingleFileReturnsDiffWithoutWriting", func(t *testing.T) {
+		t.Parallel()
+
+		fs := afero.NewMemMapFs()
+		api := agentfiles.NewAPI(logger, fs, nil)
+		path := filepath.Join(tmpdir, "dry-run-single")
+		original := []byte("hello world\n")
+		require.NoError(t, afero.WriteFile(fs, path, original, 0o644))
+
+		resp := runEditFiles(t, api, workspacesdk.FileEditRequest{
+			IncludeDiff: true,
+			DryRun:      true,
+			Files: []workspacesdk.FileEdits{{
+				Path:  path,
+				Edits: []workspacesdk.FileEdit{{Search: "hello", Replace: "HELLO"}},
+			}},
+		})
+		require.Len(t, resp.Files, 1)
+		require.Contains(t, resp.Files[0].Diff, "-hello world")
+		require.Contains(t, resp.Files[0].Diff, "+HELLO world")
+
+		got, err := afero.ReadFile(fs, path)
+		require.NoError(t, err)
+		require.Equal(t, original, got, "dry-run must not change file bytes")
+	})
+
+	t.Run("DryRunMultipleFilesLeavesEveryFileUnchanged", func(t *testing.T) {
+		t.Parallel()
+
+		fs := afero.NewMemMapFs()
+		api := agentfiles.NewAPI(logger, fs, nil)
+		pathA := filepath.Join(tmpdir, "dry-run-a")
+		pathB := filepath.Join(tmpdir, "dry-run-b")
+		originalA := []byte("alpha\n")
+		originalB := []byte("beta\n")
+		require.NoError(t, afero.WriteFile(fs, pathA, originalA, 0o644))
+		require.NoError(t, afero.WriteFile(fs, pathB, originalB, 0o600))
+
+		resp := runEditFiles(t, api, workspacesdk.FileEditRequest{
+			IncludeDiff: true,
+			DryRun:      true,
+			Files: []workspacesdk.FileEdits{
+				{Path: pathA, Edits: []workspacesdk.FileEdit{{Search: "alpha", Replace: "ALPHA"}}},
+				{Path: pathB, Edits: []workspacesdk.FileEdit{{Search: "beta", Replace: "BETA"}}},
+			},
+		})
+		require.Len(t, resp.Files, 2)
+		require.Contains(t, resp.Files[0].Diff, "+ALPHA")
+		require.Contains(t, resp.Files[1].Diff, "+BETA")
+
+		gotA, err := afero.ReadFile(fs, pathA)
+		require.NoError(t, err)
+		gotB, err := afero.ReadFile(fs, pathB)
+		require.NoError(t, err)
+		require.Equal(t, originalA, gotA)
+		require.Equal(t, originalB, gotB)
+	})
+
+	t.Run("DryRunValidationFailureLeavesFilesUnchanged", func(t *testing.T) {
+		t.Parallel()
+
+		fs := afero.NewMemMapFs()
+		api := agentfiles.NewAPI(logger, fs, nil)
+		pathA := filepath.Join(tmpdir, "dry-run-valid")
+		pathB := filepath.Join(tmpdir, "dry-run-invalid")
+		originalA := []byte("change me\n")
+		originalB := []byte("no target here\n")
+		require.NoError(t, afero.WriteFile(fs, pathA, originalA, 0o644))
+		require.NoError(t, afero.WriteFile(fs, pathB, originalB, 0o644))
+
+		request := workspacesdk.FileEditRequest{
+			IncludeDiff: true,
+			DryRun:      true,
+			Files: []workspacesdk.FileEdits{
+				{Path: pathA, Edits: []workspacesdk.FileEdit{{Search: "change", Replace: "CHANGE"}}},
+				{Path: pathB, Edits: []workspacesdk.FileEdit{{Search: "missing", Replace: "MISSING"}}},
+			},
+		}
+		body, err := json.Marshal(request)
+		require.NoError(t, err)
+		ctx := testutil.Context(t, testutil.WaitShort)
+		w := httptest.NewRecorder()
+		r := httptest.NewRequestWithContext(ctx, http.MethodPost, "/edit-files", bytes.NewReader(body))
+		api.Routes().ServeHTTP(w, r)
+		require.NotEqual(t, http.StatusOK, w.Code)
+
+		gotA, err := afero.ReadFile(fs, pathA)
+		require.NoError(t, err)
+		gotB, err := afero.ReadFile(fs, pathB)
+		require.NoError(t, err)
+		require.Equal(t, originalA, gotA)
+		require.Equal(t, originalB, gotB)
+	})
 }
 
 // runEditFiles issues a single POST /edit-files call against api and

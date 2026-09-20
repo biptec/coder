@@ -1,3 +1,4 @@
+//nolint:testpackage // tests intentionally exercise unexported advisory helpers.
 package toolsdk
 
 import (
@@ -93,9 +94,11 @@ func TestCommandAdvisories(t *testing.T) {
 func TestAdvisoryIsSeparateFromCommandOutput(t *testing.T) {
 	t.Parallel()
 
-	result := WorkspaceBashResult{
+	exitCode := 0
+	result := WorkspaceProcessResult{
 		Output:     `{"status":"ok"}`,
-		ExitCode:   0,
+		ExitCode:   &exitCode,
+		ProcessID:  "process-1",
 		Advisories: commandAdvisories(`sudo -n true`),
 	}
 
@@ -104,6 +107,8 @@ func TestAdvisoryIsSeparateFromCommandOutput(t *testing.T) {
 	require.JSONEq(t, `{
 		"output":"{\"status\":\"ok\"}",
 		"exit_code":0,
+		"process_id":"process-1",
+		"running":false,
 		"advisories":[{
 			"code":"SUDO_EPHEMERAL_ROOTFS",
 			"message":"This workspace's system filesystem is ephemeral. In the standard Developer Workspace, only /home/coder is persistent across workspace recreation. Treat changes made with sudo outside /home/coder as temporary; they will be lost when the workspace is recreated. Prefer durable tools and dependencies under $HOME, and use sudo for system changes only when they are intentionally temporary."

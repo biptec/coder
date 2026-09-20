@@ -107,6 +107,7 @@ type AgentConn interface {
 	GetPeerDiagnostics() tailnet.PeerDiagnostics
 	ListContainers(ctx context.Context) (codersdk.WorkspaceAgentListContainersResponse, error)
 	ListProcesses(ctx context.Context) (ListProcessesResponse, error)
+	ListSystemProcesses(ctx context.Context) (ListSystemProcessesResponse, error)
 	ListeningPorts(ctx context.Context) (codersdk.WorkspaceAgentListeningPortsResponse, error)
 	Netcheck(ctx context.Context) (healthsdk.AgentNetcheckReport, error)
 	Ping(ctx context.Context) (time.Duration, bool, *ipnstate.PingResult, error)
@@ -866,8 +867,8 @@ func (c *agentConn) RecreateDevcontainer(ctx context.Context, devcontainerID str
 	return m, nil
 }
 
-// MaxProcessInputBytes is the maximum initial or incremental stdin payload
-// accepted by the workspace process API in a single request.
+// MaxProcessInputBytes is the legacy coder_workspace_exec client-side stdin cap.
+// The assistant-facing durable process API does not impose this arbitrary limit.
 const MaxProcessInputBytes = 1 << 20
 
 // MCPToolEnvironmentVariable carries MCP tool attribution across SSH session
@@ -893,6 +894,14 @@ type StartProcessRequest struct {
 	// Stdin is delivered once at process start. For non-interactive processes it
 	// is followed by EOF. For interactive processes the stdin pipe remains open.
 	Stdin string `json:"stdin,omitempty"`
+	// Host enables execution through the workspace's OpenSSH client. It accepts
+	// an explicit host or user@host target and is never interpreted as shell text.
+	Host string `json:"host,omitempty"`
+	// IdentityFile is an optional absolute path inside the workspace to an SSH
+	// private key. It is input-only and is never returned in process metadata.
+	IdentityFile string `json:"identity_file,omitempty"`
+	// Port overrides the SSH destination port. Zero uses OpenSSH configuration/defaults.
+	Port int `json:"port,omitempty"`
 }
 
 // StartProcessResponse is returned when a process is started.
@@ -907,12 +916,34 @@ type ListProcessesResponse struct {
 	Processes []ProcessInfo `json:"processes"`
 }
 
+// ListSystemProcessesResponse contains a point-in-time snapshot of operating
+// system processes visible to the workspace agent.
+type ListSystemProcessesResponse struct {
+	Processes []SystemProcessInfo `json:"processes"`
+}
+
+// SystemProcessInfo describes an operating system process. Unlike ProcessInfo,
+// these entries are not necessarily processes started or tracked by Coder.
+type SystemProcessInfo struct {
+	PID            int32    `json:"pid"`
+	PPID           int32    `json:"ppid"`
+	Username       string   `json:"username,omitempty"`
+	CPUPercent     float64  `json:"cpu_percent"`
+	MemoryPercent  float32  `json:"memory_percent"`
+	StartedAtUnix  int64    `json:"started_at_unix,omitempty"`
+	ElapsedSeconds int64    `json:"elapsed_seconds,omitempty"`
+	Command        string   `json:"command,omitempty"`
+	Argv           []string `json:"argv,omitempty"`
+}
+
 // ProcessInfo describes a tracked process on the agent.
 type ProcessInfo struct {
 	ID          string   `json:"id"`
 	Command     string   `json:"command,omitempty"`
 	Argv        []string `json:"argv,omitempty"`
 	WorkDir     string   `json:"workdir,omitempty"`
+	Host        string   `json:"host,omitempty"`
+	Port        int      `json:"port,omitempty"`
 	Tool        string   `json:"tool,omitempty"`
 	Background  bool     `json:"background"`
 	Interactive bool     `json:"interactive,omitempty"`
@@ -1403,6 +1434,13 @@ type FileEditRequest struct {
 	// and return it in FileEditResponse.Files[i].Diff. When false
 	// (default) the agent skips diff computation and Files is nil.
 	IncludeDiff bool `json:"include_diff,omitempty"`
+	// DryRun validates and computes the edit result without writing files or
+	// recording edited paths. It shares the apply preparation path.
+	DryRun bool `json:"dry_run,omitempty"`
+	// ExactOnly disables the Agent's legacy whitespace-tolerant fuzzy apply.
+	// Assistant-facing edit tools set this so tolerant matching is diagnostic
+	// only and never changes a file unless the requested search matches exactly.
+	ExactOnly bool `json:"exact_only,omitempty"`
 }
 
 // FileEditResponse is the success response for the edit-files endpoint.
@@ -1509,6 +1547,23 @@ func (c *agentConn) ListProcesses(ctx context.Context) (ListProcessesResponse, e
 		return ListProcessesResponse{}, codersdk.ReadBodyAsError(res)
 	}
 	var resp ListProcessesResponse
+	return resp, json.NewDecoder(res.Body).Decode(&resp)
+}
+
+// ListSystemProcesses returns a point-in-time snapshot of operating system
+// processes visible to the workspace agent.
+func (c *agentConn) ListSystemProcesses(ctx context.Context) (ListSystemProcessesResponse, error) {
+	ctx, span := tracing.StartSpan(ctx)
+	defer span.End()
+	res, err := c.apiRequest(ctx, http.MethodGet, "/api/v0/processes/system", nil)
+	if err != nil {
+		return ListSystemProcessesResponse{}, xerrors.Errorf("do request: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return ListSystemProcessesResponse{}, codersdk.ReadBodyAsError(res)
+	}
+	var resp ListSystemProcessesResponse
 	return resp, json.NewDecoder(res.Body).Decode(&resp)
 }
 

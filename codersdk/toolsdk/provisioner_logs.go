@@ -16,6 +16,7 @@ const (
 	defaultProvisionerLogLimit = 200
 	maxProvisionerLogLimit     = 1000
 	provisionerLogPollInterval = 500 * time.Millisecond
+	defaultProvisionerLogWait  = 10 * time.Second
 )
 
 // ProvisionerLogObservationResult is a bounded snapshot of provisioner logs.
@@ -75,7 +76,11 @@ func observeProvisionerLogs(
 	if cursor < 0 {
 		return ProvisionerLogObservationResult{}, xerrors.New("cursor cannot be negative")
 	}
-	wait, err := workspaceProcessWaitDuration(waitTimeoutMs)
+	if waitTimeoutMs == nil {
+		defaultWaitMs := int(defaultProvisionerLogWait.Milliseconds())
+		waitTimeoutMs = &defaultWaitMs
+	}
+	wait, err := workspaceProcessWaitDuration(waitTimeoutMs, budget.max)
 	if err != nil {
 		return ProvisionerLogObservationResult{}, err
 	}

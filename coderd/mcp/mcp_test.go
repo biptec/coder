@@ -131,12 +131,15 @@ func (r *traceEventRecorder) TransportEntered(context.Context, string) { r.add("
 func (r *traceEventRecorder) Parsed(_ context.Context, method mcp.MCPMethod, _, _ string) {
 	r.add("parsed:" + string(method))
 }
+
 func (r *traceEventRecorder) Dispatched(_ context.Context, method mcp.MCPMethod, _, tool string) {
 	r.add("dispatched:" + string(method) + ":" + tool)
 }
+
 func (r *traceEventRecorder) HandlerStarted(_ context.Context, tool string) {
 	r.add("handler_started:" + tool)
 }
+
 func (r *traceEventRecorder) HandlerFinished(_ context.Context, tool string) {
 	r.add("handler_finished:" + tool)
 }
@@ -144,6 +147,7 @@ func (r *traceEventRecorder) MCPFinished(context.Context) { r.add("mcp_finished"
 func (r *traceEventRecorder) SessionRegistered(_ context.Context, sessionID string) {
 	r.add("session_registered:" + sessionID)
 }
+
 func (r *traceEventRecorder) SessionUnregistered(_ context.Context, sessionID string) {
 	r.add("session_unregistered:" + sessionID)
 }
@@ -198,8 +202,8 @@ func TestMCPHTTP_TraceLifecycle(t *testing.T) {
 		"id":      2,
 		"method":  "tools/call",
 		"params": map[string]any{
-			"name":      "recent_activity",
-			"arguments": map[string]any{},
+			"name":      "list_recent_tool_calls",
+			"arguments": map[string]any{"workspace": "owner/workspace", "limit": 10},
 		},
 	})
 	require.NoError(t, err)
@@ -216,9 +220,9 @@ func TestMCPHTTP_TraceLifecycle(t *testing.T) {
 	require.Equal(t, []string{
 		"transport",
 		"parsed:tools/call",
-		"dispatched:tools/call:recent_activity",
-		"handler_started:recent_activity",
-		"handler_finished:recent_activity",
+		"dispatched:tools/call:list_recent_tool_calls",
+		"handler_started:list_recent_tool_calls",
+		"handler_finished:list_recent_tool_calls",
 		"mcp_finished",
 	}, callEvents)
 }

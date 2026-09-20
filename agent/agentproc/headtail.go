@@ -21,9 +21,6 @@ const (
 	// cursor-based process output. It is separate from the legacy head+tail view.
 	MaxStreamBytes = 64 << 10 // 64KB
 
-	// DefaultIncrementalLimit bounds bytes returned by one cursor read.
-	DefaultIncrementalLimit = 32 << 10 // 32KB
-
 	// MaxLineLength is the maximum length of a single line
 	// before it is truncated. This prevents minified files
 	// or other long single-line output from consuming the
@@ -175,9 +172,6 @@ func (b *HeadTailBuffer) ReadSince(cursor int64, limit int) (output string, next
 	if cursor < 0 {
 		cursor = 0
 	}
-	if limit <= 0 || limit > DefaultIncrementalLimit {
-		limit = DefaultIncrementalLimit
-	}
 	total := int64(b.totalBytes)
 	stream := b.streamBytes()
 	availableStart := total - int64(len(stream))
@@ -194,7 +188,7 @@ func (b *HeadTailBuffer) ReadSince(cursor int64, limit int) (output string, next
 		remaining = 0
 	}
 	take := remaining
-	if take > limit {
+	if limit > 0 && take > limit {
 		take = limit
 	}
 	if take > 0 {

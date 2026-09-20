@@ -30,9 +30,7 @@ func filesystemStatus(err error) int {
 	}
 }
 
-const maxListDirectoryEntries = 5000
-
-var errDirectoryPageFull = errors.New("directory page full")
+var errDirectoryPageFull = xerrors.New("directory page full")
 
 func (api *API) fileInfo(path string) (workspacesdk.WorkspaceFileInfo, error) {
 	var (
@@ -71,19 +69,16 @@ func (api *API) HandleListDirectoryV2(rw http.ResponseWriter, r *http.Request) {
 	if req.Depth == 0 {
 		req.Depth = 1
 	}
-	if req.Depth < 1 || req.Depth > 10 {
-		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: "depth must be between 1 and 10"})
+	if req.Depth < 1 {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: "depth must be positive"})
 		return
 	}
-	if req.Cursor < 0 || req.Cursor > maxListDirectoryEntries {
-		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: "cursor must be between 0 and 5000"})
+	if req.Cursor < 0 {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: "cursor cannot be negative"})
 		return
 	}
-	if req.Limit == 0 {
-		req.Limit = 200
-	}
-	if req.Limit < 1 || req.Limit > 1000 {
-		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: "limit must be between 1 and 1000"})
+	if req.Limit < 0 {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: "limit cannot be negative"})
 		return
 	}
 	root, err := api.fileInfo(req.Path)
@@ -96,7 +91,7 @@ func (api *API) HandleListDirectoryV2(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entries := make([]workspacesdk.WorkspaceFileInfo, 0, req.Limit)
+	entries := make([]workspacesdk.WorkspaceFileInfo, 0)
 	seen := 0
 	hasMore := false
 	var walk func(string, int) error
@@ -109,15 +104,12 @@ func (api *API) HandleListDirectoryV2(rw http.ResponseWriter, r *http.Request) {
 			if !req.IncludeHidden && strings.HasPrefix(entry.Name, ".") {
 				continue
 			}
-			if seen >= maxListDirectoryEntries {
-				return xerrors.Errorf("directory traversal exceeds %d entries; reduce depth or narrow the path", maxListDirectoryEntries)
-			}
 			info, err := api.fileInfo(entry.AbsolutePathString)
 			if err != nil {
 				return err
 			}
 			if seen >= req.Cursor {
-				if len(entries) >= req.Limit {
+				if req.Limit > 0 && len(entries) >= req.Limit {
 					hasMore = true
 					return errDirectoryPageFull
 				}

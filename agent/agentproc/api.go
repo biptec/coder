@@ -85,6 +85,7 @@ func (api *API) Routes() http.Handler {
 	r := chi.NewRouter()
 	r.Post("/start", api.handleStartProcess)
 	r.Get("/list", api.handleListProcesses)
+	r.Get("/system", api.handleListSystemProcesses)
 	r.Get("/{id}/output", api.handleProcessOutput)
 	r.Post("/{id}/input", api.handleProcessInput)
 	r.Post("/{id}/signal", api.handleSignalProcess)
@@ -113,12 +114,6 @@ func (api *API) handleStartProcess(rw http.ResponseWriter, r *http.Request) {
 	if len(req.Argv) > 0 && req.Argv[0] == "" {
 		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
 			Message: "argv[0] must not be empty.",
-		})
-		return
-	}
-	if len(req.Stdin) > workspacesdk.MaxProcessInputBytes {
-		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
-			Message: fmt.Sprintf("stdin cannot exceed %d bytes.", workspacesdk.MaxProcessInputBytes),
 		})
 		return
 	}
@@ -171,17 +166,35 @@ func (api *API) handleListProcesses(rw http.ResponseWriter, r *http.Request) {
 
 	infos := api.manager.list(chatID)
 
-	// Sort by running state (running first), then by started_at
-	// descending so the most recent processes appear first.
+	// Sessions have one stable natural order: newest start first. Running state
+	// does not reorder history because that would move entries between pages.
 	sort.Slice(infos, func(i, j int) bool {
-		if infos[i].Running != infos[j].Running {
-			return infos[i].Running
+		if infos[i].StartedAt != infos[j].StartedAt {
+			return infos[i].StartedAt > infos[j].StartedAt
 		}
-		return infos[i].StartedAt > infos[j].StartedAt
+		return infos[i].ID < infos[j].ID
 	})
 
 	httpapi.Write(ctx, rw, http.StatusOK, workspacesdk.ListProcessesResponse{
 		Processes: infos,
+	})
+}
+
+// handleListSystemProcesses lists operating system processes visible to the
+// workspace agent. These are distinct from durable processes tracked by the
+// process manager.
+func (*API) handleListSystemProcesses(rw http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	processes, err := listSystemProcesses(ctx)
+	if err != nil {
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
+			Message: "Failed to list system processes.",
+			Detail:  err.Error(),
+		})
+		return
+	}
+	httpapi.Write(ctx, rw, http.StatusOK, workspacesdk.ListSystemProcessesResponse{
+		Processes: processes,
 	})
 }
 
@@ -320,12 +333,6 @@ func (api *API) handleProcessInput(rw http.ResponseWriter, r *http.Request) {
 		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: "data must be non-empty or close must be true."})
 		return
 	}
-	if len(req.Data) > workspacesdk.MaxProcessInputBytes {
-		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
-			Message: fmt.Sprintf("data cannot exceed %d bytes.", workspacesdk.MaxProcessInputBytes),
-		})
-		return
-	}
 	if err := api.manager.input(id, req.Data, req.Close); err != nil {
 		status := http.StatusBadRequest
 		if errors.Is(err, errProcessNotFound) {
@@ -372,17 +379,17 @@ func (api *API) handleSignalProcess(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Signal != "kill" && req.Signal != "terminate" {
+	if req.Signal != "interrupt" && req.Signal != "kill" && req.Signal != "terminate" {
 		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
 			Message: fmt.Sprintf(
-				"Unsupported signal %q. Use \"kill\" or \"terminate\".",
+				"Unsupported signal %q. Use \"interrupt\", \"terminate\", or \"kill\".",
 				req.Signal,
 			),
 		})
 		return
 	}
 
-	if err := api.manager.signal(id, req.Signal); err != nil {
+	if err := api.manager.signalContext(ctx, id, req.Signal); err != nil {
 		switch {
 		case errors.Is(err, errProcessNotFound):
 			httpapi.Write(ctx, rw, http.StatusNotFound, codersdk.Response{

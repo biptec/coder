@@ -430,8 +430,12 @@ func (api *API) HandleEditFiles(rw http.ResponseWriter, r *http.Request) {
 	var pending []pendingEdit
 	var combinedErr error
 	status := http.StatusOK
+	matchMode := fileEditAllowFuzzy
+	if req.ExactOnly {
+		matchMode = fileEditExactOnly
+	}
 	for _, edit := range req.Files {
-		s, p, err := api.prepareFileEdit(edit.Path, edit.Edits)
+		s, p, err := api.prepareFileEdit(edit.Path, edit.Edits, matchMode)
 		if s > status {
 			status = s
 		}
@@ -450,22 +454,26 @@ func (api *API) HandleEditFiles(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Phase 2: write all files via atomicWrite. A failure here
-	// (e.g. disk full) can leave earlier files committed. True
-	// cross-file atomicity would require filesystem transactions.
-	for _, p := range pending {
-		mode := p.mode
-		s, err := api.atomicWrite(ctx, p.path, &mode, strings.NewReader(p.content))
-		if err != nil {
-			httpapi.Write(ctx, rw, s, codersdk.Response{
-				Message: err.Error(),
-			})
-			return
+	// Phase 2: write all files via atomicWrite unless this is a dry-run.
+	// Dry-run deliberately shares phase 1 with a real apply, then exits before
+	// every filesystem/path-store side effect. A write failure during a real
+	// multi-file apply (e.g. disk full) can still leave earlier files committed;
+	// true cross-file atomicity would require filesystem transactions.
+	if !req.DryRun {
+		for _, p := range pending {
+			mode := p.mode
+			s, err := api.atomicWrite(ctx, p.path, &mode, strings.NewReader(p.content))
+			if err != nil {
+				httpapi.Write(ctx, rw, s, codersdk.Response{
+					Message: err.Error(),
+				})
+				return
+			}
 		}
 	}
 
-	// Track edited paths for git watch.
-	if api.pathStore != nil {
+	// Track only files that were actually edited, never dry-run previews.
+	if !req.DryRun && api.pathStore != nil {
 		if chatContext, ok := agentchat.FromContext(ctx); ok {
 			filePaths := make([]string, 0, len(req.Files))
 			for _, f := range req.Files {
@@ -501,9 +509,16 @@ func (api *API) HandleEditFiles(rw http.ResponseWriter, r *http.Request) {
 	httpapi.Write(ctx, rw, http.StatusOK, resp)
 }
 
+type fileEditMatchMode int
+
+const (
+	fileEditAllowFuzzy fileEditMatchMode = iota
+	fileEditExactOnly
+)
+
 // prepareFileEdit validates, reads, and computes edits for a single
 // file without writing anything to disk.
-func (api *API) prepareFileEdit(path string, edits []workspacesdk.FileEdit) (int, *pendingEdit, error) {
+func (api *API) prepareFileEdit(path string, edits []workspacesdk.FileEdit, matchMode fileEditMatchMode) (int, *pendingEdit, error) {
 	if path == "" {
 		return http.StatusBadRequest, nil, xerrors.New("\"path\" is required")
 	}
@@ -557,14 +572,65 @@ func (api *API) prepareFileEdit(path string, edits []workspacesdk.FileEdit) (int
 		if edit.ExpectedReplacements != nil && *edit.ExpectedReplacements < 1 {
 			return http.StatusBadRequest, nil, xerrors.Errorf("edit %s: expected_replacements must be at least 1", path)
 		}
+
 		diagnostic := diagnoseFileEdit(content, edit)
-		if edit.ExpectedReplacements != nil {
-			if diagnostic.ReplacementCount != *edit.ExpectedReplacements {
+		if matchMode == fileEditExactOnly {
+			if edit.Search == "" {
 				return http.StatusBadRequest, nil, xerrors.Errorf(
-					"edit %s: search matched %d occurrences using %s matching; expected %d",
-					path, diagnostic.ReplacementCount, diagnostic.MatchMode, *edit.ExpectedReplacements,
+					"edit %s: search string must not be empty; include the exact text you want to match",
+					path,
 				)
 			}
+			exactCount := strings.Count(content, edit.Search)
+			if edit.ExpectedReplacements != nil && exactCount != *edit.ExpectedReplacements {
+				return http.StatusBadRequest, nil, xerrors.Errorf(
+					"edit %s: search matched %d occurrences using exact matching; expected %d",
+					path, exactCount, *edit.ExpectedReplacements,
+				)
+			}
+			if exactCount == 0 {
+				if diagnostic.MatchMode != "none" {
+					candidate := exactEditCandidate(content, edit.Search, diagnostic.MatchMode)
+					if candidate != "" {
+						return http.StatusBadRequest, nil, xerrors.Errorf(
+							"edit %s: exact match not found. Closest candidate using %s matching:\n\n%s\n\nUse the exact candidate text above and retry",
+							path, diagnostic.MatchMode, candidate,
+						)
+					}
+					return http.StatusBadRequest, nil, xerrors.Errorf(
+						"edit %s: search string not found in file using exact matching; found %d candidate occurrence(s) using %s matching. Read the file and retry with the exact text",
+						path, diagnostic.ReplacementCount, diagnostic.MatchMode,
+					)
+				}
+				return http.StatusBadRequest, nil, xerrors.Errorf(
+					"edit %s: search string not found in file using exact matching. Read the file and retry with the exact text",
+					path,
+				)
+			}
+			if !edit.ReplaceAll && exactCount != 1 {
+				return http.StatusBadRequest, nil, xerrors.Errorf(
+					"edit %s: search string matches %d occurrences using exact matching; include more surrounding context or set replace_all=true",
+					path, exactCount,
+				)
+			}
+			if edit.ReplaceAll {
+				content = strings.ReplaceAll(content, edit.Search, edit.Replace)
+			} else {
+				content = strings.Replace(content, edit.Search, edit.Replace, 1)
+			}
+			diagnostics = append(diagnostics, workspacesdk.FileEditDiagnostic{
+				MatchMode:            "exact",
+				ReplacementCount:     exactCount,
+				ExpectedReplacements: edit.ExpectedReplacements,
+			})
+			continue
+		}
+
+		if edit.ExpectedReplacements != nil && diagnostic.ReplacementCount != *edit.ExpectedReplacements {
+			return http.StatusBadRequest, nil, xerrors.Errorf(
+				"edit %s: search matched %d occurrences using %s matching; expected %d",
+				path, diagnostic.ReplacementCount, diagnostic.MatchMode, *edit.ExpectedReplacements,
+			)
 		}
 		var err error
 		content, err = fuzzyReplace(content, edit)
@@ -1533,6 +1599,43 @@ outer:
 
 // countLineMatches counts how many non-overlapping contiguous
 // subsequences of contentLines match searchLines according to eq.
+func exactEditCandidate(content, search, matchMode string) string {
+	contentLines := strings.SplitAfter(content, "\n")
+	searchLines := strings.SplitAfter(search, "\n")
+	if len(searchLines) > 0 && searchLines[len(searchLines)-1] == "" {
+		searchLines = searchLines[:len(searchLines)-1]
+	}
+	if len(searchLines) == 0 {
+		return ""
+	}
+
+	var eq func(a, b string) bool
+	switch matchMode {
+	case "trim_trailing_whitespace":
+		eq = func(a, b string) bool {
+			aContent, aEnding := splitEnding(a)
+			bContent, bEnding := splitEnding(b)
+			return endingsMatch(aEnding, bEnding) &&
+				strings.TrimRight(aContent, " \t") == strings.TrimRight(bContent, " \t")
+		}
+	case "indentation_tolerant":
+		eq = func(a, b string) bool {
+			aContent, aEnding := splitEnding(a)
+			bContent, bEnding := splitEnding(b)
+			return endingsMatch(aEnding, bEnding) &&
+				strings.TrimSpace(aContent) == strings.TrimSpace(bContent)
+		}
+	default:
+		return ""
+	}
+
+	start, end, ok := seekLines(contentLines, searchLines, eq)
+	if !ok || start < 0 || end > len(contentLines) || start >= end {
+		return ""
+	}
+	return strings.Join(contentLines[start:end], "")
+}
+
 func countLineMatches(contentLines, searchLines []string, eq func(a, b string) bool) int {
 	count := 0
 	if len(searchLines) == 0 || len(searchLines) > len(contentLines) {

@@ -49,7 +49,9 @@ func (a *CommandActivityAPI) ReportCommandActivity(ctx context.Context, req *age
 		return nil, xerrors.Errorf("command activity timestamp: %w", err)
 	}
 	activityTime := activity.GetTimestamp().AsTime()
-	activityCtx := dbauthz.AsWorkspaceActivity(ctx)
+	// Agent command activity is authenticated to this workspace/agent pair above.
+	// The privileged context is narrowly scoped to persisting that telemetry.
+	activityCtx := dbauthz.AsWorkspaceActivity(ctx) //nolint:gocritic // required workspace-activity DB authorization bypass
 
 	switch activity.GetAction() {
 	case agentproto.CommandActivity_SESSION_STARTED:
@@ -224,7 +226,7 @@ func (a *CommandActivityAPI) inferLegacyMCPCommandTool(
 	candidates, err := a.Database.ListWorkspaceMCPRequestActivityCandidates(ctx, database.ListWorkspaceMCPRequestActivityCandidatesParams{
 		WorkspaceID: a.WorkspaceID,
 		Tools: []string{
-			"exec", "bash", "process_start",
+			"exec", "bash", "execute_shell_command", "process_start", "start_process",
 			toolsdk.ToolNameWorkspaceExec,
 			toolsdk.ToolNameWorkspaceBash,
 			toolsdk.ToolNameWorkspaceProcessStart,
@@ -257,10 +259,10 @@ func canonicalMCPCommandTool(tool string) string {
 	switch tool {
 	case "exec", toolsdk.ToolNameWorkspaceExec:
 		return "exec"
-	case "bash", toolsdk.ToolNameWorkspaceBash:
-		return "bash"
-	case "process_start", toolsdk.ToolNameWorkspaceProcessStart, toolsdk.ToolNameWorkspaceProcessStartV2:
-		return "process_start"
+	case "bash", "execute_shell_command", toolsdk.ToolNameWorkspaceBash:
+		return "execute_shell_command"
+	case "process_start", "start_process", toolsdk.ToolNameWorkspaceProcessStart, toolsdk.ToolNameWorkspaceProcessStartV2:
+		return "start_process"
 	default:
 		return ""
 	}
@@ -273,7 +275,7 @@ func commandActivitySource(source agentproto.CommandActivity_Source, tool string
 		// as AGENTPROC. Normalize the trusted tool marker on ingest so rolling
 		// upgrades never expose the internal compatibility source to users.
 		switch tool {
-		case "exec", "bash", "process_start",
+		case "exec", "bash", "execute_shell_command", "process_start", "start_process",
 			toolsdk.ToolNameWorkspaceExec,
 			toolsdk.ToolNameWorkspaceBash,
 			toolsdk.ToolNameWorkspaceProcessStart,

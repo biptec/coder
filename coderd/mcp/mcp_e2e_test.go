@@ -1288,7 +1288,7 @@ func TestMCPHTTP_E2E_OAuth2_EndToEnd(t *testing.T) {
 		require.Equal(t, firstUser["id"], secondUser["id"], "User ID should be identical")
 		require.Equal(t, firstUser["username"], secondUser["username"], "Username should be identical")
 		require.Equal(t, firstUser["email"], secondUser["email"], "Email should be identical")
-		require.Equal(t, firstUser["status"], secondUser["status"], "Status should be identical")
+		require.Equal(t, firstUser["get_workspace"], secondUser["get_workspace"], "Status should be identical")
 		require.Equal(t, firstUser["login_type"], secondUser["login_type"], "Login type should be identical")
 		require.Equal(t, firstUser["roles"], secondUser["roles"], "Roles should be identical")
 		require.Equal(t, firstUser["organization_ids"], secondUser["organization_ids"], "Organization IDs should be identical")
@@ -1593,6 +1593,13 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 		t.Fatalf("MCP tool %q not found", name)
 		return mcp.Tool{}
 	}
+	propertyNames := func(properties map[string]any) []string {
+		names := make([]string, 0, len(properties))
+		for name := range properties {
+			names = append(names, name)
+		}
+		return names
+	}
 
 	// The first owner is migrated/created with the full admin toolset.
 	adminToolSpecs := listTools(coderClient.SessionToken())
@@ -1603,7 +1610,7 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 	assert.Contains(t, adminTools, toolsdk.ToolNameCreateTemplate)
 	assert.NotContains(t, adminTools, toolsdk.ToolNameListAccessibleWorkspaces)
 	assert.NotContains(t, adminTools, "read_file")
-	assert.Contains(t, adminTools, "capabilities")
+	assert.Contains(t, adminTools, "get_workspace_capabilities")
 
 	workspaceBuildLogsTool := toolByName(adminToolSpecs, toolsdk.ToolNameGetWorkspaceBuildLogs)
 	require.Contains(t, workspaceBuildLogsTool.Description, "at most a 60-second observation budget")
@@ -1627,51 +1634,90 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 	developerToolSpecs := listTools(developerClient.SessionToken())
 	developerTools := toolNames(developerToolSpecs)
 	assert.ElementsMatch(t, []string{
-		"status", "list_workspaces",
-		"list_directory", "read_file", "read_files", "write_file", "file_info", "create_directory", "move_file",
-		"edit_file", "edit_files",
-		"search_start", "search_results", "search_list", "search_stop",
-		"bash", "exec",
-		"process_start", "process_output", "process_list", "process_input", "process_signal",
-		"list_apps", "capabilities", "recent_activity",
+		"get_workspace", "list_workspaces",
+		"list_directory", "read_file", "read_multiple_files", "write_file", "get_file_info", "create_directory", "move_file",
+		"edit_file", "edit_multiple_files",
+		"start_search", "get_search_results", "list_searches", "stop_search",
+		"execute_shell_command",
+		"start_process", "read_process_output", "list_sessions", "list_processes", "interact_with_process", "signal_process",
+		"list_apps", "get_workspace_capabilities", "list_recent_tool_calls",
 	}, developerTools)
 	assert.NotContains(t, developerTools, "port_forward")
 	assert.NotContains(t, developerTools, toolsdk.ToolNameWorkspaceReadFile)
 	assert.NotContains(t, developerTools, toolsdk.ToolNameCreateTemplate)
 
-	// The contract exposed to assistants must describe the bounded MCP
-	// observation model, not the historical process timeout model.
-	bashTool := toolByName(developerToolSpecs, "bash")
-	require.Contains(t, bashTool.Description, "single shared 60-second observation budget")
+	// The assistant-facing execution surface has only two launch modes:
+	// structured argv via start_process and explicit POSIX shell via
+	// execute_shell_command. Both expose the same durable process lifecycle.
+	bashTool := toolByName(developerToolSpecs, "execute_shell_command")
+	require.Contains(t, bashTool.Description, "POSIX shell command")
+	require.Contains(t, bashTool.Description, "sh -c")
 	require.Contains(t, bashTool.Description, "process_id")
-	require.Contains(t, bashTool.Description, "running=true")
-	require.Contains(t, bashTool.Description, "process_output")
+	require.Contains(t, bashTool.Description, "wait_timeout_ms")
+	require.ElementsMatch(t, []string{"workspace", "command"}, bashTool.InputSchema.Required)
+	for _, name := range []string{"workdir", "env", "stdin", "interactive", "ssh", "wait_timeout_ms"} {
+		require.Contains(t, bashTool.InputSchema.Properties, name)
+	}
 	require.NotContains(t, bashTool.InputSchema.Properties, "timeout_ms")
 	require.NotContains(t, bashTool.InputSchema.Properties, "background")
+	require.NotContains(t, developerTools, "exec")
 
-	execTool := toolByName(developerToolSpecs, "exec")
-	require.Contains(t, execTool.Description, "single shared 60-second observation budget")
-	require.Contains(t, execTool.Description, "process_id")
-	require.Contains(t, execTool.Description, "running=true")
-	require.Contains(t, execTool.Description, "process_output")
-	require.NotContains(t, execTool.InputSchema.Properties, "timeout_ms")
-
-	capabilitiesTool := toolByName(developerToolSpecs, "capabilities")
+	capabilitiesTool := toolByName(developerToolSpecs, "get_workspace_capabilities")
 	require.Contains(t, capabilitiesTool.Description, "before installing software")
 	require.Contains(t, capabilitiesTool.Description, "once per workspace")
 	require.Contains(t, capabilitiesTool.InputSchema.Properties, "workspace")
 	require.NotContains(t, capabilitiesTool.Description, "Chromium")
 
-	processStartTool := toolByName(developerToolSpecs, "process_start")
-	require.Contains(t, processStartTool.Description, "shared 60-second observation budget")
-	require.Contains(t, processStartTool.Description, "process_list")
-	require.Contains(t, processStartTool.Description, "lifetime is independent of the MCP connection")
+	getWorkspaceTool := toolByName(developerToolSpecs, "get_workspace")
+	require.ElementsMatch(t, []string{"workspace"}, getWorkspaceTool.InputSchema.Required)
+	require.Contains(t, getWorkspaceTool.InputSchema.Properties, "workspace")
+	require.NotContains(t, getWorkspaceTool.InputSchema.Properties, "workspace_id")
 
-	processOutputTool := toolByName(developerToolSpecs, "process_output")
-	require.Contains(t, processOutputTool.Description, "shared 60-second observation budget")
+	processStartTool := toolByName(developerToolSpecs, "start_process")
+	require.Contains(t, processStartTool.Description, "executable argv")
+	require.Contains(t, processStartTool.Description, "initial output")
+	require.Contains(t, processStartTool.Description, "wait_timeout_ms")
+	require.Contains(t, processStartTool.Description, "list_sessions")
+	require.ElementsMatch(t, []string{"workspace", "argv"}, processStartTool.InputSchema.Required)
+	for _, name := range []string{"workdir", "env", "stdin", "interactive", "ssh", "wait_timeout_ms"} {
+		require.Contains(t, processStartTool.InputSchema.Properties, name)
+	}
+	require.NotContains(t, processStartTool.InputSchema.Properties, "command")
+	require.NotContains(t, processStartTool.InputSchema.Properties, "background")
+
+	processOutputTool := toolByName(developerToolSpecs, "read_process_output")
+	require.Contains(t, processOutputTool.Description, "immediate snapshot")
 	waitTimeoutSchema := processOutputTool.InputSchema.Properties["wait_timeout_ms"].(map[string]any)
-	require.EqualValues(t, 60000, waitTimeoutSchema["maximum"])
+	require.NotContains(t, waitTimeoutSchema, "maximum", "deployment-specific timeout must not be frozen into the public schema")
 	require.Contains(t, waitTimeoutSchema["description"], "never limits the process lifetime")
+
+	listSessionsTool := toolByName(developerToolSpecs, "list_sessions")
+	listSessionsLimit := listSessionsTool.InputSchema.Properties["limit"].(map[string]any)
+	require.Contains(t, listSessionsLimit["description"], "If omitted")
+	require.NotContains(t, listSessionsLimit, "maximum")
+	listSessionsCursor := listSessionsTool.InputSchema.Properties["cursor"].(map[string]any)
+	require.Equal(t, "string", listSessionsCursor["type"])
+
+	listProcessesTool := toolByName(developerToolSpecs, "list_processes")
+	require.ElementsMatch(t, []string{"workspace"}, listProcessesTool.InputSchema.Required)
+	listProcessesLimit := listProcessesTool.InputSchema.Properties["limit"].(map[string]any)
+	require.EqualValues(t, 1, listProcessesLimit["minimum"])
+	require.NotContains(t, listProcessesLimit, "maximum")
+
+	recentTool := toolByName(developerToolSpecs, "list_recent_tool_calls")
+	require.ElementsMatch(t, []string{"workspace"}, recentTool.InputSchema.Required)
+	require.ElementsMatch(t, []string{"workspace", "limit", "cursor"}, propertyNames(recentTool.InputSchema.Properties))
+	recentLimit := recentTool.InputSchema.Properties["limit"].(map[string]any)
+	require.EqualValues(t, 1, recentLimit["minimum"])
+	require.NotContains(t, recentLimit, "maximum")
+	require.NotNil(t, recentTool.Annotations.ReadOnlyHint)
+	require.NotNil(t, recentTool.Annotations.DestructiveHint)
+	require.NotNil(t, recentTool.Annotations.IdempotentHint)
+	require.NotNil(t, recentTool.Annotations.OpenWorldHint)
+	require.True(t, *recentTool.Annotations.ReadOnlyHint)
+	require.False(t, *recentTool.Annotations.DestructiveHint)
+	require.True(t, *recentTool.Annotations.IdempotentHint)
+	require.False(t, *recentTool.Annotations.OpenWorldHint)
 
 	// Users cannot raise or otherwise change their own MCP toolset.
 	_, err = developerClient.UpdateUserMCPToolset(ctx, codersdk.Me, codersdk.UpdateUserMCPToolsetRequest{
@@ -1688,20 +1734,20 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 
 	readonlyTools := toolNames(listTools(developerClient.SessionToken()))
 	assert.ElementsMatch(t, []string{
-		"status", "list_workspaces",
-		"list_directory", "read_file", "read_files", "file_info",
-		"search_start", "search_results", "search_list", "search_stop",
-		"process_output", "process_list", "list_apps", "capabilities", "recent_activity",
+		"get_workspace", "list_workspaces",
+		"list_directory", "read_file", "read_multiple_files", "get_file_info",
+		"start_search", "get_search_results", "list_searches", "stop_search",
+		"read_process_output", "list_sessions", "list_processes", "list_apps", "get_workspace_capabilities", "list_recent_tool_calls",
 	}, readonlyTools)
 	assert.NotContains(t, readonlyTools, "write_file")
 	assert.NotContains(t, readonlyTools, "create_directory")
 	assert.NotContains(t, readonlyTools, "move_file")
 	assert.NotContains(t, readonlyTools, "edit_file")
-	assert.NotContains(t, readonlyTools, "bash")
+	assert.NotContains(t, readonlyTools, "execute_shell_command")
 	assert.NotContains(t, readonlyTools, "exec")
-	assert.NotContains(t, readonlyTools, "process_start")
-	assert.NotContains(t, readonlyTools, "process_input")
-	assert.NotContains(t, readonlyTools, "process_signal")
+	assert.NotContains(t, readonlyTools, "start_process")
+	assert.NotContains(t, readonlyTools, "interact_with_process")
+	assert.NotContains(t, readonlyTools, "signal_process")
 	assert.NotContains(t, readonlyTools, "port_forward")
 
 	// Switching the same user to admin restores the legacy/full Remote MCP
@@ -1716,7 +1762,7 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 	assert.Contains(t, promotedTools, toolsdk.ToolNameListWorkspaces)
 	assert.Contains(t, promotedTools, toolsdk.ToolNameWorkspaceReadFile)
 	assert.Contains(t, promotedTools, toolsdk.ToolNameCreateTemplate)
-	assert.Contains(t, promotedTools, "capabilities")
+	assert.Contains(t, promotedTools, "get_workspace_capabilities")
 	assert.NotContains(t, promotedTools, toolsdk.ToolNameListAccessibleWorkspaces)
 	assert.NotContains(t, promotedTools, "read_file")
 }
@@ -1807,6 +1853,314 @@ func TestMCPHTTP_E2E_WorkspaceSSHAuthz(t *testing.T) {
 	assert.Contains(t, textContent.Text, "unauthorized")
 }
 
+func TestMCPHTTP_E2E_DeveloperToolCalls(t *testing.T) {
+	t.Parallel()
+
+	coderClient, closer, api := coderdtest.NewWithAPI(t, nil)
+	defer closer.Close()
+
+	admin := coderdtest.CreateFirstUser(t, coderClient)
+	developerClient, developerUser := coderdtest.CreateAnotherUser(t, coderClient, admin.OrganizationID)
+
+	r := dbfake.WorkspaceBuild(t, api.Database, database.WorkspaceTable{
+		Name:           "developer-tools-e2e-" + uuid.NewString()[:8],
+		OrganizationID: admin.OrganizationID,
+		OwnerID:        developerUser.ID,
+	}).WithAgent().Do()
+
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll("/tmp", 0o755))
+	require.NoError(t, fs.MkdirAll("/etc/developer-workspace", 0o755))
+	require.NoError(t, afero.WriteFile(fs, "/etc/developer-workspace/capabilities.json",
+		[]byte(`{"profile":"e2e","versioned_tools":[{"name":"go","version":"1.26"}]}`), 0o644))
+
+	_ = agenttest.New(t, coderClient.URL, r.AgentToken, func(opts *agent.Options) {
+		opts.Filesystem = fs
+	})
+	coderdtest.NewWorkspaceAgentWaiter(t, coderClient, r.Workspace.ID).Wait()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testutil.WaitLong)
+	defer cancel()
+
+	mcpURL := api.AccessURL.String() + mcpserver.MCPEndpoint
+	mcpClient := newIsolatedMCPClient(t, mcpURL,
+		transport.WithHTTPHeaders(map[string]string{
+			"Authorization": "Bearer " + developerClient.SessionToken(),
+		}))
+	defer func() { require.NoError(t, mcpClient.Close()) }()
+
+	require.NoError(t, mcpClient.Start(ctx))
+	_, err := mcpClient.Initialize(ctx, mcp.InitializeRequest{Params: mcp.InitializeParams{
+		ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
+		ClientInfo:      mcp.Implementation{Name: "developer-tools-e2e", Version: "1.0.0"},
+	}})
+	require.NoError(t, err)
+
+	listed, err := mcpClient.ListTools(ctx, mcp.ListToolsRequest{})
+	require.NoError(t, err)
+	publicTools := make(map[string]mcp.Tool, len(listed.Tools))
+	for _, tool := range listed.Tools {
+		publicTools[tool.Name] = tool
+		require.Equal(t, "object", tool.OutputSchema.Type, "%s must advertise an outputSchema", tool.Name)
+		require.NotEmpty(t, tool.OutputSchema.Properties, "%s outputSchema must describe structuredContent", tool.Name)
+	}
+	require.Len(t, publicTools, 25)
+
+	called := make(map[string]struct{}, len(publicTools))
+	call := func(name string, args map[string]any) *mcp.CallToolResult {
+		t.Helper()
+		_, ok := publicTools[name]
+		require.True(t, ok, "tool %q must exist in tools/list before tools/call", name)
+		result, err := mcpClient.CallTool(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{Name: name, Arguments: args}})
+		require.NoError(t, err, name)
+		require.False(t, result.IsError, "%s returned an MCP tool error: %#v", name, result.Content)
+		_, structuredOK := result.StructuredContent.(map[string]any)
+		require.True(t, structuredOK, "%s must return structuredContent, got %T", name, result.StructuredContent)
+		called[name] = struct{}{}
+		return result
+	}
+	structured := func(result *mcp.CallToolResult) map[string]any {
+		t.Helper()
+		value, ok := result.StructuredContent.(map[string]any)
+		require.True(t, ok)
+		return value
+	}
+	text := func(result *mcp.CallToolResult) string {
+		t.Helper()
+		texts := make([]string, 0, len(result.Content))
+		for _, content := range result.Content {
+			textContent, ok := content.(mcp.TextContent)
+			require.True(t, ok, "expected TextContent, got %T", content)
+			texts = append(texts, textContent.Text)
+		}
+		return strings.Join(texts, "\n---\n")
+	}
+	requireStructuredOnly := func(name string, result *mcp.CallToolResult) map[string]any {
+		t.Helper()
+		require.Empty(t, result.Content, "%s must not duplicate structuredContent as text", name)
+		return structured(result)
+	}
+
+	workspace := r.Workspace.Name
+	fullWorkspace := developerUser.Username + "/" + workspace
+	root := "/tmp/mcp-e2e"
+
+	result := call("list_workspaces", map[string]any{})
+	data := requireStructuredOnly("list_workspaces", result)
+	require.Condition(t, func() bool {
+		for _, raw := range data["workspaces"].([]any) {
+			if raw.(map[string]any)["workspace"] == fullWorkspace {
+				return true
+			}
+		}
+		return false
+	})
+
+	result = call("get_workspace", map[string]any{"workspace": workspace})
+	data = requireStructuredOnly("get_workspace", result)
+	require.Equal(t, fullWorkspace, data["workspace"])
+
+	result = call("list_apps", map[string]any{"workspace": workspace})
+	data = requireStructuredOnly("list_apps", result)
+	require.Empty(t, data["apps"])
+
+	result = call("get_workspace_capabilities", map[string]any{"workspace": workspace})
+	data = requireStructuredOnly("get_workspace_capabilities", result)
+	require.Equal(t, true, data["available"])
+	foundGo := false
+	for _, rawGroup := range data["groups"].([]any) {
+		for _, rawItem := range rawGroup.(map[string]any)["items"].([]any) {
+			if rawItem == "go 1.26" {
+				foundGo = true
+			}
+		}
+	}
+	require.True(t, foundGo)
+
+	result = call("create_directory", map[string]any{"workspace": workspace, "path": root, "parents": true})
+	data = requireStructuredOnly("create_directory", result)
+	require.Equal(t, root, data["path"])
+	require.Equal(t, true, data["created"])
+
+	result = call("write_file", map[string]any{"workspace": workspace, "path": root + "/a.txt", "content": "alpha\nbeta\n"})
+	data = requireStructuredOnly("write_file", result)
+	require.Equal(t, root+"/a.txt", data["path"])
+	require.EqualValues(t, len("alpha\nbeta\n"), data["bytes_written"])
+
+	_ = call("write_file", map[string]any{"workspace": workspace, "path": root + "/b.txt", "content": "one\ntwo\n"})
+
+	result = call("get_file_info", map[string]any{"workspace": workspace, "path": root + "/a.txt"})
+	data = requireStructuredOnly("get_file_info", result)
+	require.Equal(t, "file", data["type"])
+
+	result = call("list_directory", map[string]any{"workspace": workspace, "path": root, "depth": 1})
+	data = requireStructuredOnly("list_directory", result)
+	entries := data["entries"].([]any)
+	require.Len(t, entries, 2)
+	require.Equal(t, "a.txt", entries[0].(map[string]any)["path"])
+	require.Equal(t, "b.txt", entries[1].(map[string]any)["path"])
+
+	result = call("read_file", map[string]any{"workspace": workspace, "path": root + "/a.txt"})
+	require.Equal(t, "alpha\nbeta\n", text(result), "read_file content must be the literal file payload")
+	data = structured(result)
+	require.Equal(t, root+"/a.txt", data["path"])
+	require.NotContains(t, data, "content_encoding")
+
+	result = call("read_multiple_files", map[string]any{
+		"workspace": workspace,
+		"files": []any{
+			map[string]any{"path": root + "/a.txt"},
+			map[string]any{"path": root + "/b.txt"},
+		},
+	})
+	require.Len(t, result.Content, 2)
+	require.Equal(t, "alpha\nbeta\n", result.Content[0].(mcp.TextContent).Text)
+	require.Equal(t, "one\ntwo\n", result.Content[1].(mcp.TextContent).Text)
+	fileMeta := structured(result)["files"].([]any)
+	require.EqualValues(t, 0, fileMeta[0].(map[string]any)["content_index"])
+	require.EqualValues(t, 1, fileMeta[1].(map[string]any)["content_index"])
+
+	result = call("edit_file", map[string]any{
+		"workspace": workspace,
+		"path":      root + "/a.txt",
+		"edits":     []any{map[string]any{"search": "beta", "replace": "BETA", "expected_replacements": 1}},
+	})
+	require.Contains(t, text(result), "+BETA")
+	require.NotContains(t, text(result), "File edited successfully")
+	data = structured(result)
+	require.EqualValues(t, 1, data["replacements"])
+
+	result = call("edit_multiple_files", map[string]any{
+		"workspace": workspace,
+		"files": []any{
+			map[string]any{"path": root + "/a.txt", "edits": []any{map[string]any{"search": "alpha", "replace": "ALPHA", "expected_replacements": 1}}},
+			map[string]any{"path": root + "/b.txt", "edits": []any{map[string]any{"search": "one", "replace": "ONE", "expected_replacements": 1}}},
+		},
+	})
+	require.Contains(t, text(result), "+ALPHA")
+	require.Contains(t, text(result), "+ONE")
+	require.EqualValues(t, 2, structured(result)["files_edited"])
+
+	result = call("move_file", map[string]any{"workspace": workspace, "source": root + "/b.txt", "dest": root + "/c.txt"})
+	data = requireStructuredOnly("move_file", result)
+	require.Equal(t, root+"/b.txt", data["source"])
+	require.Equal(t, root+"/c.txt", data["dest"])
+
+	result = call("read_file", map[string]any{"workspace": workspace, "path": root + "/a.txt"})
+	require.Equal(t, "ALPHA\nBETA\n", text(result))
+
+	result = call("start_search", map[string]any{
+		"workspace": workspace, "root": root, "query": "BETA", "mode": "content", "wait_timeout_ms": 1000,
+	})
+	data = requireStructuredOnly("start_search", result)
+	searchID, _ := data["search_id"].(string)
+	require.NotEmpty(t, searchID)
+
+	result = call("get_search_results", map[string]any{"workspace": workspace, "search_id": searchID})
+	data = requireStructuredOnly("get_search_results", result)
+	searchResults := data["results"].([]any)
+	require.NotEmpty(t, searchResults)
+	require.Equal(t, root+"/a.txt", searchResults[0].(map[string]any)["path"])
+
+	result = call("list_searches", map[string]any{"workspace": workspace})
+	data = requireStructuredOnly("list_searches", result)
+	require.Condition(t, func() bool {
+		for _, raw := range data["searches"].([]any) {
+			if raw.(map[string]any)["search_id"] == searchID {
+				return true
+			}
+		}
+		return false
+	})
+
+	result = call("stop_search", map[string]any{"workspace": workspace, "search_id": searchID})
+	data = requireStructuredOnly("stop_search", result)
+	require.Equal(t, true, data["stopped"])
+
+	result = call("execute_shell_command", map[string]any{
+		"workspace": workspace, "command": "printf 'shell-e2e\\n'", "wait_timeout_ms": 1000,
+	})
+	require.Contains(t, text(result), "shell-e2e")
+	data = structured(result)
+	shellProcessID, _ := data["process_id"].(string)
+	require.Equal(t, "completed", data["status"])
+	require.EqualValues(t, 0, data["exit_code"])
+
+	result = call("start_process", map[string]any{
+		"workspace":       workspace,
+		"argv":            []any{"/bin/sh", "-c", "printf 'start-e2e\\n'; sleep 0.05; printf 'done-e2e\\n'"},
+		"wait_timeout_ms": 1000,
+	})
+	require.Contains(t, text(result), "start-e2e")
+	require.Contains(t, text(result), "done-e2e")
+	data = structured(result)
+	directProcessID, _ := data["process_id"].(string)
+	require.Equal(t, "completed", data["status"])
+	require.EqualValues(t, 0, data["exit_code"])
+
+	result = call("read_process_output", map[string]any{"workspace": workspace, "process_id": directProcessID})
+	require.Contains(t, text(result), "start-e2e")
+	require.Contains(t, text(result), "done-e2e")
+	require.Contains(t, structured(result), "output_cursor")
+
+	result = call("signal_process", map[string]any{"workspace": workspace, "process_id": directProcessID, "signal": "terminate"})
+	data = requireStructuredOnly("signal_process", result)
+	require.Equal(t, false, data["sent"])
+	require.Equal(t, true, data["already_completed"])
+
+	result = call("list_sessions", map[string]any{"workspace": workspace})
+	data = requireStructuredOnly("list_sessions", result)
+	sessionIDs := map[string]bool{}
+	for _, raw := range data["sessions"].([]any) {
+		sessionIDs[raw.(map[string]any)["process_id"].(string)] = true
+	}
+	require.True(t, sessionIDs[directProcessID])
+	require.True(t, sessionIDs[shellProcessID])
+
+	result = call("list_processes", map[string]any{"workspace": workspace})
+	require.NotEmpty(t, requireStructuredOnly("list_processes", result)["processes"])
+
+	result = call("start_process", map[string]any{
+		"workspace":   workspace,
+		"argv":        []any{"/bin/sh", "-c", "IFS= read -r line; printf 'got:%s\\n' \"$line\"; sleep 30"},
+		"interactive": true,
+	})
+	data = structured(result)
+	interactiveProcessID, _ := data["process_id"].(string)
+	require.Equal(t, "running", data["status"])
+
+	result = call("interact_with_process", map[string]any{
+		"workspace": workspace, "process_id": interactiveProcessID, "data": "hello\n", "wait_timeout_ms": 1000,
+	})
+	require.Equal(t, "got:hello\n", text(result))
+	data = structured(result)
+	require.Equal(t, true, data["input_accepted"])
+
+	result = call("signal_process", map[string]any{"workspace": workspace, "process_id": interactiveProcessID, "signal": "terminate"})
+	requireStructuredOnly("signal_process", result)
+
+	result = call("list_recent_tool_calls", map[string]any{"workspace": workspace})
+	data = requireStructuredOnly("list_recent_tool_calls", result)
+	activityTools := map[string]bool{}
+	for _, raw := range data["calls"].([]any) {
+		activityTools[raw.(map[string]any)["tool"].(string)] = true
+	}
+	require.True(t, activityTools["write_file"])
+	require.True(t, activityTools["start_process"])
+	require.True(t, activityTools["execute_shell_command"])
+
+	require.Equal(t, publicToolsToSet(publicTools), called,
+		"every tool returned by tools/list must be exercised through tools/call")
+}
+
+func publicToolsToSet(tools map[string]mcp.Tool) map[string]struct{} {
+	out := make(map[string]struct{}, len(tools))
+	for name := range tools {
+		out[name] = struct{}{}
+	}
+	return out
+}
+
 func TestMCPHTTP_E2E_RecentActivity(t *testing.T) {
 	t.Parallel()
 
@@ -1844,40 +2198,30 @@ func TestMCPHTTP_E2E_RecentActivity(t *testing.T) {
 	require.False(t, listResult.IsError)
 
 	activityResult, err := developerMCP.CallTool(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{
-		Name:      "recent_activity",
-		Arguments: map[string]any{"limit": 10},
+		Name:      "list_recent_tool_calls",
+		Arguments: map[string]any{"workspace": "owner/workspace", "limit": 10},
 	}})
 	require.NoError(t, err)
 	require.False(t, activityResult.IsError)
-	require.Len(t, activityResult.Content, 1)
-	activityText, ok := activityResult.Content[0].(mcp.TextContent)
+	require.Empty(t, activityResult.Content)
+	activityStructured, ok := activityResult.StructuredContent.(map[string]any)
 	require.True(t, ok)
-	var payload struct {
-		Records []mcpserver.ActivityRecord `json:"records"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(activityText.Text), &payload))
-	require.NotEmpty(t, payload.Records)
-	require.Equal(t, "list_workspaces", payload.Records[0].Tool)
-	require.Equal(t, "success", payload.Records[0].Status)
-	require.Empty(t, payload.Records[0].ProcessID)
-	require.Empty(t, payload.Records[0].SearchID)
+	require.Empty(t, activityStructured["calls"],
+		"global tool calls must not leak into workspace-scoped activity")
 
 	otherMCP := newClient(otherDeveloperClient.SessionToken(), "recent-activity-other-user")
 	defer func() { require.NoError(t, otherMCP.Close()) }()
 	otherResult, err := otherMCP.CallTool(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{
-		Name:      "recent_activity",
-		Arguments: map[string]any{"limit": 10},
+		Name:      "list_recent_tool_calls",
+		Arguments: map[string]any{"workspace": "owner/workspace", "limit": 10},
 	}})
 	require.NoError(t, err)
 	require.False(t, otherResult.IsError)
-	require.Len(t, otherResult.Content, 1)
-	otherText, ok := otherResult.Content[0].(mcp.TextContent)
+	require.Empty(t, otherResult.Content)
+	otherStructured, ok := otherResult.StructuredContent.(map[string]any)
 	require.True(t, ok)
-	var otherPayload struct {
-		Records []mcpserver.ActivityRecord `json:"records"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(otherText.Text), &otherPayload))
-	require.Empty(t, otherPayload.Records, "activity must be isolated by authenticated Coder user")
+	require.Empty(t, otherStructured["calls"],
+		"activity must be isolated by authenticated Coder user")
 }
 
 func TestMCPHTTP_E2E_SharedWorkspaceDiscovery(t *testing.T) {
@@ -1967,42 +2311,38 @@ func TestMCPHTTP_E2E_SharedWorkspaceDiscovery(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.False(t, listResult.IsError)
-	require.Len(t, listResult.Content, 1)
-	listText, ok := listResult.Content[0].(mcp.TextContent)
+	require.Empty(t, listResult.Content)
+	listStructured, ok := listResult.StructuredContent.(map[string]any)
 	require.True(t, ok)
-
-	var listed []toolsdk.AccessibleWorkspace
-	require.NoError(t, json.Unmarshal([]byte(listText.Text), &listed))
-	listedByFullName := make(map[string]toolsdk.AccessibleWorkspace, len(listed))
-	for _, workspace := range listed {
-		listedByFullName[workspace.FullName] = workspace
-	}
 
 	sharedFullName := coderdtest.FirstUserParams.Username + "/" + sharedName
 	ambiguousAdminFullName := coderdtest.FirstUserParams.Username + "/" + ambiguousName
 	ambiguousOtherFullName := otherOwner.Username + "/" + ambiguousName
 	hiddenFullName := coderdtest.FirstUserParams.Username + "/" + hiddenName
-	require.Contains(t, listedByFullName, sharedFullName)
-	require.Contains(t, listedByFullName, ambiguousAdminFullName)
-	require.Contains(t, listedByFullName, ambiguousOtherFullName)
-	require.NotContains(t, listedByFullName, hiddenFullName)
-	require.Equal(t, coderdtest.FirstUserParams.Username, listedByFullName[sharedFullName].OwnerName)
+	visible := map[string]bool{}
+	for _, raw := range listStructured["workspaces"].([]any) {
+		visible[raw.(map[string]any)["workspace"].(string)] = true
+	}
+	require.True(t, visible[sharedFullName])
+	require.True(t, visible[ambiguousAdminFullName])
+	require.True(t, visible[ambiguousOtherFullName])
+	require.False(t, visible[hiddenFullName])
 
 	statusResult, err := mcpClient.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
-			Name: "status",
+			Name: "get_workspace",
 			Arguments: map[string]any{
-				"workspace_id": sharedName,
+				"workspace": sharedName,
 			},
 		},
 	})
 	require.NoError(t, err)
 	require.False(t, statusResult.IsError)
-	statusText, ok := statusResult.Content[0].(mcp.TextContent)
+	require.Empty(t, statusResult.Content)
+	statusStructured, ok := statusResult.StructuredContent.(map[string]any)
 	require.True(t, ok)
-	var resolved codersdk.Workspace
-	require.NoError(t, json.Unmarshal([]byte(statusText.Text), &resolved))
-	require.Equal(t, shared.Workspace.ID, resolved.ID)
+	require.Equal(t, sharedFullName, statusStructured["workspace"])
+	require.Contains(t, statusStructured, "status")
 
 	readResult, err := mcpClient.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
@@ -2015,19 +2355,19 @@ func TestMCPHTTP_E2E_SharedWorkspaceDiscovery(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.False(t, readResult.IsError)
+	require.Len(t, readResult.Content, 1)
 	readText, ok := readResult.Content[0].(mcp.TextContent)
 	require.True(t, ok)
-	var readResponse toolsdk.WorkspaceReadFileV2Result
-	require.NoError(t, json.Unmarshal([]byte(readText.Text), &readResponse))
-	require.Equal(t, "text", readResponse.Encoding)
-	require.Equal(t, "1\tshared-content", readResponse.Content)
-	require.True(t, readResponse.EndOfFile)
+	require.Equal(t, "shared-content", readText.Text)
+	readStructured, ok := readResult.StructuredContent.(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "/tmp/shared.txt", readStructured["path"])
 
 	ambiguousResult, callErr := mcpClient.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
-			Name: "status",
+			Name: "get_workspace",
 			Arguments: map[string]any{
-				"workspace_id": ambiguousName,
+				"workspace": ambiguousName,
 			},
 		},
 	})
@@ -2045,19 +2385,19 @@ func TestMCPHTTP_E2E_SharedWorkspaceDiscovery(t *testing.T) {
 
 	explicitResult, err := mcpClient.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
-			Name: "status",
+			Name: "get_workspace",
 			Arguments: map[string]any{
-				"workspace_id": ambiguousOtherFullName,
+				"workspace": ambiguousOtherFullName,
 			},
 		},
 	})
 	require.NoError(t, err)
 	require.False(t, explicitResult.IsError)
-	explicitText, ok := explicitResult.Content[0].(mcp.TextContent)
+	require.Empty(t, explicitResult.Content)
+	explicitStructured, ok := explicitResult.StructuredContent.(map[string]any)
 	require.True(t, ok)
-	var explicitWorkspace codersdk.Workspace
-	require.NoError(t, json.Unmarshal([]byte(explicitText.Text), &explicitWorkspace))
-	require.Equal(t, ambiguousOther.ID, explicitWorkspace.ID)
+	require.Equal(t, ambiguousOtherFullName, explicitStructured["workspace"])
+	require.Contains(t, explicitStructured, "status")
 }
 
 func mustParseURL(t *testing.T, rawURL string) *url.URL {

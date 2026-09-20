@@ -69,6 +69,18 @@ func getList(t *testing.T, handler http.Handler) *httptest.ResponseRecorder {
 	return w
 }
 
+func getSystemProcesses(t *testing.T, handler http.Handler) *httptest.ResponseRecorder {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testutil.WaitLong)
+	defer cancel()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequestWithContext(ctx, http.MethodGet, "/system", nil)
+	handler.ServeHTTP(w, r)
+	return w
+}
+
 // getOutput sends a GET /{id}/output request and returns the
 // recorder.
 func getOutput(t *testing.T, handler http.Handler, id string) *httptest.ResponseRecorder {
@@ -168,6 +180,32 @@ type homeOverrideEnvInfo struct {
 }
 
 func (e homeOverrideEnvInfo) HomeDir() (string, error) { return e.home, nil }
+
+func TestListSystemProcesses(t *testing.T) {
+	t.Parallel()
+
+	handler := newTestAPI(t)
+	response := getSystemProcesses(t, handler)
+	require.Equal(t, http.StatusOK, response.Code)
+
+	var payload workspacesdk.ListSystemProcessesResponse
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &payload))
+	require.NotEmpty(t, payload.Processes)
+
+	currentPID := int64(os.Getpid())
+	found := false
+	for _, process := range payload.Processes {
+		if int64(process.PID) != currentPID {
+			continue
+		}
+		found = true
+		require.GreaterOrEqual(t, process.PPID, int32(0))
+		require.NotEmpty(t, process.Command)
+		require.GreaterOrEqual(t, process.ElapsedSeconds, int64(0))
+		break
+	}
+	require.True(t, found, "system process snapshot must contain the agent/test process")
+}
 
 func TestAccessLogIncludesChatID(t *testing.T) {
 	t.Parallel()
@@ -572,7 +610,7 @@ func TestListProcesses(t *testing.T) {
 			}
 		}
 		require.NotNil(t, found)
-		require.Equal(t, "process_start", found.Tool)
+		require.Equal(t, "start_process", found.Tool)
 
 		spoofedID := startAndGetID(t, handler, workspacesdk.StartProcessRequest{
 			Command: "echo spoofed",
@@ -728,7 +766,7 @@ func TestListProcesses(t *testing.T) {
 		}
 	})
 
-	t.Run("RunningProcessesSortedFirst", func(t *testing.T) {
+	t.Run("ProcessesSortedByStartTime", func(t *testing.T) {
 		t.Parallel()
 
 		handler := newTestAPI(t)
@@ -753,12 +791,18 @@ func TestListProcesses(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, resp.Processes, 2)
 
-		// Running process should come first regardless of
-		// start order.
-		require.Equal(t, runningID, resp.Processes[0].ID)
-		require.True(t, resp.Processes[0].Running)
-		require.Equal(t, exitedID, resp.Processes[1].ID)
-		require.False(t, resp.Processes[1].Running)
+		// Lifecycle state must not reorder session history. Ordering is
+		// strictly by StartedAt descending with ID ascending as the stable
+		// tie-breaker because starts within one Unix second are common.
+		first, second := resp.Processes[0], resp.Processes[1]
+		if first.StartedAt == second.StartedAt {
+			require.Less(t, first.ID, second.ID)
+		} else {
+			require.Greater(t, first.StartedAt, second.StartedAt)
+		}
+		procMap := map[string]workspacesdk.ProcessInfo{first.ID: first, second.ID: second}
+		require.True(t, procMap[runningID].Running)
+		require.False(t, procMap[exitedID].Running)
 
 		// Clean up.
 		postSignal(t, handler, runningID, workspacesdk.SignalProcessRequest{
@@ -1044,6 +1088,96 @@ func getOutputWithWaitCtx(ctx context.Context, t *testing.T, handler http.Handle
 	return w
 }
 
+func TestProcessInput(t *testing.T) {
+	t.Parallel()
+
+	t.Run("InteractiveWriteAndClose", func(t *testing.T) {
+		t.Parallel()
+
+		handler := newTestAPI(t)
+		id := startAndGetID(t, handler, workspacesdk.StartProcessRequest{
+			Command:     "cat",
+			Background:  true,
+			Interactive: true,
+		})
+
+		w := postInput(t, handler, id, workspacesdk.ProcessInputRequest{Data: "hello from stdin\n"})
+		require.Equal(t, http.StatusOK, w.Code)
+
+		w = getOutputWithWait(t, handler, id)
+		require.Equal(t, http.StatusOK, w.Code)
+		var output workspacesdk.ProcessOutputResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&output))
+		require.True(t, output.Running)
+		require.Contains(t, output.Output, "hello from stdin")
+
+		w = postInput(t, handler, id, workspacesdk.ProcessInputRequest{Close: true})
+		require.Equal(t, http.StatusOK, w.Code)
+
+		output = waitForExit(t, handler, id)
+		require.False(t, output.Running)
+		require.NotNil(t, output.ExitCode)
+		require.Equal(t, 0, *output.ExitCode)
+		require.Contains(t, output.Output, "hello from stdin")
+	})
+
+	t.Run("RejectsNonInteractiveProcess", func(t *testing.T) {
+		t.Parallel()
+
+		handler := newTestAPI(t)
+		id := startAndGetID(t, handler, workspacesdk.StartProcessRequest{
+			Command:    "sleep 300",
+			Background: true,
+		})
+		defer postSignal(t, handler, id, workspacesdk.SignalProcessRequest{Signal: "kill"})
+
+		w := postInput(t, handler, id, workspacesdk.ProcessInputRequest{Data: "unexpected"})
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		var response codersdk.Response
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&response))
+		require.Contains(t, response.Message, "stdin is not interactive")
+	})
+
+	t.Run("RejectsEmptyInput", func(t *testing.T) {
+		t.Parallel()
+
+		handler := newTestAPI(t)
+		id := startAndGetID(t, handler, workspacesdk.StartProcessRequest{
+			Command:     "cat",
+			Background:  true,
+			Interactive: true,
+		})
+		defer postSignal(t, handler, id, workspacesdk.SignalProcessRequest{Signal: "kill"})
+
+		w := postInput(t, handler, id, workspacesdk.ProcessInputRequest{})
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		var response codersdk.Response
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&response))
+		require.Contains(t, response.Message, "data must be non-empty or close must be true")
+	})
+
+	t.Run("RejectsUnknownProcess", func(t *testing.T) {
+		t.Parallel()
+
+		handler := newTestAPI(t)
+		w := postInput(t, handler, "unknown-process", workspacesdk.ProcessInputRequest{Data: "hello"})
+		require.Equal(t, http.StatusNotFound, w.Code)
+	})
+
+	t.Run("RejectsExitedProcess", func(t *testing.T) {
+		t.Parallel()
+
+		handler := newTestAPI(t)
+		id := startAndGetID(t, handler, workspacesdk.StartProcessRequest{
+			Command: "true",
+		})
+		waitForExit(t, handler, id)
+
+		w := postInput(t, handler, id, workspacesdk.ProcessInputRequest{Data: "hello"})
+		require.Equal(t, http.StatusConflict, w.Code)
+	})
+}
+
 func TestSignalProcess(t *testing.T) {
 	t.Parallel()
 
@@ -1063,6 +1197,28 @@ func TestSignalProcess(t *testing.T) {
 		require.Equal(t, http.StatusOK, w.Code)
 
 		// Verify the process exits.
+		resp := waitForExit(t, handler, id)
+		require.False(t, resp.Running)
+	})
+
+	t.Run("InterruptRunning", func(t *testing.T) {
+		t.Parallel()
+
+		if runtime.GOOS == "windows" {
+			t.Skip("SIGINT process-group semantics are not supported on Windows")
+		}
+
+		handler := newTestAPI(t)
+		id := startAndGetID(t, handler, workspacesdk.StartProcessRequest{
+			Command:    "sleep 300",
+			Background: true,
+		})
+
+		w := postSignal(t, handler, id, workspacesdk.SignalProcessRequest{
+			Signal: "interrupt",
+		})
+		require.Equal(t, http.StatusOK, w.Code)
+
 		resp := waitForExit(t, handler, id)
 		require.False(t, resp.Running)
 	})

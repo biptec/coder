@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -43,7 +44,7 @@ type PersistentActivityHandle struct {
 type PersistentActivityRecorder interface {
 	// StartToolActivity always records the MCP request span. persistTool controls
 	// whether the same invocation also receives a user-facing tool row; command
-	// tools (exec/bash/process_start) are represented by the Agent command row.
+	// command tools (exec/execute_shell_command/start_process) are represented by the Agent command row.
 	StartToolActivity(ctx context.Context, userID, toolName, workspace, input, correlationHash string, startedAt time.Time, persistTool bool) (PersistentActivityHandle, error)
 	FinishToolActivity(ctx context.Context, handle PersistentActivityHandle, status PersistentActivityStatus, output string, finishedAt time.Time) error
 }
@@ -76,12 +77,12 @@ type ActivityStore struct {
 	byUser map[string][]ActivityRecord
 }
 
-func NewActivityStore(max int) *ActivityStore {
-	if max <= 0 {
-		max = 100
+func NewActivityStore(capacity int) *ActivityStore {
+	if capacity <= 0 {
+		capacity = 100
 	}
 	return &ActivityStore{
-		max:    max,
+		max:    capacity,
 		byUser: make(map[string][]ActivityRecord),
 	}
 }
@@ -157,37 +158,132 @@ func (s *ActivityStore) compactLocked(userID string) {
 	s.byUser[userID] = out
 }
 
-func (s *ActivityStore) List(userID, workspace string, limit int) []ActivityRecord {
+type ActivityPage struct {
+	Records    []ActivityRecord `json:"records"`
+	NextCursor string           `json:"next_cursor,omitempty"`
+	HasMore    bool             `json:"has_more"`
+}
+
+func encodeActivityCursor(id string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte("v1:" + id))
+}
+
+func decodeActivityCursor(cursor string) (string, error) {
+	decoded, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return "", xerrors.New("invalid activity cursor")
+	}
+	const prefix = "v1:"
+	value := string(decoded)
+	if !strings.HasPrefix(value, prefix) {
+		return "", xerrors.New("invalid activity cursor")
+	}
+	id := strings.TrimPrefix(value, prefix)
+	if _, err := uuid.Parse(id); err != nil {
+		return "", xerrors.New("invalid activity cursor")
+	}
+	return id, nil
+}
+
+// Page returns workspace-filtered activity in reverse chronological order.
+// A cursor identifies the last record from the previous page, so newly-added
+// records cannot shift or duplicate the continuation page.
+func (s *ActivityStore) Page(userID, workspace string, limit int, cursor string) (ActivityPage, error) {
 	if s == nil || userID == "" {
-		return nil
+		return ActivityPage{Records: []ActivityRecord{}}, nil
 	}
-	if limit <= 0 {
-		limit = defaultActivityLimit
+	if limit < 0 {
+		return ActivityPage{}, xerrors.New("limit cannot be negative")
 	}
-	if limit > s.max {
-		limit = s.max
+
+	var cursorID string
+	var err error
+	if cursor != "" {
+		cursorID, err = decodeActivityCursor(cursor)
+		if err != nil {
+			return ActivityPage{}, err
+		}
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	records := s.byUser[userID]
-	out := make([]ActivityRecord, 0, min(limit, len(records)))
-	completed := 0
+	capacity := len(records)
+	if limit > 0 {
+		capacity = min(limit, len(records))
+	}
+	out := make([]ActivityRecord, 0, capacity)
+	pastCursor := cursorID == ""
+	cursorFound := cursorID == ""
+	lastIndex := -1
+
 	for i := len(records) - 1; i >= 0; i-- {
 		rec := records[i]
-		if workspace != "" && rec.Workspace != workspace {
+		if rec.Workspace != workspace {
 			continue
 		}
-		if rec.Status != "running" {
-			if completed >= limit {
-				continue
+		if !pastCursor {
+			if rec.ID == cursorID {
+				pastCursor = true
+				cursorFound = true
 			}
-			completed++
+			continue
+		}
+		if limit > 0 && len(out) >= limit {
+			lastIndex = i
+			break
 		}
 		rec.started = time.Time{}
 		out = append(out, rec)
 	}
-	return out
+
+	if !cursorFound {
+		return ActivityPage{}, xerrors.New("activity cursor is no longer available for this workspace")
+	}
+
+	hasMore := false
+	if limit > 0 && len(out) == limit {
+		if lastIndex >= 0 {
+			hasMore = true
+		} else {
+			// The loop may end exactly at the slice boundary. Check whether an
+			// older record for the same workspace exists.
+			lastID := out[len(out)-1].ID
+			seenLast := false
+			for i := len(records) - 1; i >= 0; i-- {
+				rec := records[i]
+				if rec.Workspace != workspace {
+					continue
+				}
+				if !seenLast {
+					if rec.ID == lastID {
+						seenLast = true
+					}
+					continue
+				}
+				hasMore = true
+				break
+			}
+		}
+	}
+
+	page := ActivityPage{Records: out, HasMore: hasMore}
+	if hasMore && len(out) > 0 {
+		page.NextCursor = encodeActivityCursor(out[len(out)-1].ID)
+	}
+	return page, nil
+}
+
+func (s *ActivityStore) List(userID, workspace string, limit int) []ActivityRecord {
+	if limit <= 0 {
+		limit = defaultActivityLimit
+	}
+	page, err := s.Page(userID, workspace, min(limit, s.max), "")
+	if err != nil {
+		return nil
+	}
+	return page.Records
 }
 
 func activitySummary(tool, workspace string) string {
@@ -201,6 +297,18 @@ func activityResourceIDs(result *mcp.CallToolResult) (processID, searchID string
 	if result == nil {
 		return "", ""
 	}
+	if payload, ok := result.StructuredContent.(map[string]any); ok {
+		if value, ok := payload["process_id"].(string); ok {
+			processID = value
+		}
+		if value, ok := payload["search_id"].(string); ok {
+			searchID = value
+		}
+		if processID != "" || searchID != "" {
+			return processID, searchID
+		}
+	}
+	// Legacy/admin tools may still carry their typed JSON envelope in TextContent.
 	for _, content := range result.Content {
 		text, ok := content.(mcp.TextContent)
 		if !ok {
@@ -351,10 +459,10 @@ func persistentActivityInput(args map[string]any) string {
 }
 
 func persistentActivityOutput(toolName string, result *mcp.CallToolResult) string {
-	// process_output returns stdout/stderr that already belongs to the canonical
+	// read_process_output returns stdout/stderr that already belongs to the canonical
 	// command activity row. Keeping a second copy on every observation call both
 	// bloats history and makes the same process output appear multiple times.
-	if toolName == "process_output" || toolName == toolsdk.ToolNameWorkspaceProcessOutput {
+	if toolName == "read_process_output" || toolName == "process_output" || toolName == toolsdk.ToolNameWorkspaceProcessOutput {
 		return ""
 	}
 	if result == nil {
@@ -502,7 +610,7 @@ func isSensitiveActivityInputKey(key string) bool {
 
 func persistAsToolActivity(toolName string) bool {
 	switch toolName {
-	case "exec", "bash", "process_start",
+	case "exec", "execute_shell_command", "start_process",
 		toolsdk.ToolNameWorkspaceExec,
 		toolsdk.ToolNameWorkspaceBash,
 		toolsdk.ToolNameWorkspaceProcessStart,
@@ -513,29 +621,48 @@ func persistAsToolActivity(toolName string) bool {
 	}
 }
 
+func activityPublicStatus(status string) string {
+	switch status {
+	case "success", "succeeded":
+		return "done"
+	case "error", "failed":
+		return "failed"
+	default:
+		return status
+	}
+}
+
 func (s *Server) registerRecentActivityTool() {
 	if s.activityStore == nil || s.activityUserID == "" {
 		return
 	}
+	outputSchema := assistantOutputSchema("list_recent_tool_calls")
 	tool := server.ServerTool{
 		Tool: mcp.Tool{
-			Name:        "recent_activity",
+			Name:        "list_recent_tool_calls",
 			Description: "List recent safe tool activity metadata for the authenticated Coder user. No command output, file content, environment, stdin, token, or secret values are stored.",
 			InputSchema: mcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
 					"workspace": map[string]any{
 						"type":        "string",
-						"description": "Optional exact workspace filter.",
+						"description": "Workspace whose recent tool calls should be listed.",
+						"minLength":   1,
 					},
 					"limit": map[string]any{
 						"type":        "integer",
-						"description": "Maximum completed history records to return. Defaults to 20, maximum 100. Running records are always included.",
+						"description": "Optional maximum number of activity records to return. If omitted, return all retained activity for this workspace.",
 						"minimum":     1,
-						"maximum":     100,
+					},
+					"cursor": map[string]any{
+						"type":        "string",
+						"description": "Opaque continuation cursor returned by the previous limited call. Omit it to read the newest records.",
+						"minLength":   1,
 					},
 				},
+				Required: []string{"workspace"},
 			},
+			OutputSchema: outputSchema,
 			Annotations: mcp.ToolAnnotation{
 				ReadOnlyHint:    mcp.ToBoolPtr(true),
 				DestructiveHint: mcp.ToBoolPtr(false),
@@ -547,28 +674,64 @@ func (s *Server) registerRecentActivityTool() {
 	tool.Handler = func(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args := request.GetArguments()
 		workspace, _ := args["workspace"].(string)
-		limit := defaultActivityLimit
-		switch raw := args["limit"].(type) {
-		case float64:
-			limit = int(raw)
-		case int:
-			limit = raw
+		workspace = strings.TrimSpace(workspace)
+		if workspace == "" {
+			return nil, xerrors.New("workspace is required")
 		}
-		if limit < 1 || limit > s.activityStore.max {
-			return nil, xerrors.Errorf("limit must be between 1 and %d", s.activityStore.max)
+
+		limit := 0
+		if rawLimit, ok := args["limit"]; ok {
+			switch raw := rawLimit.(type) {
+			case float64:
+				if raw != float64(int(raw)) {
+					return nil, xerrors.New("limit must be an integer")
+				}
+				limit = int(raw)
+			case int:
+				limit = raw
+			default:
+				return nil, xerrors.New("limit must be an integer")
+			}
+			if limit < 1 {
+				return nil, xerrors.New("limit must be positive")
+			}
 		}
-		payload := map[string]any{
-			"records": s.activityStore.List(s.activityUserID, strings.TrimSpace(workspace), limit),
-		}
-		data, err := json.Marshal(payload)
+
+		cursor, _ := args["cursor"].(string)
+		page, err := s.activityStore.Page(s.activityUserID, workspace, limit, strings.TrimSpace(cursor))
 		if err != nil {
 			return nil, err
 		}
-		return mcp.NewToolResultText(string(data)), nil
+		calls := make([]any, 0, len(page.Records))
+		for _, record := range page.Records {
+			call := map[string]any{
+				"started_at": record.StartedAt,
+				"status":     activityPublicStatus(record.Status),
+				"tool":       record.Tool,
+			}
+			if record.ProcessID != "" {
+				call["process_id"] = record.ProcessID
+			}
+			if record.SearchID != "" {
+				call["search_id"] = record.SearchID
+			}
+			calls = append(calls, call)
+		}
+		structured := map[string]any{"calls": calls}
+		if page.NextCursor != "" {
+			structured["next_cursor"] = page.NextCursor
+		}
+		if err := validateAssistantStructuredContent("list_recent_tool_calls", outputSchema, structured); err != nil {
+			return nil, xerrors.Errorf("validate list_recent_tool_calls output: %w", err)
+		}
+		return &mcp.CallToolResult{
+			Content:           []mcp.Content{},
+			StructuredContent: structured,
+		}, nil
 	}
-	// Do not track recent_activity in the in-memory store it reads. Tracking it
+	// Do not track list_recent_tool_calls in the in-memory store it reads. Tracking it
 	// would make every call report itself as the newest running record and would
 	// prevent an otherwise idle user's activity list from ever being empty.
-	tool = s.withTraceTracking(tool, "recent_activity")
+	tool = s.withTraceTracking(tool, "list_recent_tool_calls")
 	s.mcpServer.AddTools(tool)
 }

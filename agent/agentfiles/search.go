@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -25,18 +26,9 @@ import (
 	"github.com/coder/coder/v2/codersdk/workspacesdk"
 )
 
-const (
-	defaultSearchResults  = 500
-	maxSearchResults      = 5000
-	maxSearchPage         = 1000
-	maxSearchFileBytes    = 2 << 20
-	maxSearchLineBytes    = 1 << 20
-	maxSearchPreviewRunes = 500
-	searchSessionTTL      = 10 * time.Minute
-	searchMaxDuration     = 30 * time.Second
-)
+const searchSessionTTL = 10 * time.Minute
 
-var errSearchLimit = errors.New("search result limit reached")
+var errSearchLimit = xerrors.New("search result limit reached")
 
 type searchSession struct {
 	mu      sync.Mutex
@@ -104,18 +96,15 @@ func (m *searchManager) start(req workspacesdk.SearchStartRequest, chatID string
 		return "", xerrors.New("file-name search root must be a directory")
 	}
 	maxResults := req.MaxResults
-	if maxResults == 0 {
-		maxResults = defaultSearchResults
-	}
-	if maxResults < 1 || maxResults > maxSearchResults {
-		return "", xerrors.Errorf("max_results must be between 1 and %d", maxSearchResults)
+	if maxResults < 0 {
+		return "", xerrors.New("max_results cannot be negative")
 	}
 	matcher, err := newSearchMatcher(req.Query, req.Regex, req.CaseSensitive)
 	if err != nil {
 		return "", err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), searchMaxDuration)
+	ctx, cancel := context.WithCancel(context.Background())
 	id := uuid.New().String()
 	session := &searchSession{
 		info: workspacesdk.SearchSessionInfo{
@@ -194,18 +183,13 @@ func hiddenRelativePath(root, path string) bool {
 }
 
 func previewLine(line string) string {
-	line = strings.ToValidUTF8(line, "�")
-	runes := []rune(line)
-	if len(runes) <= maxSearchPreviewRunes {
-		return line
-	}
-	return string(runes[:maxSearchPreviewRunes]) + "…"
+	return strings.ToValidUTF8(line, "�")
 }
 
-func (m *searchManager) appendResult(session *searchSession, result workspacesdk.SearchResult, maxResults int) error {
+func appendSearchResult(session *searchSession, result workspacesdk.SearchResult, maxResults int) error {
 	session.mu.Lock()
 	defer session.mu.Unlock()
-	if len(session.results) >= maxResults {
+	if maxResults > 0 && len(session.results) >= maxResults {
 		session.info.Truncated = true
 		return errSearchLimit
 	}
@@ -242,12 +226,12 @@ func (m *searchManager) run(ctx context.Context, session *searchSession, req wor
 				return nil
 			}
 			if _, ok := matcher.find(rel); ok {
-				return m.appendResult(session, workspacesdk.SearchResult{Path: path}, maxResults)
+				return appendSearchResult(session, workspacesdk.SearchResult{Path: path}, maxResults)
 			}
 			return nil
 		}
 
-		if info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Size() > maxSearchFileBytes {
+		if info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 			return nil
 		}
 		return func() error {
@@ -257,36 +241,38 @@ func (m *searchManager) run(ctx context.Context, session *searchSession, req wor
 			}
 			defer f.Close()
 
-			scanner := bufio.NewScanner(f)
-			scanner.Buffer(make([]byte, 64<<10), maxSearchLineBytes)
+			reader := bufio.NewReader(f)
 			lineNo := 0
-			for scanner.Scan() {
+			for {
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				lineNo++
-				line := scanner.Text()
-				if strings.IndexByte(line, 0) >= 0 {
+				line, readErr := reader.ReadString('\n')
+				if len(line) > 0 {
+					lineNo++
+					line = strings.TrimSuffix(line, "\n")
+					line = strings.TrimSuffix(line, "\r")
+					if strings.IndexByte(line, 0) >= 0 {
+						return nil
+					}
+					if idx, ok := matcher.find(line); ok {
+						if err := appendSearchResult(session, workspacesdk.SearchResult{
+							Path:   path,
+							Line:   lineNo,
+							Column: idx + 1,
+							Text:   previewLine(line),
+						}, maxResults); err != nil {
+							return err
+						}
+					}
+				}
+				if errors.Is(readErr, io.EOF) {
 					return nil
 				}
-				idx, ok := matcher.find(line)
-				if !ok {
-					continue
-				}
-				if err := m.appendResult(session, workspacesdk.SearchResult{
-					Path:   path,
-					Line:   lineNo,
-					Column: idx + 1,
-					Text:   previewLine(line),
-				}, maxResults); err != nil {
-					return err
+				if readErr != nil {
+					return nil
 				}
 			}
-			if err := scanner.Err(); err != nil {
-				// A pathological long/binary line should not abort the entire search.
-				return nil
-			}
-			return nil
 		}()
 	})
 
@@ -300,10 +286,6 @@ func (m *searchManager) run(ctx context.Context, session *searchSession, req wor
 		session.info.Truncated = true
 	case errors.Is(err, context.Canceled):
 		session.info.Status = "stopped"
-	case errors.Is(err, context.DeadlineExceeded):
-		session.info.Status = "timeout"
-		session.info.Truncated = true
-		session.info.Error = "search exceeded 30 second execution limit"
 	case err != nil:
 		session.info.Status = "error"
 		session.info.Error = err.Error()
@@ -330,11 +312,8 @@ func (m *searchManager) results(id, chatID string, cursor, limit int) (workspace
 	if cursor < 0 {
 		return workspacesdk.SearchResultsResponse{}, xerrors.New("cursor cannot be negative")
 	}
-	if limit == 0 {
-		limit = 100
-	}
-	if limit < 1 || limit > maxSearchPage {
-		return workspacesdk.SearchResultsResponse{}, xerrors.Errorf("limit must be between 1 and %d", maxSearchPage)
+	if limit < 0 {
+		return workspacesdk.SearchResultsResponse{}, xerrors.New("limit cannot be negative")
 	}
 	session, ok := m.get(id, chatID)
 	if !ok {
@@ -346,9 +325,9 @@ func (m *searchManager) results(id, chatID string, cursor, limit int) (workspace
 	if start > len(session.results) {
 		start = len(session.results)
 	}
-	end := start + limit
-	if end > len(session.results) {
-		end = len(session.results)
+	end := len(session.results)
+	if limit > 0 && start+limit < end {
+		end = start + limit
 	}
 	results := append([]workspacesdk.SearchResult(nil), session.results[start:end]...)
 	info := session.info
@@ -375,10 +354,12 @@ func (m *searchManager) list(chatID string) []workspacesdk.SearchSessionInfo {
 	for _, session := range sessions {
 		infos = append(infos, session.snapshot())
 	}
-	sort.Slice(infos, func(i, j int) bool { return infos[i].CreatedAt > infos[j].CreatedAt })
-	if len(infos) > 50 {
-		infos = infos[:50]
-	}
+	sort.Slice(infos, func(i, j int) bool {
+		if infos[i].CreatedAt != infos[j].CreatedAt {
+			return infos[i].CreatedAt > infos[j].CreatedAt
+		}
+		return infos[i].ID < infos[j].ID
+	})
 	return infos
 }
 
@@ -425,11 +406,11 @@ func (api *API) HandleSearchResults(rw http.ResponseWriter, r *http.Request) {
 	}
 	limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
 	if r.URL.Query().Get("limit") == "" {
-		limit = 100
+		limit = 0
 		err = nil
 	}
-	if err != nil || limit < 1 || limit > maxSearchPage {
-		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: "limit must be between 1 and 1000"})
+	if err != nil || limit < 0 {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{Message: "limit must be a non-negative integer"})
 		return
 	}
 	resp, err := api.searches.results(chi.URLParam(r, "id"), searchChatID(ctx), cursor, limit)

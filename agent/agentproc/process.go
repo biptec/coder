@@ -33,9 +33,13 @@ var (
 )
 
 func normalizeCommandActivityTool(tool string) string {
-	switch tool = strings.TrimSpace(tool); tool {
-	case "exec", "process_start", "bash":
-		return tool
+	switch strings.TrimSpace(tool) {
+	case "exec":
+		return "exec"
+	case "bash", "execute_shell_command":
+		return "execute_shell_command"
+	case "process_start", "start_process":
+		return "start_process"
 	default:
 		return ""
 	}
@@ -100,27 +104,31 @@ func normalizeCommandActivitySource(tool, chatID string) string {
 
 // process represents a running or completed process.
 type process struct {
-	mu          sync.Mutex
-	inputMu     sync.Mutex
-	id          string
-	command     string
-	argv        []string
-	workDir     string
-	tool        string
-	background  bool
-	interactive bool
-	chatID      string
-	cmd         *exec.Cmd
-	stdin       io.WriteCloser
-	stdinClosed bool
-	cancel      context.CancelFunc
-	buf         *HeadTailBuffer
-	logger      slog.Logger
-	running     bool
-	exitCode    *int
-	startedAt   int64
-	exitedAt    *int64
-	done        chan struct{} // closed when process exits
+	mu            sync.Mutex
+	inputMu       sync.Mutex
+	id            string
+	command       string
+	argv          []string
+	workDir       string
+	host          string
+	port          int
+	identityFile  string
+	remotePIDFile string
+	tool          string
+	background    bool
+	interactive   bool
+	chatID        string
+	cmd           *exec.Cmd
+	stdin         io.WriteCloser
+	stdinClosed   bool
+	cancel        context.CancelFunc
+	buf           *HeadTailBuffer
+	logger        slog.Logger
+	running       bool
+	exitCode      *int
+	startedAt     int64
+	exitedAt      *int64
+	done          chan struct{} // closed when process exits
 }
 
 // info returns a snapshot of the process state.
@@ -133,6 +141,8 @@ func (p *process) info() workspacesdk.ProcessInfo {
 		Command:     p.command,
 		Argv:        append([]string(nil), p.argv...),
 		WorkDir:     p.workDir,
+		Host:        p.host,
+		Port:        p.port,
 		Tool:        p.tool,
 		Background:  p.background,
 		Interactive: p.interactive,
@@ -212,27 +222,44 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 		return nil, xerrors.New("argv[0] must not be empty")
 	}
 
+	if err := validateSSHProcessTarget(req); err != nil {
+		return nil, err
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	var cmd *exec.Cmd
-	if len(req.Argv) > 0 {
-		cmd = m.execer.CommandContext(ctx, req.Argv[0], req.Argv[1:]...)
+	processWorkDir := req.WorkDir
+	remotePIDFile := ""
+	if req.Host != "" {
+		var err error
+		cmd, remotePIDFile, err = m.newRemoteProcessCommand(ctx, req, id)
+		if err != nil {
+			cancel()
+			return nil, err
+		}
 	} else {
-		cmd = m.execer.CommandContext(ctx, "sh", "-c", req.Command)
+		if len(req.Argv) > 0 {
+			cmd = m.execer.CommandContext(ctx, req.Argv[0], req.Argv[1:]...)
+		} else {
+			cmd = m.execer.CommandContext(ctx, "sh", "-c", req.Command)
+		}
+		cmd.Dir = m.resolveWorkingDirectory(req.WorkDir)
+		processWorkDir = cmd.Dir
 	}
-	cmd.Dir = m.resolveWorkingDirectory(req.WorkDir)
 	cmd.SysProcAttr = procSysProcAttr()
 
 	var stdin io.WriteCloser
-	if req.Interactive {
+	switch {
+	case req.Interactive:
 		var err error
 		stdin, err = cmd.StdinPipe()
 		if err != nil {
 			cancel()
 			return nil, xerrors.Errorf("create stdin pipe: %w", err)
 		}
-	} else if req.Stdin != "" {
+	case req.Stdin != "":
 		cmd.Stdin = strings.NewReader(req.Stdin)
-	} else {
+	default:
 		cmd.Stdin = nil
 	}
 
@@ -268,8 +295,12 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 	// Always set cmd.Env explicitly so that req.Env overrides
 	// are applied on top of the full agent environment.
 	cmd.Env = baseEnv
-	for k, v := range req.Env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+	// Remote environment overrides are encoded into the safely quoted remote
+	// command. Do not also apply them to the local ssh client process.
+	if req.Host == "" {
+		for k, v := range req.Env {
+			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+		}
 	}
 	// Propagate the chat ID so child processes (e.g.
 	// GIT_ASKPASS) can send it back to the server.
@@ -293,22 +324,26 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 	tool := normalizeCommandActivityTool(req.Tool)
 	source := normalizeCommandActivitySource(tool, chatID)
 	proc := &process{
-		id:          id,
-		command:     req.Command,
-		argv:        append([]string(nil), req.Argv...),
-		workDir:     cmd.Dir,
-		tool:        tool,
-		background:  req.Background,
-		interactive: req.Interactive,
-		chatID:      chatID,
-		cmd:         cmd,
-		stdin:       stdin,
-		cancel:      cancel,
-		buf:         buf,
-		logger:      logger,
-		running:     true,
-		startedAt:   now,
-		done:        make(chan struct{}),
+		id:            id,
+		command:       req.Command,
+		argv:          append([]string(nil), req.Argv...),
+		workDir:       processWorkDir,
+		host:          req.Host,
+		port:          req.Port,
+		identityFile:  req.IdentityFile,
+		remotePIDFile: remotePIDFile,
+		tool:          tool,
+		background:    req.Background,
+		interactive:   req.Interactive,
+		chatID:        chatID,
+		cmd:           cmd,
+		stdin:         stdin,
+		cancel:        cancel,
+		buf:           buf,
+		logger:        logger,
+		running:       true,
+		startedAt:     now,
+		done:          make(chan struct{}),
 	}
 
 	m.mu.Lock()
@@ -328,7 +363,7 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 		Finish: func(int) {},
 	}
 	if m.reportCommandActivity != nil {
-		activity = m.reportCommandActivity(source, req.Command, req.Argv, req.Env, cmd.Dir, tool)
+		activity = m.reportCommandActivity(source, req.Command, req.Argv, req.Env, processWorkDir, tool)
 		if activity.Output == nil {
 			activity.Output = io.Discard
 		}
@@ -379,7 +414,11 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 	return proc, nil
 }
 
-func (p *process) writeInput(data string, closeAfter bool) error {
+type processInputOptions struct {
+	closeAfter bool
+}
+
+func (p *process) writeInput(data string, options processInputOptions) error {
 	p.inputMu.Lock()
 	defer p.inputMu.Unlock()
 	if !p.interactive || p.stdin == nil {
@@ -393,7 +432,7 @@ func (p *process) writeInput(data string, closeAfter bool) error {
 			return xerrors.Errorf("write process stdin: %w", err)
 		}
 	}
-	if closeAfter {
+	if options.closeAfter {
 		if err := p.stdin.Close(); err != nil {
 			return xerrors.Errorf("close process stdin: %w", err)
 		}
@@ -464,45 +503,53 @@ func (m *manager) input(id string, data string, closeAfter bool) error {
 	if !running {
 		return errProcessNotRunning
 	}
-	return proc.writeInput(data, closeAfter)
+	return proc.writeInput(data, processInputOptions{closeAfter: closeAfter})
 }
 
 // signal sends a signal to a running process. It returns
 // sentinel errors errProcessNotFound and errProcessNotRunning
 // so callers can distinguish failure modes.
-func (m *manager) signal(id string, sig string) error {
+func (m *manager) signalContext(ctx context.Context, id string, sig string) error {
 	m.mu.Lock()
 	proc, ok := m.procs[id]
 	m.mu.Unlock()
-
 	if !ok {
 		return errProcessNotFound
 	}
 
 	proc.mu.Lock()
-	defer proc.mu.Unlock()
-
 	if !proc.running {
+		proc.mu.Unlock()
 		return errProcessNotRunning
 	}
+	host := proc.host
+	port := proc.port
+	identityFile := proc.identityFile
+	pidFile := proc.remotePIDFile
+	localProcess := proc.cmd.Process
+	proc.mu.Unlock()
 
+	if host != "" {
+		if err := m.signalRemoteProcess(ctx, host, identityFile, port, pidFile, sig); err != nil {
+			return xerrors.Errorf("signal remote process: %w", err)
+		}
+		return nil
+	}
+
+	var signal syscall.Signal
 	switch sig {
-	case "kill":
-		// Use process group kill to ensure child processes
-		// (e.g. from shell pipelines) are also killed.
-		if err := signalProcess(proc.cmd.Process, syscall.SIGKILL); err != nil {
-			return xerrors.Errorf("kill process: %w", err)
-		}
+	case "interrupt":
+		signal = syscall.SIGINT
 	case "terminate":
-		// Use process group signal to ensure child processes
-		// are also terminated.
-		if err := signalProcess(proc.cmd.Process, syscall.SIGTERM); err != nil {
-			return xerrors.Errorf("terminate process: %w", err)
-		}
+		signal = syscall.SIGTERM
+	case "kill":
+		signal = syscall.SIGKILL
 	default:
 		return xerrors.Errorf("unsupported signal %q", sig)
 	}
-
+	if err := signalProcess(localProcess, signal); err != nil {
+		return xerrors.Errorf("signal process: %w", err)
+	}
 	return nil
 }
 
@@ -524,6 +571,15 @@ func (m *manager) Close() error {
 	m.mu.Unlock()
 
 	for _, p := range procs {
+		p.mu.Lock()
+		remote := p.running && p.host != ""
+		id := p.id
+		p.mu.Unlock()
+		if remote {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			_ = m.signalContext(ctx, id, "kill")
+			cancel()
+		}
 		_ = p.closeInput()
 		p.cancel()
 	}

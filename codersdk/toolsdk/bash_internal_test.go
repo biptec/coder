@@ -67,6 +67,27 @@ func TestObserveWorkspaceProcessStopsOnCallerCancel(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 }
 
+func TestStartWorkspaceProcessObservationDeadlineUsesPublicRecoveryTool(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	conn := agentconnmock.NewMockAgentConn(ctrl)
+	budget := mcpObservationBudget{deadline: time.Now().Add(20 * time.Millisecond), window: 20 * time.Millisecond}
+
+	conn.EXPECT().StartProcess(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(callCtx context.Context, _ workspacesdk.StartProcessRequest) (workspacesdk.StartProcessResponse, error) {
+			<-callCtx.Done()
+			return workspacesdk.StartProcessResponse{}, callCtx.Err()
+		},
+	)
+
+	ctx := WithInvocationTool(context.Background(), "start_process")
+	_, err := startWorkspaceProcessWithinObservation(ctx, conn, workspacesdk.StartProcessRequest{Argv: []string{"sleep", "600"}}, budget)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "list_sessions")
+	require.NotContains(t, err.Error(), "process_list")
+}
+
 func TestStartWorkspaceProcessObservationDeadlineIsRecoverable(t *testing.T) {
 	t.Parallel()
 

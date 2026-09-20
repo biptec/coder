@@ -78,10 +78,10 @@ func TestWorkspaceBash(t *testing.T) {
 		tool := toolsdk.WorkspaceBash
 		require.Equal(t, toolsdk.ToolNameWorkspaceBash, tool.Name)
 		require.NotEmpty(t, tool.Description)
-		require.Contains(t, tool.Description, "Execute a bash command in a Coder workspace")
-		require.Contains(t, tool.Description, "output is trimmed of leading and trailing whitespace")
-		require.Contains(t, tool.Description, "only /home/coder is persistent")
-		require.Contains(t, tool.Description, "structured advisory")
+		require.Contains(t, tool.Description, "POSIX shell command")
+		require.Contains(t, tool.Description, "sh -c")
+		require.Contains(t, tool.Description, "durable tracked process")
+		require.Contains(t, tool.Description, "initial output")
 		require.Contains(t, tool.Schema.Required, "workspace")
 		require.Contains(t, tool.Schema.Required, "command")
 
@@ -123,20 +123,21 @@ func TestWorkspaceBashObservationContract(t *testing.T) {
 
 	argsType := reflect.TypeOf(toolsdk.WorkspaceBashArgs{})
 	_, hasTimeout := argsType.FieldByName("TimeoutMs")
-	require.False(t, hasTimeout, "bash args must not expose a process execution timeout")
+	require.False(t, hasTimeout, "shell args must not expose a process execution timeout")
+	_, hasWait := argsType.FieldByName("WaitTimeoutMs")
+	require.True(t, hasWait, "shell args should expose an observation wait interval")
 	_, hasBackground := argsType.FieldByName("Background")
-	require.False(t, hasBackground, "bash background mode must use process_start instead")
+	require.False(t, hasBackground, "tracked processes are durable without a background flag")
 
 	tool := toolsdk.WorkspaceBash
 	require.NotContains(t, tool.Schema.Properties, "timeout_ms")
+	require.Contains(t, tool.Schema.Properties, "wait_timeout_ms")
 	require.NotContains(t, tool.Schema.Properties, "background")
-	require.Contains(t, tool.Description, "no process execution timeout")
-	require.Contains(t, tool.Description, "single shared 60-second observation budget")
+	require.Contains(t, tool.Description, "durable tracked process")
+	require.Contains(t, tool.Description, "wait_timeout_ms")
 	require.Contains(t, tool.Description, "process_id")
-	require.Contains(t, tool.Description, "running=true")
-	require.Contains(t, tool.Description, "continues independently")
-	require.Contains(t, tool.Description, "coder_workspace_process_output")
-	require.Contains(t, tool.Description, "coder_workspace_process_start")
+	require.Contains(t, tool.Description, "start_process")
+	require.Contains(t, tool.Description, "sh -c")
 	require.NotContains(t, tool.Description, "background: true")
 }
 
@@ -153,13 +154,16 @@ func TestWorkspaceBashIntegration(t *testing.T) {
 	deps, err := toolsdk.NewDeps(client)
 	require.NoError(t, err)
 
+	waitMs := 1000
 	result, err := testTool(t, toolsdk.WorkspaceBash, deps, toolsdk.WorkspaceBashArgs{
-		Workspace: workspace.Name,
-		Command:   `printf 'before\\n'; sleep 0.1; printf 'after\\n'`,
+		Workspace:     workspace.Name,
+		Command:       `printf 'before\\n'; sleep 0.1; printf 'after\\n'`,
+		WaitTimeoutMs: &waitMs,
 	})
 	require.NoError(t, err)
-	require.Equal(t, 0, result.ExitCode)
-	require.Equal(t, "before\\nafter", result.Output)
-	require.Empty(t, result.ProcessID)
+	require.NotNil(t, result.ExitCode)
+	require.Equal(t, 0, *result.ExitCode)
+	require.Equal(t, "before\\nafter\\n", result.Output)
+	require.NotEmpty(t, result.ProcessID)
 	require.False(t, result.Running)
 }

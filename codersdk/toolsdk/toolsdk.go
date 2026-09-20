@@ -11,6 +11,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"golang.org/x/xerrors"
@@ -63,64 +64,66 @@ func MCPTraceIDFromContext(ctx context.Context) (uuid.UUID, bool) {
 
 // Tool name constants to avoid hardcoded strings
 const (
-	ToolNameReportTask                  = "coder_report_task"
-	ToolNameGetWorkspace                = "coder_get_workspace"
-	ToolNameCreateWorkspace             = "coder_create_workspace"
-	ToolNameListWorkspaces              = "coder_list_workspaces"
-	ToolNameListAccessibleWorkspaces    = "coder_list_accessible_workspaces"
-	ToolNameListTemplates               = "coder_list_templates"
-	ToolNameListTemplateVersionParams   = "coder_template_version_parameters"
-	ToolNameGetTemplate                 = "coder_get_template"
-	ToolNameGetAuthenticatedUser        = "coder_get_authenticated_user"
-	ToolNameCreateWorkspaceBuild        = "coder_create_workspace_build"
-	ToolNameCreateTemplateVersion       = "coder_create_template_version"
-	ToolNameGetWorkspaceAgentLogs       = "coder_get_workspace_agent_logs"
-	ToolNameGetWorkspaceBuildLogs       = "coder_get_workspace_build_logs"
-	ToolNameGetTemplateVersionLogs      = "coder_get_template_version_logs"
-	ToolNameUpdateTemplateActiveVersion = "coder_update_template_active_version"
-	ToolNameUploadTarFile               = "coder_upload_tar_file"
-	ToolNameCreateTemplate              = "coder_create_template"
-	ToolNameDeleteTemplate              = "coder_delete_template"
-	ToolNameWorkspaceBash               = "coder_workspace_bash"
-	ToolNameWorkspaceExec               = "coder_workspace_exec"
-	ToolNameWorkspaceProcessStart       = "coder_workspace_process_start"
-	ToolNameWorkspaceProcessStartV2     = "coder_workspace_process_start_v2"
-	ToolNameWorkspaceProcessOutput      = "coder_workspace_process_output"
-	ToolNameWorkspaceProcessList        = "coder_workspace_process_list"
-	ToolNameWorkspaceProcessInput       = "coder_workspace_process_input"
-	ToolNameWorkspaceProcessSignal      = "coder_workspace_process_signal"
-	ToolNameChatGPTSearch               = "search"
-	ToolNameChatGPTFetch                = "fetch"
-	ToolNameWorkspaceLS                 = "coder_workspace_ls"
-	ToolNameWorkspaceListDirectoryV2    = "coder_workspace_list_directory_v2"
-	ToolNameWorkspaceReadFile           = "coder_workspace_read_file"
-	ToolNameWorkspaceReadFileV2         = "coder_workspace_read_file_v2"
-	ToolNameWorkspaceReadFilesV2        = "coder_workspace_read_files_v2"
-	ToolNameWorkspaceWriteFile          = "coder_workspace_write_file"
-	ToolNameWorkspaceWriteFileV2        = "coder_workspace_write_file_v2"
-	ToolNameWorkspaceFileInfo           = "coder_workspace_file_info"
-	ToolNameWorkspaceCreateDirectory    = "coder_workspace_create_directory"
-	ToolNameWorkspaceMoveFile           = "coder_workspace_move_file"
-	ToolNameWorkspaceSearchStart        = "coder_workspace_search_start"
-	ToolNameWorkspaceSearchResults      = "coder_workspace_search_results"
-	ToolNameWorkspaceSearchList         = "coder_workspace_search_list"
-	ToolNameWorkspaceSearchStop         = "coder_workspace_search_stop"
-	ToolNameWorkspaceEditFile           = "coder_workspace_edit_file"
-	ToolNameWorkspaceEditFiles          = "coder_workspace_edit_files"
-	ToolNameWorkspacePortForward        = "coder_workspace_port_forward"
-	ToolNameWorkspaceListApps           = "coder_workspace_list_apps"
-	ToolNameWorkspaceCapabilities       = "coder_workspace_capabilities"
-	ToolNameCreateTask                  = "coder_create_task"
-	ToolNameDeleteTask                  = "coder_delete_task"
-	ToolNameListTasks                   = "coder_list_tasks"
-	ToolNameGetTaskStatus               = "coder_get_task_status"
-	ToolNameSendTaskInput               = "coder_send_task_input"
-	ToolNameGetTaskLogs                 = "coder_get_task_logs"
+	ToolNameReportTask                   = "coder_report_task"
+	ToolNameGetWorkspace                 = "coder_get_workspace"
+	ToolNameCreateWorkspace              = "coder_create_workspace"
+	ToolNameListWorkspaces               = "coder_list_workspaces"
+	ToolNameListAccessibleWorkspaces     = "coder_list_accessible_workspaces"
+	ToolNameListTemplates                = "coder_list_templates"
+	ToolNameListTemplateVersionParams    = "coder_template_version_parameters"
+	ToolNameGetTemplate                  = "coder_get_template"
+	ToolNameGetAuthenticatedUser         = "coder_get_authenticated_user"
+	ToolNameCreateWorkspaceBuild         = "coder_create_workspace_build"
+	ToolNameCreateTemplateVersion        = "coder_create_template_version"
+	ToolNameGetWorkspaceAgentLogs        = "coder_get_workspace_agent_logs"
+	ToolNameGetWorkspaceBuildLogs        = "coder_get_workspace_build_logs"
+	ToolNameGetTemplateVersionLogs       = "coder_get_template_version_logs"
+	ToolNameUpdateTemplateActiveVersion  = "coder_update_template_active_version"
+	ToolNameUploadTarFile                = "coder_upload_tar_file"
+	ToolNameCreateTemplate               = "coder_create_template"
+	ToolNameDeleteTemplate               = "coder_delete_template"
+	ToolNameWorkspaceBash                = "coder_workspace_bash"
+	ToolNameWorkspaceExec                = "coder_workspace_exec"
+	ToolNameWorkspaceProcessStart        = "coder_workspace_process_start"
+	ToolNameWorkspaceProcessStartV2      = "coder_workspace_process_start_v2"
+	ToolNameWorkspaceProcessOutput       = "coder_workspace_process_output"
+	ToolNameWorkspaceProcessList         = "coder_workspace_process_list"
+	ToolNameWorkspaceListSystemProcesses = "coder_workspace_list_system_processes"
+	ToolNameWorkspaceProcessInput        = "coder_workspace_process_input"
+	ToolNameWorkspaceProcessSignal       = "coder_workspace_process_signal"
+	ToolNameChatGPTSearch                = "search"
+	ToolNameChatGPTFetch                 = "fetch"
+	ToolNameWorkspaceLS                  = "coder_workspace_ls"
+	ToolNameWorkspaceListDirectoryV2     = "coder_workspace_list_directory_v2"
+	ToolNameWorkspaceReadFile            = "coder_workspace_read_file"
+	ToolNameWorkspaceReadFileV2          = "coder_workspace_read_file_v2"
+	ToolNameWorkspaceReadFilesV2         = "coder_workspace_read_files_v2"
+	ToolNameWorkspaceWriteFile           = "coder_workspace_write_file"
+	ToolNameWorkspaceWriteFileV2         = "coder_workspace_write_file_v2"
+	ToolNameWorkspaceFileInfo            = "coder_workspace_file_info"
+	ToolNameWorkspaceCreateDirectory     = "coder_workspace_create_directory"
+	ToolNameWorkspaceMoveFile            = "coder_workspace_move_file"
+	ToolNameWorkspaceSearchStart         = "coder_workspace_search_start"
+	ToolNameWorkspaceSearchResults       = "coder_workspace_search_results"
+	ToolNameWorkspaceSearchList          = "coder_workspace_search_list"
+	ToolNameWorkspaceSearchStop          = "coder_workspace_search_stop"
+	ToolNameWorkspaceEditFile            = "coder_workspace_edit_file"
+	ToolNameWorkspaceEditFiles           = "coder_workspace_edit_files"
+	ToolNameWorkspacePortForward         = "coder_workspace_port_forward"
+	ToolNameWorkspaceListApps            = "coder_workspace_list_apps"
+	ToolNameWorkspaceCapabilities        = "coder_workspace_capabilities"
+	ToolNameCreateTask                   = "coder_create_task"
+	ToolNameDeleteTask                   = "coder_delete_task"
+	ToolNameListTasks                    = "coder_list_tasks"
+	ToolNameGetTaskStatus                = "coder_get_task_status"
+	ToolNameSendTaskInput                = "coder_send_task_input"
+	ToolNameGetTaskLogs                  = "coder_get_task_logs"
 )
 
 func NewDeps(client *codersdk.Client, opts ...func(*Deps)) (Deps, error) {
 	d := Deps{
-		coderClient: client,
+		coderClient:       client,
+		mcpToolTimeoutMax: codersdk.DefaultMCPToolTimeoutMax,
 	}
 	for _, opt := range opts {
 		opt(&d)
@@ -142,9 +145,10 @@ func NewDeps(client *codersdk.Client, opts ...func(*Deps)) (Deps, error) {
 
 // Deps provides access to tool dependencies.
 type Deps struct {
-	coderClient *codersdk.Client
-	report      func(ReportTaskArgs) error
-	agentConnFn workspacesdk.AgentConnFunc
+	coderClient       *codersdk.Client
+	report            func(ReportTaskArgs) error
+	agentConnFn       workspacesdk.AgentConnFunc
+	mcpToolTimeoutMax time.Duration
 }
 
 func (d Deps) ServerURL() string {
@@ -160,6 +164,26 @@ func WithTaskReporter(fn func(ReportTaskArgs) error) func(*Deps) {
 	}
 }
 
+// WithMCPToolTimeoutMax configures the maximum wall-clock duration available
+// to one MCP tool invocation. It limits the request, not durable process or job
+// lifetime.
+func WithMCPToolTimeoutMax(timeout time.Duration) func(*Deps) {
+	return func(d *Deps) {
+		if timeout > 0 {
+			d.mcpToolTimeoutMax = timeout
+		}
+	}
+}
+
+// MCPToolTimeoutMax returns the deployment-wide hard ceiling for one MCP tool
+// invocation.
+func (d Deps) MCPToolTimeoutMax() time.Duration {
+	if d.mcpToolTimeoutMax <= 0 {
+		return codersdk.DefaultMCPToolTimeoutMax
+	}
+	return d.mcpToolTimeoutMax
+}
+
 // WithAgentConnFunc overrides how workspace tools open logical connections to
 // workspace agents.
 func WithAgentConnFunc(agentConnFn workspacesdk.AgentConnFunc) func(*Deps) {
@@ -171,7 +195,7 @@ func WithAgentConnFunc(agentConnFn workspacesdk.AgentConnFunc) func(*Deps) {
 // openAgentConn opens a ready workspace agent session for workspace inputs in
 // [owner/]workspace[.agent] format.
 func openAgentConn(ctx context.Context, deps Deps, workspace string) (workspacesdk.AgentConn, error) {
-	return openAgentConnWithBudget(ctx, deps, workspace, newMCPObservationBudget())
+	return openAgentConnWithBudget(ctx, deps, workspace, newMCPObservationBudget(deps))
 }
 
 func openAgentConnWithBudget(ctx context.Context, deps Deps, workspace string, budget mcpObservationBudget) (workspacesdk.AgentConn, error) {
@@ -190,7 +214,7 @@ func openAgentConnWithBudget(ctx context.Context, deps Deps, workspace string, b
 	workspaceName := NormalizeWorkspaceInput(workspace)
 	_, workspaceAgent, err := findWorkspaceAndAgent(observationCtx, deps.coderClient, workspaceName)
 	if err != nil {
-		return nil, workspaceAgentObservationError(ctx, observationCtx, xerrors.Errorf("failed to find workspace: %w", err))
+		return nil, workspaceAgentObservationError(ctx, observationCtx, budget, xerrors.Errorf("failed to find workspace: %w", err))
 	}
 
 	if err := cliui.Agent(observationCtx, io.Discard, workspaceAgent.ID, cliui.AgentOptions{
@@ -200,12 +224,12 @@ func openAgentConnWithBudget(ctx context.Context, deps Deps, workspace string, b
 		// Always wait for startup scripts.
 		Wait: true,
 	}); err != nil {
-		return nil, workspaceAgentObservationError(ctx, observationCtx, xerrors.Errorf("agent not ready: %w", err))
+		return nil, workspaceAgentObservationError(ctx, observationCtx, budget, xerrors.Errorf("agent not ready: %w", err))
 	}
 
 	conn, release, err := deps.agentConnFn(observationCtx, workspaceAgent.ID)
 	if err != nil {
-		return nil, workspaceAgentObservationError(ctx, observationCtx, xerrors.Errorf("failed to dial agent: %w", err))
+		return nil, workspaceAgentObservationError(ctx, observationCtx, budget, xerrors.Errorf("failed to dial agent: %w", err))
 	}
 
 	wrappedConn := workspacesdk.WrapAgentConn(conn, func() error {
@@ -221,9 +245,9 @@ func openAgentConnWithBudget(ctx context.Context, deps Deps, workspace string, b
 	return wrappedConn, nil
 }
 
-func workspaceAgentObservationError(parentCtx, observationCtx context.Context, err error) error {
+func workspaceAgentObservationError(parentCtx, observationCtx context.Context, budget mcpObservationBudget, err error) error {
 	if parentCtx.Err() == nil && errors.Is(observationCtx.Err(), context.DeadlineExceeded) {
-		return xerrors.Errorf("workspace readiness exceeded the %.0f-second MCP observation window; any workspace start/build already submitted continues independently. Retry the tool after the workspace is ready; the requested workspace operation itself was not submitted: %w", mcpToolObservationWindow.Seconds(), err)
+		return xerrors.Errorf("workspace readiness exceeded the %.0f-second MCP observation window; any workspace start/build already submitted continues independently. Retry the tool after the workspace is ready; the requested workspace operation itself was not submitted: %w", budget.window.Seconds(), err)
 	}
 	return err
 }
@@ -273,6 +297,30 @@ var (
 		ReadOnlyHint:    false,
 		DestructiveHint: true,
 		IdempotentHint:  false,
+		OpenWorldHint:   false,
+	}
+	mcpExecutionAnnotations = MCPToolAnnotations{
+		ReadOnlyHint:    false,
+		DestructiveHint: true,
+		IdempotentHint:  false,
+		OpenWorldHint:   true,
+	}
+	mcpReadOnlyNonIdempotentAnnotations = MCPToolAnnotations{
+		ReadOnlyHint:    true,
+		DestructiveHint: false,
+		IdempotentHint:  false,
+		OpenWorldHint:   false,
+	}
+	mcpMutationIdempotentAnnotations = MCPToolAnnotations{
+		ReadOnlyHint:    false,
+		DestructiveHint: false,
+		IdempotentHint:  true,
+		OpenWorldHint:   false,
+	}
+	mcpDestructiveIdempotentAnnotations = MCPToolAnnotations{
+		ReadOnlyHint:    false,
+		DestructiveHint: true,
+		IdempotentHint:  true,
 		OpenWorldHint:   false,
 	}
 )
@@ -715,6 +763,7 @@ type AccessibleWorkspace struct {
 	Name      string `json:"name"`
 	OwnerName string `json:"owner_name"`
 	FullName  string `json:"full_name"`
+	Status    string `json:"status"`
 }
 
 // ListAccessibleWorkspaces is a curated Remote MCP helper and is intentionally
@@ -743,6 +792,7 @@ Use full_name with other workspace tools when an owner-qualified name is needed.
 				Name:      workspace.Name,
 				OwnerName: workspace.OwnerName,
 				FullName:  workspace.OwnerName + "/" + workspace.Name,
+				Status:    string(workspace.LatestBuild.Status),
 			}
 		}
 		return visible, nil
@@ -1614,7 +1664,7 @@ A single MCP call uses at most a 60-second observation budget and never cancels 
 		if err != nil {
 			return ProvisionerLogObservationResult{}, xerrors.Errorf("workspace_build_id must be a valid UUID: %w", err)
 		}
-		budget := newMCPObservationBudget()
+		budget := newMCPObservationBudget(deps)
 		result, err := observeProvisionerLogs(ctx, budget, args.Cursor, args.WaitTimeoutMs, args.Limit, func(snapshotCtx context.Context, after int64) ([]codersdk.ProvisionerJobLog, error) {
 			return fetchProvisionerLogSnapshot(snapshotCtx, deps.coderClient, fmt.Sprintf("/api/v2/workspacebuilds/%s/logs", workspaceBuildID), after)
 		})
@@ -1679,7 +1729,7 @@ A single MCP call uses at most a 60-second observation budget and never cancels 
 		if err != nil {
 			return ProvisionerLogObservationResult{}, xerrors.Errorf("template_version_id must be a valid UUID: %w", err)
 		}
-		budget := newMCPObservationBudget()
+		budget := newMCPObservationBudget(deps)
 		result, err := observeProvisionerLogs(ctx, budget, args.Cursor, args.WaitTimeoutMs, args.Limit, func(snapshotCtx context.Context, after int64) ([]codersdk.ProvisionerJobLog, error) {
 			return fetchProvisionerLogSnapshot(snapshotCtx, deps.coderClient, fmt.Sprintf("/api/v2/templateversions/%s/logs", templateVersionID), after)
 		})
@@ -2123,7 +2173,7 @@ type WorkspaceEditFilesResponse struct {
 var WorkspaceEditFile = Tool[WorkspaceEditFileArgs, WorkspaceEditFilesResponse]{
 	Tool: aisdk.Tool{
 		Name:        ToolNameWorkspaceEditFile,
-		Description: `Edit a file in a workspace.`,
+		Description: `Edit a file in a workspace using exact search-and-replace operations. The response includes the resulting unified diff.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
 				"workspace": map[string]any{
@@ -2174,15 +2224,7 @@ var WorkspaceEditFile = Tool[WorkspaceEditFileArgs, WorkspaceEditFilesResponse]{
 		}
 		defer conn.Close()
 
-		resp, err := conn.EditFiles(ctx, workspacesdk.FileEditRequest{
-			Files: []workspacesdk.FileEdits{
-				{
-					Path:  args.Path,
-					Edits: args.Edits,
-				},
-			},
-			IncludeDiff: true,
-		})
+		resp, err := conn.EditFiles(ctx, workspaceEditFileRequest(args))
 		if err != nil {
 			return WorkspaceEditFilesResponse{}, err
 		}
@@ -2194,15 +2236,34 @@ var WorkspaceEditFile = Tool[WorkspaceEditFileArgs, WorkspaceEditFilesResponse]{
 	},
 }
 
+func workspaceEditFileRequest(args WorkspaceEditFileArgs) workspacesdk.FileEditRequest {
+	return workspacesdk.FileEditRequest{
+		Files: []workspacesdk.FileEdits{{
+			Path:  args.Path,
+			Edits: args.Edits,
+		}},
+		IncludeDiff: true,
+		ExactOnly:   true,
+	}
+}
+
 type WorkspaceEditFilesArgs struct {
 	Workspace string                   `json:"workspace"`
 	Files     []workspacesdk.FileEdits `json:"files"`
 }
 
+func workspaceEditFilesRequest(args WorkspaceEditFilesArgs) workspacesdk.FileEditRequest {
+	return workspacesdk.FileEditRequest{
+		Files:       args.Files,
+		IncludeDiff: true,
+		ExactOnly:   true,
+	}
+}
+
 var WorkspaceEditFiles = Tool[WorkspaceEditFilesArgs, WorkspaceEditFilesResponse]{
 	Tool: aisdk.Tool{
 		Name:        ToolNameWorkspaceEditFiles,
-		Description: `Edit one or more files in a workspace.`,
+		Description: `Edit one or more files in a workspace. All requested edits are validated before writes begin, and the response includes unified diffs.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
 				"workspace": map[string]any{
@@ -2263,10 +2324,7 @@ var WorkspaceEditFiles = Tool[WorkspaceEditFilesArgs, WorkspaceEditFilesResponse
 		}
 		defer conn.Close()
 
-		resp, err := conn.EditFiles(ctx, workspacesdk.FileEditRequest{
-			Files:       args.Files,
-			IncludeDiff: true,
-		})
+		resp, err := conn.EditFiles(ctx, workspaceEditFilesRequest(args))
 		if err != nil {
 			return WorkspaceEditFilesResponse{}, err
 		}

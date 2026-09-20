@@ -1060,42 +1060,51 @@ func TestTools(t *testing.T) {
 		// Create tool dependencies using client
 		tb, err := toolsdk.NewDeps(client)
 		require.NoError(t, err)
+		waitMs := 1000
 
 		// Test basic command execution
 		result, err := testTool(t, toolsdk.WorkspaceBash, tb, toolsdk.WorkspaceBashArgs{
-			Workspace: workspace.Name,
-			Command:   "echo 'hello world'",
+			Workspace:     workspace.Name,
+			Command:       "echo 'hello world'",
+			WaitTimeoutMs: &waitMs,
 		})
 		require.NoError(t, err)
-		require.Equal(t, 0, result.ExitCode)
-		require.Equal(t, "hello world", result.Output)
+		require.NotNil(t, result.ExitCode)
+		require.Equal(t, 0, *result.ExitCode)
+		require.Equal(t, "hello world\n", result.Output)
 
 		// Test output trimming
 		result, err = testTool(t, toolsdk.WorkspaceBash, tb, toolsdk.WorkspaceBashArgs{
-			Workspace: workspace.Name,
-			Command:   "echo '  test with whitespace  '",
+			Workspace:     workspace.Name,
+			Command:       "echo '  test with whitespace  '",
+			WaitTimeoutMs: &waitMs,
 		})
 		require.NoError(t, err)
-		require.Equal(t, 0, result.ExitCode)
-		require.Equal(t, "test with whitespace", result.Output) // Should be trimmed
+		require.NotNil(t, result.ExitCode)
+		require.Equal(t, 0, *result.ExitCode)
+		require.Equal(t, "  test with whitespace  \n", result.Output) // Preserve process output byte-for-byte.
 
 		// Test non-zero exit code
 		result, err = testTool(t, toolsdk.WorkspaceBash, tb, toolsdk.WorkspaceBashArgs{
-			Workspace: workspace.Name,
-			Command:   "exit 42",
+			Workspace:     workspace.Name,
+			Command:       "exit 42",
+			WaitTimeoutMs: &waitMs,
 		})
 		require.NoError(t, err)
-		require.Equal(t, 42, result.ExitCode)
+		require.NotNil(t, result.ExitCode)
+		require.Equal(t, 42, *result.ExitCode)
 		require.Empty(t, result.Output)
 
 		// Test with workspace owner format - using the myuser from setup
 		result, err = testTool(t, toolsdk.WorkspaceBash, tb, toolsdk.WorkspaceBashArgs{
-			Workspace: "myuser/" + workspace.Name,
-			Command:   "echo 'owner format works'",
+			Workspace:     "myuser/" + workspace.Name,
+			Command:       "echo 'owner format works'",
+			WaitTimeoutMs: &waitMs,
 		})
 		require.NoError(t, err)
-		require.Equal(t, 0, result.ExitCode)
-		require.Equal(t, "owner format works", result.Output)
+		require.NotNil(t, result.ExitCode)
+		require.Equal(t, 0, *result.ExitCode)
+		require.Equal(t, "owner format works\n", result.Output)
 
 		// Regression test: agent-backed tools should also work when the
 		// workspace name is a valid dashless UUID.
@@ -1108,12 +1117,14 @@ func TestTools(t *testing.T) {
 		require.NoError(t, err)
 
 		result, err = testTool(t, toolsdk.WorkspaceBash, uuidTB, toolsdk.WorkspaceBashArgs{
-			Workspace: uuidWorkspace.Name,
-			Command:   "echo 'uuid-like name works'",
+			Workspace:     uuidWorkspace.Name,
+			Command:       "echo 'uuid-like name works'",
+			WaitTimeoutMs: &waitMs,
 		})
 		require.NoError(t, err)
-		require.Equal(t, 0, result.ExitCode)
-		require.Equal(t, "uuid-like name works", result.Output)
+		require.NotNil(t, result.ExitCode)
+		require.Equal(t, 0, *result.ExitCode)
+		require.Equal(t, "uuid-like name works\n", result.Output)
 	})
 
 	t.Run("WorkspaceLS", func(t *testing.T) {

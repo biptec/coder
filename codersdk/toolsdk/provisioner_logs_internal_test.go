@@ -14,7 +14,7 @@ func TestObserveProvisionerLogsCursorAndLimit(t *testing.T) {
 	t.Parallel()
 
 	zeroWait := 0
-	result, err := observeProvisionerLogs(context.Background(), newMCPObservationBudget(), 10, &zeroWait, 2, func(_ context.Context, after int64) ([]codersdk.ProvisionerJobLog, error) {
+	result, err := observeProvisionerLogs(context.Background(), newMCPObservationBudget(Deps{}), 10, &zeroWait, 2, func(_ context.Context, after int64) ([]codersdk.ProvisionerJobLog, error) {
 		require.Equal(t, int64(10), after)
 		return []codersdk.ProvisionerJobLog{
 			{ID: 11, Output: "one"},
@@ -33,7 +33,7 @@ func TestObserveProvisionerLogsSnapshotFitsWithinLimit(t *testing.T) {
 	t.Parallel()
 
 	zeroWait := 0
-	result, err := observeProvisionerLogs(context.Background(), newMCPObservationBudget(), 20, &zeroWait, 10, func(_ context.Context, after int64) ([]codersdk.ProvisionerJobLog, error) {
+	result, err := observeProvisionerLogs(context.Background(), newMCPObservationBudget(Deps{}), 20, &zeroWait, 10, func(_ context.Context, after int64) ([]codersdk.ProvisionerJobLog, error) {
 		require.Equal(t, int64(20), after)
 		return []codersdk.ProvisionerJobLog{{ID: 21, Output: "done"}}, nil
 	})
@@ -50,7 +50,7 @@ func TestObserveProvisionerLogsReturnsAtWaitBoundary(t *testing.T) {
 	waitMs := 20
 	calls := 0
 	started := time.Now()
-	result, err := observeProvisionerLogs(context.Background(), newMCPObservationBudget(), 7, &waitMs, 0, func(_ context.Context, after int64) ([]codersdk.ProvisionerJobLog, error) {
+	result, err := observeProvisionerLogs(context.Background(), newMCPObservationBudget(Deps{}), 7, &waitMs, 0, func(_ context.Context, after int64) ([]codersdk.ProvisionerJobLog, error) {
 		require.Equal(t, int64(7), after)
 		calls++
 		return nil, nil
@@ -123,13 +123,13 @@ func TestProvisionerLogObservationValidation(t *testing.T) {
 		return nil, nil
 	}
 
-	_, err := observeProvisionerLogs(context.Background(), newMCPObservationBudget(), -1, nil, 0, fetch)
+	_, err := observeProvisionerLogs(context.Background(), newMCPObservationBudget(Deps{}), -1, nil, 0, fetch)
 	require.ErrorContains(t, err, "cursor cannot be negative")
 
-	tooLong := int(mcpToolObservationWindow.Milliseconds()) + 1
-	_, err = observeProvisionerLogs(context.Background(), newMCPObservationBudget(), 0, &tooLong, 0, fetch)
+	tooLong := int(codersdk.DefaultMCPToolTimeoutMax.Milliseconds()) + 1
+	_, err = observeProvisionerLogs(context.Background(), newMCPObservationBudget(Deps{}), 0, &tooLong, 0, fetch)
 	require.ErrorContains(t, err, "cannot exceed")
 
-	_, err = observeProvisionerLogs(context.Background(), newMCPObservationBudget(), 0, nil, maxProvisionerLogLimit+1, fetch)
+	_, err = observeProvisionerLogs(context.Background(), newMCPObservationBudget(Deps{}), 0, nil, maxProvisionerLogLimit+1, fetch)
 	require.ErrorContains(t, err, "limit must be between")
 }
