@@ -287,3 +287,58 @@ func TestWorkspaceCommandActivityHistoryQueries(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 1, legacyDeleted)
 }
+
+func TestInterruptWorkspaceCommandActivityAcrossBuilds(t *testing.T) {
+	t.Parallel()
+
+	db, _ := dbtestutil.NewDB(t)
+	owner := dbgen.User(t, db, database.User{})
+	organization, err := db.GetDefaultOrganization(t.Context())
+	require.NoError(t, err)
+	template := dbgen.Template(t, db, database.Template{OrganizationID: organization.ID, CreatedBy: owner.ID})
+	version := dbgen.TemplateVersion(t, db, database.TemplateVersion{
+		TemplateID: uuid.NullUUID{UUID: template.ID, Valid: true}, OrganizationID: organization.ID, CreatedBy: owner.ID,
+	})
+	workspace := dbgen.Workspace(t, db, database.WorkspaceTable{OwnerID: owner.ID, OrganizationID: organization.ID, TemplateID: template.ID})
+
+	job1 := dbgen.ProvisionerJob(t, db, nil, database.ProvisionerJob{OrganizationID: organization.ID, Type: database.ProvisionerJobTypeWorkspaceBuild})
+	dbgen.WorkspaceBuild(t, db, database.WorkspaceBuild{WorkspaceID: workspace.ID, TemplateVersionID: version.ID, JobID: job1.ID, BuildNumber: 1})
+	resource1 := dbgen.WorkspaceResource(t, db, database.WorkspaceResource{JobID: job1.ID})
+	oldMain := dbgen.WorkspaceAgent(t, db, database.WorkspaceAgent{Name: "main", ResourceID: resource1.ID})
+	oldOther := dbgen.WorkspaceAgent(t, db, database.WorkspaceAgent{Name: "other", ResourceID: resource1.ID})
+
+	job2 := dbgen.ProvisionerJob(t, db, nil, database.ProvisionerJob{OrganizationID: organization.ID, Type: database.ProvisionerJobTypeWorkspaceBuild})
+	dbgen.WorkspaceBuild(t, db, database.WorkspaceBuild{WorkspaceID: workspace.ID, TemplateVersionID: version.ID, JobID: job2.ID, BuildNumber: 2})
+	resource2 := dbgen.WorkspaceResource(t, db, database.WorkspaceResource{JobID: job2.ID})
+	newMain := dbgen.WorkspaceAgent(t, db, database.WorkspaceAgent{Name: "main", ResourceID: resource2.ID})
+
+	insertRunning := func(agentID, sessionID uuid.UUID) uuid.UUID {
+		id := uuid.New()
+		err := db.InsertWorkspaceCommandActivity(t.Context(), database.InsertWorkspaceCommandActivityParams{
+			ID: id, WorkspaceID: workspace.ID, AgentID: agentID, SessionID: sessionID,
+			Source: "mcp", Tool: "process_start", Command: "sleep 600", Argv: []string{}, Environment: []byte("{}"), StartedAt: time.Now().Add(-time.Minute),
+		})
+		require.NoError(t, err)
+		return id
+	}
+
+	oldMainID := insertRunning(oldMain.ID, uuid.New())
+	oldOtherID := insertRunning(oldOther.ID, uuid.New())
+	currentSession := uuid.New()
+	currentID := insertRunning(newMain.ID, currentSession)
+	priorCurrentSessionID := insertRunning(newMain.ID, uuid.New())
+
+	updated, err := db.InterruptWorkspaceCommandActivityByAgentSession(t.Context(), database.InterruptWorkspaceCommandActivityByAgentSessionParams{
+		FinishedAt: sql.NullTime{Time: time.Now(), Valid: true}, WorkspaceID: workspace.ID, AgentID: newMain.ID, SessionID: currentSession,
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 2, updated)
+
+	for id, want := range map[uuid.UUID]string{
+		oldMainID: "interrupted", oldOtherID: "running", currentID: "running", priorCurrentSessionID: "interrupted",
+	} {
+		activity, err := db.GetWorkspaceCommandActivityByID(t.Context(), database.GetWorkspaceCommandActivityByIDParams{WorkspaceID: workspace.ID, ID: id})
+		require.NoError(t, err)
+		require.Equal(t, want, activity.Status)
+	}
+}

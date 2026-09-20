@@ -103,14 +103,33 @@ WHERE id = @id
   AND status = 'running';
 
 -- name: InterruptWorkspaceCommandActivityByAgentSession :execrows
-UPDATE workspace_command_activity
+WITH current_agent AS (
+  SELECT workspace_agents.name, workspace_builds.build_number
+  FROM workspace_agents
+  JOIN workspace_resources ON workspace_resources.id = workspace_agents.resource_id
+  JOIN workspace_builds ON workspace_builds.job_id = workspace_resources.job_id
+  WHERE workspace_agents.id = @agent_id
+    AND workspace_builds.workspace_id = @workspace_id
+)
+UPDATE workspace_command_activity AS activity
 SET status = 'interrupted',
     finished_at = @finished_at,
     exit_code = NULL
-WHERE workspace_id = @workspace_id
-  AND agent_id = @agent_id
-  AND session_id != @session_id
-  AND status = 'running';
+WHERE activity.workspace_id = @workspace_id
+  AND activity.status = 'running'
+  AND (
+    (activity.agent_id = @agent_id AND activity.session_id != @session_id)
+    OR activity.agent_id IN (
+      SELECT previous_agent.id
+      FROM workspace_agents AS previous_agent
+      JOIN workspace_resources AS previous_resource ON previous_resource.id = previous_agent.resource_id
+      JOIN workspace_builds AS previous_build ON previous_build.job_id = previous_resource.job_id
+      JOIN current_agent ON current_agent.name = previous_agent.name
+      WHERE previous_build.workspace_id = @workspace_id
+        AND previous_build.build_number < current_agent.build_number
+        AND previous_agent.deleted = FALSE
+    )
+  );
 
 -- name: ListWorkspaceCommandActivity :many
 SELECT *

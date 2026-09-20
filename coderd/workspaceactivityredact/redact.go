@@ -58,7 +58,11 @@ func sensitiveEnvironmentKey(key string) bool {
 // a storage-size limit. Activity History truncation is a presentation concern;
 // the persisted value remains complete.
 func Text(value string) string {
-	return strings.ToValidUTF8(value, "\uFFFD")
+	// PostgreSQL text values cannot contain NUL bytes. NUL is valid UTF-8, so
+	// strings.ToValidUTF8 alone does not make arbitrary process output safe to
+	// persist. Replace it with the same replacement rune used for malformed
+	// UTF-8 so command activity reporting cannot be poisoned by binary output.
+	return strings.ReplaceAll(strings.ToValidUTF8(value, "\uFFFD"), "\x00", "\uFFFD")
 }
 
 func credentialURL(value string) bool {

@@ -37317,14 +37317,33 @@ func (q *sqlQuerier) InsertWorkspaceToolActivity(ctx context.Context, arg Insert
 }
 
 const interruptWorkspaceCommandActivityByAgentSession = `-- name: InterruptWorkspaceCommandActivityByAgentSession :execrows
-UPDATE workspace_command_activity
+WITH current_agent AS (
+  SELECT workspace_agents.name, workspace_builds.build_number
+  FROM workspace_agents
+  JOIN workspace_resources ON workspace_resources.id = workspace_agents.resource_id
+  JOIN workspace_builds ON workspace_builds.job_id = workspace_resources.job_id
+  WHERE workspace_agents.id = $3
+    AND workspace_builds.workspace_id = $2
+)
+UPDATE workspace_command_activity AS activity
 SET status = 'interrupted',
     finished_at = $1,
     exit_code = NULL
-WHERE workspace_id = $2
-  AND agent_id = $3
-  AND session_id != $4
-  AND status = 'running'
+WHERE activity.workspace_id = $2
+  AND activity.status = 'running'
+  AND (
+    (activity.agent_id = $3 AND activity.session_id != $4)
+    OR activity.agent_id IN (
+      SELECT previous_agent.id
+      FROM workspace_agents AS previous_agent
+      JOIN workspace_resources AS previous_resource ON previous_resource.id = previous_agent.resource_id
+      JOIN workspace_builds AS previous_build ON previous_build.job_id = previous_resource.job_id
+      JOIN current_agent ON current_agent.name = previous_agent.name
+      WHERE previous_build.workspace_id = $2
+        AND previous_build.build_number < current_agent.build_number
+        AND previous_agent.deleted = FALSE
+    )
+  )
 `
 
 type InterruptWorkspaceCommandActivityByAgentSessionParams struct {
