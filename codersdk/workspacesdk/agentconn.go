@@ -87,6 +87,10 @@ const (
 	// CoderAncestorChatIDsHeader is the HTTP header containing a
 	// JSON array of ancestor chat UUIDs.
 	CoderAncestorChatIDsHeader = "Coder-Ancestor-Chat-Ids"
+	// CoderInvocationScopeHeader carries an internal, non-user-visible identity
+	// used only to deduplicate assistant process launches. Unlike CoderChatIDHeader,
+	// this value is not a chat UUID and must not affect chat isolation/history.
+	CoderInvocationScopeHeader = "Coder-Invocation-Scope"
 )
 
 // AgentConn represents a connection to a workspace agent.
@@ -132,6 +136,7 @@ type AgentConn interface {
 	ReadFile(ctx context.Context, path string, offset, limit int64) (io.ReadCloser, string, error)
 	ReadFileLines(ctx context.Context, path string, offset, limit int64, limits ReadFileLinesLimits) (ReadFileLinesResponse, error)
 	WriteFile(ctx context.Context, path string, reader io.Reader) error
+	WriteFileStrict(ctx context.Context, path string, reader io.Reader, overwrite, expectedExists bool) error
 	EditFiles(ctx context.Context, edits FileEditRequest) (FileEditResponse, error)
 	SSH(ctx context.Context) (*gonet.TCPConn, error)
 	SSHClient(ctx context.Context) (*ssh.Client, error)
@@ -902,6 +907,11 @@ type StartProcessRequest struct {
 	IdentityFile string `json:"identity_file,omitempty"`
 	// Port overrides the SSH destination port. Zero uses OpenSSH configuration/defaults.
 	Port int `json:"port,omitempty"`
+	// Fingerprint is an opaque digest used by assistant-facing launch tools to
+	// detect an identical already-running launch intent inside the Agent. It is
+	// input-only and never returned in process metadata.
+	Fingerprint    string `json:"fingerprint,omitempty"`
+	AllowDuplicate bool   `json:"allow_duplicate,omitempty"`
 }
 
 // StartProcessResponse is returned when a process is started.
@@ -1034,13 +1044,15 @@ type ListDirectoryRequest struct {
 	Path          string `json:"path"`
 	Depth         int    `json:"depth,omitempty"`
 	IncludeHidden bool   `json:"include_hidden,omitempty"`
-	Cursor        int    `json:"cursor,omitempty"`
+	Cursor        int    `json:"cursor,omitempty"`     // legacy numeric continuation
+	AfterPath     string `json:"after_path,omitempty"` // stable lexical continuation
 	Limit         int    `json:"limit,omitempty"`
 }
 
 type ListDirectoryResponse struct {
 	Entries    []WorkspaceFileInfo `json:"entries"`
-	NextCursor *int                `json:"next_cursor,omitempty"`
+	NextCursor *int                `json:"next_cursor,omitempty"` // legacy numeric continuation
+	HasMore    bool                `json:"has_more"`
 }
 
 // WorkspaceFileInfo describes a filesystem path without reading file content.
@@ -1350,10 +1362,41 @@ func (c *agentConn) ReadFile(ctx context.Context, path string, offset, limit int
 
 // WriteFile writes to a file in the workspace.
 func (c *agentConn) WriteFile(ctx context.Context, path string, reader io.Reader) error {
+	return c.writeFileRequest(ctx, "/api/v0/write-file", path, reader)
+}
+
+// WriteFileStrict writes through the Agent's mutation-safe endpoint used by
+// assistant-facing write_file. Unlike the legacy endpoint it never creates a
+// missing parent directory and rejects a final-component symlink.
+func (c *agentConn) WriteFileStrict(ctx context.Context, path string, reader io.Reader, overwrite, expectedExists bool) error {
 	ctx, span := tracing.StartSpan(ctx)
 	defer span.End()
 
-	res, err := c.apiRequest(ctx, http.MethodPost, agentAPIPath("/api/v0/write-file", neturl.Values{
+	res, err := c.apiRequest(ctx, http.MethodPost, agentAPIPath("/api/v0/write-file-strict", neturl.Values{
+		"path":            []string{path},
+		"overwrite":       []string{strconv.FormatBool(overwrite)},
+		"expected_exists": []string{strconv.FormatBool(expectedExists)},
+	}), reader)
+	if err != nil {
+		return xerrors.Errorf("do request: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return codersdk.ReadBodyAsError(res)
+	}
+
+	var m codersdk.Response
+	if err := json.NewDecoder(res.Body).Decode(&m); err != nil {
+		return xerrors.Errorf("decode response body: %w", err)
+	}
+	return nil
+}
+
+func (c *agentConn) writeFileRequest(ctx context.Context, route, path string, reader io.Reader) error {
+	ctx, span := tracing.StartSpan(ctx)
+	defer span.End()
+
+	res, err := c.apiRequest(ctx, http.MethodPost, agentAPIPath(route, neturl.Values{
 		"path": []string{path},
 	}), reader)
 	if err != nil {

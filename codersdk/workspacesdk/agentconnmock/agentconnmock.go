@@ -818,3 +818,17 @@ func (mr *MockAgentConnMockRecorder) WriteFile(ctx, path, reader any) *gomock.Ca
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteFile", reflect.TypeOf((*MockAgentConn)(nil).WriteFile), ctx, path, reader)
 }
+
+// WriteFileStrict mocks base method.
+func (m *MockAgentConn) WriteFileStrict(ctx context.Context, path string, reader io.Reader, overwrite, expectedExists bool) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WriteFileStrict", ctx, path, reader, overwrite, expectedExists)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// WriteFileStrict indicates an expected call of WriteFileStrict.
+func (mr *MockAgentConnMockRecorder) WriteFileStrict(ctx, path, reader, overwrite, expectedExists any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteFileStrict", reflect.TypeOf((*MockAgentConn)(nil).WriteFileStrict), ctx, path, reader, overwrite, expectedExists)
+}

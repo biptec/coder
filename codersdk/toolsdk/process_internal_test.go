@@ -293,10 +293,10 @@ func TestSignalWorkspaceProcessPreservesUnknownFailure(t *testing.T) {
 func TestWorkspaceProcessListSchema(t *testing.T) {
 	t.Parallel()
 
-	require.ElementsMatch(t, []string{"workspace"}, WorkspaceProcessList.Schema.Required)
+	require.ElementsMatch(t, []string{"workspace", "limit"}, WorkspaceProcessList.Schema.Required)
 	limit := WorkspaceProcessList.Schema.Properties["limit"].(map[string]any)
-	require.Contains(t, limit["description"], "If omitted")
-	require.EqualValues(t, 1, limit["minimum"])
+	require.Contains(t, limit["description"], "Use 0")
+	require.EqualValues(t, 0, limit["minimum"])
 	require.NotContains(t, limit, "maximum")
 	cursor := WorkspaceProcessList.Schema.Properties["cursor"].(map[string]any)
 	require.Equal(t, "string", cursor["type"])
@@ -305,7 +305,7 @@ func TestWorkspaceProcessListSchema(t *testing.T) {
 func TestWorkspaceProcessInputSchema(t *testing.T) {
 	t.Parallel()
 
-	require.ElementsMatch(t, []string{"workspace", "process_id"}, WorkspaceProcessInput.Schema.Required)
+	require.ElementsMatch(t, []string{"workspace", "process_id", "limit"}, WorkspaceProcessInput.Schema.Required)
 	for _, name := range []string{"data", "close", "wait_timeout_ms", "limit"} {
 		require.Contains(t, WorkspaceProcessInput.Schema.Properties, name)
 	}

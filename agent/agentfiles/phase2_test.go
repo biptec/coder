@@ -11,12 +11,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/xerrors"
 
 	"cdr.dev/slog/v3"
 	"cdr.dev/slog/v3/sloggers/slogtest"
@@ -241,9 +243,10 @@ func TestPhase2ListDirectoryV2(t *testing.T) {
 	var first workspacesdk.ListDirectoryResponse
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&first))
 	require.Len(t, first.Entries, 2)
-	require.Equal(t, "/root/dir", first.Entries[0].Path)
-	require.True(t, first.Entries[0].IsDir)
-	require.Equal(t, "/root/dir/b.txt", first.Entries[1].Path)
+	require.Equal(t, "/root/a.txt", first.Entries[0].Path)
+	require.Equal(t, "/root/dir", first.Entries[1].Path)
+	require.True(t, first.Entries[1].IsDir)
+	require.True(t, first.HasMore)
 	require.NotNil(t, first.NextCursor)
 	require.Equal(t, 2, *first.NextCursor)
 
@@ -257,8 +260,26 @@ func TestPhase2ListDirectoryV2(t *testing.T) {
 	var second workspacesdk.ListDirectoryResponse
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&second))
 	require.Len(t, second.Entries, 1)
-	require.Equal(t, "/root/a.txt", second.Entries[0].Path)
+	require.Equal(t, "/root/dir/b.txt", second.Entries[0].Path)
+	require.False(t, second.HasMore)
 	require.Nil(t, second.NextCursor)
+
+	// The public MCP path uses a stable lexical continuation key rather than the
+	// legacy numeric cursor. It must produce the same continuation even if the
+	// caller does not know or preserve the numeric position.
+	w = phase2JSONRequest(t, handler, http.MethodPost, "/list-directory-v2", workspacesdk.ListDirectoryRequest{
+		Path:      "/root",
+		Depth:     2,
+		AfterPath: "dir",
+		Limit:     2,
+	})
+	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
+	var lexical workspacesdk.ListDirectoryResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&lexical))
+	require.Len(t, lexical.Entries, 1)
+	require.Equal(t, "/root/dir/b.txt", lexical.Entries[0].Path)
+	require.False(t, lexical.HasMore)
+	require.Nil(t, lexical.NextCursor)
 }
 
 func TestPhase2ListDirectoryHasNoHiddenTraversalCap(t *testing.T) {
@@ -327,6 +348,156 @@ func TestPhase2MoveFileDanglingSymlinkOverwriteGuard(t *testing.T) {
 	linkInfo, err = os.Lstat(dest)
 	require.NoError(t, err)
 	require.Zero(t, linkInfo.Mode()&os.ModeSymlink)
+}
+
+func TestPhase2MoveFileRejectsNonEmptyDestinationBeforeMutation(t *testing.T) {
+	t.Parallel()
+
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll("/root/source-dir", 0o755))
+	require.NoError(t, afero.WriteFile(fs, "/root/source-dir/source.txt", []byte("source"), 0o644))
+	require.NoError(t, fs.MkdirAll("/root/dest", 0o755))
+	require.NoError(t, afero.WriteFile(fs, "/root/dest/existing.txt", []byte("keep"), 0o644))
+	_, handler := phase2FilesAPI(t, fs)
+
+	w := phase2JSONRequest(t, handler, http.MethodPost, "/move-file", workspacesdk.MoveFileRequest{
+		Source:    "/root/source-dir/source.txt",
+		Dest:      "/root/dest",
+		Overwrite: true,
+	})
+	require.Equal(t, http.StatusConflict, w.Code, "body: %s", w.Body.String())
+	require.Contains(t, w.Body.String(), "destination directory is not empty")
+
+	source, err := afero.ReadFile(fs, "/root/source-dir/source.txt")
+	require.NoError(t, err)
+	require.Equal(t, "source", string(source))
+	existing, err := afero.ReadFile(fs, "/root/dest/existing.txt")
+	require.NoError(t, err)
+	require.Equal(t, "keep", string(existing))
+}
+
+func TestPhase2MoveFileSourceRenameFailureRestoresDestination(t *testing.T) {
+	t.Parallel()
+
+	base := afero.NewMemMapFs()
+	destRenameCalls := 0
+	fs := newTestFs(base, func(call, path string) error {
+		if call == "rename" && path == "/root/dest.txt" {
+			destRenameCalls++
+			if destRenameCalls == 1 {
+				return syscall.EXDEV
+			}
+		}
+		return nil
+	})
+	require.NoError(t, fs.MkdirAll("/root", 0o755))
+	require.NoError(t, afero.WriteFile(fs, "/root/source.txt", []byte("new"), 0o644))
+	require.NoError(t, afero.WriteFile(fs, "/root/dest.txt", []byte("old"), 0o600))
+	_, handler := phase2FilesAPI(t, fs)
+
+	w := phase2JSONRequest(t, handler, http.MethodPost, "/move-file", workspacesdk.MoveFileRequest{
+		Source:    "/root/source.txt",
+		Dest:      "/root/dest.txt",
+		Overwrite: true,
+	})
+	require.Equal(t, http.StatusInternalServerError, w.Code, "body: %s", w.Body.String())
+	require.Contains(t, w.Body.String(), "move path")
+
+	source, err := afero.ReadFile(base, "/root/source.txt")
+	require.NoError(t, err)
+	require.Equal(t, "new", string(source))
+	dest, err := afero.ReadFile(base, "/root/dest.txt")
+	require.NoError(t, err)
+	require.Equal(t, "old", string(dest))
+
+	entries, err := afero.ReadDir(base, "/root")
+	require.NoError(t, err)
+	for _, entry := range entries {
+		require.NotContains(t, entry.Name(), ".coder-backup.", "failed cross-filesystem-style rename must restore and clean destination backup")
+	}
+}
+
+func TestPhase2MoveFileRollbackFailureReportsRecoveryState(t *testing.T) {
+	t.Parallel()
+
+	base := afero.NewMemMapFs()
+	fs := newTestFs(base, func(call, path string) error {
+		if call == "rename" && path == "/root/dest.txt" {
+			return xerrors.New("injected destination rename failure")
+		}
+		return nil
+	})
+	require.NoError(t, fs.MkdirAll("/root", 0o755))
+	require.NoError(t, afero.WriteFile(fs, "/root/source.txt", []byte("new"), 0o644))
+	require.NoError(t, afero.WriteFile(fs, "/root/dest.txt", []byte("old"), 0o600))
+	_, handler := phase2FilesAPI(t, fs)
+
+	w := phase2JSONRequest(t, handler, http.MethodPost, "/move-file", workspacesdk.MoveFileRequest{
+		Source:    "/root/source.txt",
+		Dest:      "/root/dest.txt",
+		Overwrite: true,
+	})
+	require.Equal(t, http.StatusInternalServerError, w.Code, "body: %s", w.Body.String())
+	require.Contains(t, w.Body.String(), "destination rollback also failed")
+	require.Contains(t, w.Body.String(), "backup remains at")
+
+	source, err := afero.ReadFile(base, "/root/source.txt")
+	require.NoError(t, err)
+	require.Equal(t, "new", string(source))
+	_, err = base.Stat("/root/dest.txt")
+	require.Error(t, err)
+
+	entries, err := afero.ReadDir(base, "/root")
+	require.NoError(t, err)
+	var backupPath string
+	for _, entry := range entries {
+		if strings.Contains(entry.Name(), ".coder-backup.") {
+			backupPath = "/root/" + entry.Name()
+			break
+		}
+	}
+	require.NotEmpty(t, backupPath)
+	backup, err := afero.ReadFile(base, backupPath)
+	require.NoError(t, err)
+	require.Equal(t, "old", string(backup))
+	require.Contains(t, w.Body.String(), backupPath)
+}
+
+func TestPhase2MoveFileCleanupFailureRollsBack(t *testing.T) {
+	t.Parallel()
+
+	base := afero.NewMemMapFs()
+	fs := newTestFs(base, func(call, path string) error {
+		if call == "remove" && strings.Contains(path, ".coder-backup.") {
+			return xerrors.New("injected backup cleanup failure")
+		}
+		return nil
+	})
+	require.NoError(t, fs.MkdirAll("/root", 0o755))
+	require.NoError(t, afero.WriteFile(fs, "/root/source.txt", []byte("new"), 0o644))
+	require.NoError(t, afero.WriteFile(fs, "/root/dest.txt", []byte("old"), 0o644))
+	_, handler := phase2FilesAPI(t, fs)
+
+	w := phase2JSONRequest(t, handler, http.MethodPost, "/move-file", workspacesdk.MoveFileRequest{
+		Source:    "/root/source.txt",
+		Dest:      "/root/dest.txt",
+		Overwrite: true,
+	})
+	require.Equal(t, http.StatusInternalServerError, w.Code, "body: %s", w.Body.String())
+	require.Contains(t, w.Body.String(), "move rolled back because destination backup cleanup failed")
+
+	source, err := afero.ReadFile(fs, "/root/source.txt")
+	require.NoError(t, err)
+	require.Equal(t, "new", string(source))
+	dest, err := afero.ReadFile(fs, "/root/dest.txt")
+	require.NoError(t, err)
+	require.Equal(t, "old", string(dest))
+
+	entries, err := afero.ReadDir(base, "/root")
+	require.NoError(t, err)
+	for _, entry := range entries {
+		require.NotContains(t, entry.Name(), ".coder-backup.")
+	}
 }
 
 func TestPhase2FileMetadataCreateAndMove(t *testing.T) {

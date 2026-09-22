@@ -45,6 +45,7 @@ func (api *API) Routes() http.Handler {
 	r.Get("/search/{id}/results", api.HandleSearchResults)
 	r.Post("/search/{id}/stop", api.HandleSearchStop)
 	r.Post("/write-file", api.HandleWriteFile)
+	r.Post("/write-file-strict", api.HandleWriteFileStrict)
 	r.Post("/edit-files", api.HandleEditFiles)
 
 	return r

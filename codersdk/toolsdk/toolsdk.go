@@ -25,8 +25,9 @@ import (
 )
 
 type (
-	invocationToolContextKey struct{}
-	mcpTraceIDContextKey     struct{}
+	invocationToolContextKey  struct{}
+	invocationScopeContextKey struct{}
+	mcpTraceIDContextKey      struct{}
 )
 
 // WithInvocationTool records the assistant-facing MCP tool name on a tool
@@ -42,6 +43,23 @@ func WithInvocationTool(ctx context.Context, tool string) context.Context {
 func InvocationToolFromContext(ctx context.Context) string {
 	tool, _ := ctx.Value(invocationToolContextKey{}).(string)
 	return tool
+}
+
+// WithInvocationScope records an internal identity used to make assistant
+// process launch deduplication stable across repeated calls in one MCP session.
+// It is deliberately separate from chat identity and authorization.
+func WithInvocationScope(ctx context.Context, scope string) context.Context {
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, invocationScopeContextKey{}, scope)
+}
+
+// InvocationScopeFromContext returns the internal assistant invocation scope.
+func InvocationScopeFromContext(ctx context.Context) string {
+	scope, _ := ctx.Value(invocationScopeContextKey{}).(string)
+	return scope
 }
 
 // WithMCPTraceID records the internal MCP diagnostic trace correlation on a tool
@@ -123,6 +141,7 @@ const (
 func NewDeps(client *codersdk.Client, opts ...func(*Deps)) (Deps, error) {
 	d := Deps{
 		coderClient:       client,
+		mcpResultBytesMax: codersdk.DefaultMCPResultBytesMax,
 		mcpToolTimeoutMax: codersdk.DefaultMCPToolTimeoutMax,
 	}
 	for _, opt := range opts {
@@ -148,6 +167,7 @@ type Deps struct {
 	coderClient       *codersdk.Client
 	report            func(ReportTaskArgs) error
 	agentConnFn       workspacesdk.AgentConnFunc
+	mcpResultBytesMax int64
 	mcpToolTimeoutMax time.Duration
 }
 
@@ -167,6 +187,24 @@ func WithTaskReporter(fn func(ReportTaskArgs) error) func(*Deps) {
 // WithMCPToolTimeoutMax configures the maximum wall-clock duration available
 // to one MCP tool invocation. It limits the request, not durable process or job
 // lifetime.
+// WithMCPResultBytesMax configures the non-silent transport/resource ceiling
+// for one assistant-facing MCP tool result.
+func WithMCPResultBytesMax(maxBytes int64) func(*Deps) {
+	return func(d *Deps) {
+		if maxBytes > 0 {
+			d.mcpResultBytesMax = maxBytes
+		}
+	}
+}
+
+// MCPResultBytesMax returns the deployment-wide encoded result-size ceiling.
+func (d Deps) MCPResultBytesMax() int64 {
+	if d.mcpResultBytesMax <= 0 {
+		return codersdk.DefaultMCPResultBytesMax
+	}
+	return d.mcpResultBytesMax
+}
+
 func WithMCPToolTimeoutMax(timeout time.Duration) func(*Deps) {
 	return func(d *Deps) {
 		if timeout > 0 {
@@ -317,12 +355,6 @@ var (
 		IdempotentHint:  true,
 		OpenWorldHint:   false,
 	}
-	mcpDestructiveIdempotentAnnotations = MCPToolAnnotations{
-		ReadOnlyHint:    false,
-		DestructiveHint: true,
-		IdempotentHint:  true,
-		OpenWorldHint:   false,
-	}
 )
 
 // Generic returns a type-erased version of a TypedTool where the arguments and
@@ -401,6 +433,7 @@ func WithCleanContext(h GenericHandlerFunc) GenericHandlerFunc {
 		// explicitly carrying the one internal value that execution tools need for
 		// Command Activity attribution.
 		invocationTool := InvocationToolFromContext(parent)
+		invocationScope := InvocationScopeFromContext(parent)
 		mcpTraceID, hasMCPTraceID := MCPTraceIDFromContext(parent)
 		child, childCancel := context.WithCancel(context.Background())
 		defer childCancel()
@@ -413,6 +446,9 @@ func WithCleanContext(h GenericHandlerFunc) GenericHandlerFunc {
 		}
 		if invocationTool != "" {
 			child = WithInvocationTool(child, invocationTool)
+		}
+		if invocationScope != "" {
+			child = WithInvocationScope(child, invocationScope)
 		}
 		if hasMCPTraceID {
 			child = WithMCPTraceID(child, mcpTraceID)

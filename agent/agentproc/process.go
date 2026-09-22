@@ -115,9 +115,11 @@ type process struct {
 	identityFile  string
 	remotePIDFile string
 	tool          string
+	fingerprint   string
 	background    bool
 	interactive   bool
 	chatID        string
+	dedupeScope   string
 	cmd           *exec.Cmd
 	stdin         io.WriteCloser
 	stdinClosed   bool
@@ -162,6 +164,7 @@ func (p *process) output() (string, *workspacesdk.ProcessTruncation) {
 // manager tracks processes spawned by the agent.
 type manager struct {
 	mu                    sync.Mutex
+	launchMu              sync.Mutex
 	logger                slog.Logger
 	execer                agentexec.Execer
 	fs                    afero.Fs
@@ -194,11 +197,45 @@ func newManager(logger slog.Logger, execer agentexec.Execer, fs afero.Fs, envInf
 	}
 }
 
+// startOrReuse serializes assistant-facing launches so duplicate detection and
+// process creation are atomic with respect to other launches. Deduplication is
+// scoped to a trusted invocation identity supplied by the server (a chat scope
+// for chatd or an MCP-session scope for Remote MCP). Callers without such a
+// scope retain the historical always-start behavior.
+func (m *manager) startOrReuse(req workspacesdk.StartProcessRequest, chatID, dedupeScope string) (*process, bool, error) {
+	m.launchMu.Lock()
+	defer m.launchMu.Unlock()
+
+	if dedupeScope != "" && req.Fingerprint != "" && !req.AllowDuplicate {
+		m.mu.Lock()
+		candidates := make([]*process, 0, len(m.procs))
+		for _, proc := range m.procs {
+			candidates = append(candidates, proc)
+		}
+		m.mu.Unlock()
+
+		for _, proc := range candidates {
+			proc.mu.Lock()
+			match := proc.running && proc.dedupeScope == dedupeScope && proc.fingerprint == req.Fingerprint
+			proc.mu.Unlock()
+			if match {
+				return proc, false, nil
+			}
+		}
+	}
+
+	proc, err := m.start(req, chatID, dedupeScope)
+	if err != nil {
+		return nil, false, err
+	}
+	return proc, true, nil
+}
+
 // start spawns a new process. Both foreground and background
 // processes use a long-lived context so the process survives
 // the HTTP request lifecycle. The background flag only affects
 // client-side polling behavior.
-func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*process, error) {
+func (m *manager) start(req workspacesdk.StartProcessRequest, chatID, dedupeScope string) (*process, error) {
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
@@ -333,9 +370,11 @@ func (m *manager) start(req workspacesdk.StartProcessRequest, chatID string) (*p
 		identityFile:  req.IdentityFile,
 		remotePIDFile: remotePIDFile,
 		tool:          tool,
+		fingerprint:   req.Fingerprint,
 		background:    req.Background,
 		interactive:   req.Interactive,
 		chatID:        chatID,
+		dedupeScope:   dedupeScope,
 		cmd:           cmd,
 		stdin:         stdin,
 		cancel:        cancel,

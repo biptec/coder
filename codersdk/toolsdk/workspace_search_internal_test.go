@@ -100,7 +100,7 @@ func TestWorkspaceSearchSchemas(t *testing.T) {
 	t.Parallel()
 
 	require.ElementsMatch(t,
-		[]string{"workspace", "root", "query", "mode"},
+		[]string{"workspace", "root", "query", "mode", "max_results"},
 		WorkspaceSearchStart.Schema.Required,
 	)
 	require.Contains(t, WorkspaceSearchStart.Schema.Properties, "wait_timeout_ms")
@@ -109,11 +109,11 @@ func TestWorkspaceSearchSchemas(t *testing.T) {
 	require.Contains(t, WorkspaceSearchStart.Description, "initial snapshot")
 	require.NotContains(t, WorkspaceSearchStart.Description, "default 1000")
 	maxResults := WorkspaceSearchStart.Schema.Properties["max_results"].(map[string]any)
-	require.EqualValues(t, 1, maxResults["minimum"])
+	require.EqualValues(t, 0, maxResults["minimum"])
 	require.NotContains(t, maxResults, "maximum")
 
 	require.ElementsMatch(t,
-		[]string{"workspace", "search_id"},
+		[]string{"workspace", "search_id", "limit"},
 		WorkspaceSearchResults.Schema.Required,
 	)
 	require.Contains(t, WorkspaceSearchResults.Schema.Properties, "wait_timeout_ms")
@@ -121,6 +121,6 @@ func TestWorkspaceSearchSchemas(t *testing.T) {
 	require.EqualValues(t, 0, resultsWait["minimum"])
 	require.Contains(t, WorkspaceSearchResults.Description, "current snapshot immediately")
 	limit := WorkspaceSearchResults.Schema.Properties["limit"].(map[string]any)
-	require.EqualValues(t, 1, limit["minimum"])
+	require.EqualValues(t, 0, limit["minimum"])
 	require.NotContains(t, limit, "maximum")
 }

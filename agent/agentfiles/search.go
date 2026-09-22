@@ -26,16 +26,23 @@ import (
 	"github.com/coder/coder/v2/codersdk/workspacesdk"
 )
 
-const searchSessionTTL = 10 * time.Minute
+const (
+	searchSessionTTL              = 10 * time.Minute
+	searchResultRetentionBytesMax = 16 << 20
+)
 
-var errSearchLimit = xerrors.New("search result limit reached")
+var (
+	errSearchLimit    = xerrors.New("search result limit reached")
+	errSearchResource = xerrors.New("search result retention safety budget exceeded")
+)
 
 type searchSession struct {
-	mu      sync.Mutex
-	info    workspacesdk.SearchSessionInfo
-	results []workspacesdk.SearchResult
-	chatID  string
-	cancel  context.CancelFunc
+	mu            sync.Mutex
+	info          workspacesdk.SearchSessionInfo
+	results       []workspacesdk.SearchResult
+	retainedBytes int64
+	chatID        string
+	cancel        context.CancelFunc
 }
 
 func (s *searchSession) snapshot() workspacesdk.SearchSessionInfo {
@@ -193,7 +200,18 @@ func appendSearchResult(session *searchSession, result workspacesdk.SearchResult
 		session.info.Truncated = true
 		return errSearchLimit
 	}
+
+	// This is an internal retention/resource safeguard, not a public result
+	// count limit. max_results=0 still means logically exhaustive search, but a
+	// pathological match set must fail explicitly instead of exhausting Agent
+	// memory. Account for the dominant retained strings plus modest record
+	// overhead; the exact wire-size budget is separately enforced at MCP output.
+	resultBytes := int64(len(result.Path) + len(result.Text) + 64)
+	if session.retainedBytes+resultBytes > searchResultRetentionBytesMax {
+		return xerrors.Errorf("%w: retained matches would exceed %d bytes; retry with a positive max_results or a narrower root/query", errSearchResource, searchResultRetentionBytesMax)
+	}
 	session.results = append(session.results, result)
+	session.retainedBytes += resultBytes
 	return nil
 }
 
@@ -231,7 +249,7 @@ func (m *searchManager) run(ctx context.Context, session *searchSession, req wor
 			return nil
 		}
 
-		if info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		if info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			return nil
 		}
 		return func() error {
@@ -284,6 +302,9 @@ func (m *searchManager) run(ctx context.Context, session *searchSession, req wor
 	case errors.Is(err, errSearchLimit):
 		session.info.Status = "complete"
 		session.info.Truncated = true
+	case errors.Is(err, errSearchResource):
+		session.info.Status = "error"
+		session.info.Error = err.Error()
 	case errors.Is(err, context.Canceled):
 		session.info.Status = "stopped"
 	case err != nil:

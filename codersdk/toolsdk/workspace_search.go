@@ -33,9 +33,9 @@ var WorkspaceSearchStart = Tool[WorkspaceSearchStartArgs, workspacesdk.SearchRes
 Mode "files" matches relative paths; mode "content" matches file lines. Regex uses
 Go RE2 semantics. Omit wait_timeout_ms or use 0 to return immediately after the
 Agent creates the search session; a positive value observes for initial results.
-The search keeps running independently after this MCP call. max_results is an
-optional assistant-selected retention cap; when omitted there is no artificial
-result-count cap. Continue with get_search_results when more results are needed.`,
+The search keeps running independently after this MCP call. max_results is a
+required explicit retention limit: use 0 for no logical result-count cap, or a
+positive value to retain at most that many results. Continue with get_search_results when more results are needed.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
 				"workspace":      map[string]any{"type": "string", "description": workspaceAgentDescription},
@@ -45,14 +45,14 @@ result-count cap. Continue with get_search_results when more results are needed.
 				"regex":          map[string]any{"type": "boolean", "description": "Interpret query as a Go RE2 regular expression."},
 				"case_sensitive": map[string]any{"type": "boolean", "description": "Use case-sensitive matching. Defaults to false."},
 				"include_hidden": map[string]any{"type": "boolean", "description": "Include dot-prefixed files and directories."},
-				"max_results":    map[string]any{"type": "integer", "description": "Optional maximum retained results. If omitted, do not impose an artificial result-count cap.", "minimum": 1},
+				"max_results":    map[string]any{"type": "integer", "description": "Required retained-result limit. Use 0 for no logical result-count cap, or a positive value to retain at most that many results.", "minimum": 0},
 				"wait_timeout_ms": map[string]any{
 					"type":        "integer",
 					"description": "Optional initial result observation interval in milliseconds. Omit or use 0 to return immediately. This never limits the search lifetime.",
 					"minimum":     0,
 				},
 			},
-			Required: []string{"workspace", "root", "query", "mode"},
+			Required: []string{"workspace", "root", "query", "mode", "max_results"},
 		},
 	},
 	MCPAnnotations:     mcpReadOnlyNonIdempotentAnnotations,
@@ -141,14 +141,14 @@ search lifetime.`,
 				"workspace": map[string]any{"type": "string", "description": workspaceAgentDescription},
 				"search_id": map[string]any{"type": "string", "description": "Search session ID returned by start_search."},
 				"cursor":    map[string]any{"type": "integer", "description": "Zero-based result cursor. Defaults to 0.", "minimum": 0},
-				"limit":     map[string]any{"type": "integer", "description": "Optional maximum results returned. If omitted, return all results currently available from the cursor.", "minimum": 1},
+				"limit":     map[string]any{"type": "integer", "description": "Required result limit. Use 0 to return all results currently available from the cursor, or a positive value to bound the page.", "minimum": 0},
 				"wait_timeout_ms": map[string]any{
 					"type":        "integer",
 					"description": "Optional result observation interval in milliseconds. Omit or use 0 for an immediate snapshot.",
 					"minimum":     0,
 				},
 			},
-			Required: []string{"workspace", "search_id"},
+			Required: []string{"workspace", "search_id", "limit"},
 		},
 	},
 	MCPAnnotations:     mcpReadOnlyAnnotations,

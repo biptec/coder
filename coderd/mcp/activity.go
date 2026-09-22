@@ -18,6 +18,7 @@ import (
 
 	"cdr.dev/slog/v3"
 	"github.com/coder/coder/v2/coderd/workspaceactivityredact"
+	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/codersdk/toolsdk"
 )
 
@@ -632,7 +633,7 @@ func activityPublicStatus(status string) string {
 	}
 }
 
-func (s *Server) registerRecentActivityTool() {
+func (s *Server) registerRecentActivityTool(client *codersdk.Client, resultBytesMax int64) {
 	if s.activityStore == nil || s.activityUserID == "" {
 		return
 	}
@@ -651,8 +652,8 @@ func (s *Server) registerRecentActivityTool() {
 					},
 					"limit": map[string]any{
 						"type":        "integer",
-						"description": "Optional maximum number of activity records to return. If omitted, return all retained activity for this workspace.",
-						"minimum":     1,
+						"description": "Required activity-record limit. Use 0 to return all retained activity for this workspace, or a positive value to bound the result.",
+						"minimum":     0,
 					},
 					"cursor": map[string]any{
 						"type":        "string",
@@ -660,7 +661,7 @@ func (s *Server) registerRecentActivityTool() {
 						"minLength":   1,
 					},
 				},
-				Required: []string{"workspace"},
+				Required: []string{"workspace", "limit"},
 			},
 			OutputSchema: outputSchema,
 			Annotations: mcp.ToolAnnotation{
@@ -692,15 +693,15 @@ func (s *Server) registerRecentActivityTool() {
 			default:
 				return nil, xerrors.New("limit must be an integer")
 			}
-			if limit < 1 {
-				return nil, xerrors.New("limit must be positive")
+			if limit < 0 {
+				return nil, xerrors.New("limit cannot be negative")
 			}
 		}
 
 		cursor, _ := args["cursor"].(string)
 		page, err := s.activityStore.Page(s.activityUserID, workspace, limit, strings.TrimSpace(cursor))
 		if err != nil {
-			return nil, err
+			return mcp.NewToolResultErrorf("%v", err), nil
 		}
 		calls := make([]any, 0, len(page.Records))
 		for _, record := range page.Records {
@@ -724,11 +725,25 @@ func (s *Server) registerRecentActivityTool() {
 		if err := validateAssistantStructuredContent("list_recent_tool_calls", outputSchema, structured); err != nil {
 			return nil, xerrors.Errorf("validate list_recent_tool_calls output: %w", err)
 		}
-		return &mcp.CallToolResult{
+		result := &mcp.CallToolResult{
 			Content:           []mcp.Content{},
 			StructuredContent: structured,
-		}, nil
+		}
+		if resultBytesMax > 0 {
+			encoded, marshalErr := json.Marshal(result)
+			if marshalErr != nil {
+				return nil, xerrors.Errorf("measure list_recent_tool_calls output: %w", marshalErr)
+			}
+			if int64(len(encoded)) > resultBytesMax {
+				return mcp.NewToolResultErrorf("Result for list_recent_tool_calls is %d bytes, exceeding the MCP response safety budget of %d bytes. Retry with a smaller positive limit and continue with next_cursor.", len(encoded), resultBytesMax), nil
+			}
+		}
+		return result, nil
 	}
+	// Enforce the same advertised input contract as the aliased developer
+	// tools, including required explicit limit=0 semantics.
+	tool = withAssistantInputValidation(tool, "list_recent_tool_calls")
+	tool = withSharedWorkspaceResolution(tool, client)
 	// Do not track list_recent_tool_calls in the in-memory store it reads. Tracking it
 	// would make every call report itself as the newest running record and would
 	// prevent an otherwise idle user's activity list from ever being empty.

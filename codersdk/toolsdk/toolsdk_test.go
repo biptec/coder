@@ -2482,6 +2482,7 @@ func TestWithCleanContext(t *testing.T) {
 			},
 			Handler: func(toolCtx context.Context, tb toolsdk.Deps, args json.RawMessage) (json.RawMessage, error) {
 				require.Equal(t, "exec", toolsdk.InvocationToolFromContext(toolCtx))
+				require.Equal(t, "mcp:test-session", toolsdk.InvocationScopeFromContext(toolCtx))
 				traceID, ok := toolsdk.MCPTraceIDFromContext(toolCtx)
 				require.True(t, ok)
 				require.Equal(t, expectedTraceID, traceID)
@@ -2493,6 +2494,7 @@ func TestWithCleanContext(t *testing.T) {
 		wrapped := toolsdk.WithCleanContext(ctxTool.Handler)
 		parent := context.WithValue(context.Background(), testContextKey{}, "must-not-leak")
 		parent = toolsdk.WithInvocationTool(parent, "exec")
+		parent = toolsdk.WithInvocationScope(parent, "mcp:test-session")
 		parent = toolsdk.WithMCPTraceID(parent, expectedTraceID)
 		_, err := wrapped(parent, toolsdk.Deps{}, []byte(`{}`))
 		require.NoError(t, err)

@@ -95,6 +95,26 @@ func TestActivityStorePageStableCursor(t *testing.T) {
 	require.ErrorContains(t, err, "no longer available")
 }
 
+func TestActivityStorePageZeroReturnsAllRetainedRecords(t *testing.T) {
+	t.Parallel()
+
+	store := NewActivityStore(30)
+	const (
+		userID    = "user-a"
+		workspace = "owner/workspace"
+	)
+	for i := 0; i < 25; i++ {
+		id := store.Start(userID, "read_file", workspace)
+		store.Finish(userID, id, "success", nil)
+	}
+
+	page, err := store.Page(userID, workspace, 0, "")
+	require.NoError(t, err)
+	require.Len(t, page.Records, 25, "limit=0 must not fall back to the legacy default of 20")
+	require.False(t, page.HasMore)
+	require.Empty(t, page.NextCursor)
+}
+
 func TestActivityTrackingPropagatesInvocationMetadata(t *testing.T) {
 	t.Parallel()
 

@@ -62,6 +62,7 @@ func (api *API) mcpHTTPHandler() http.Handler {
 		// a workspace but lacks SSH permission could still execute
 		// commands through MCP tools.
 		toolOpts := []func(*toolsdk.Deps){
+			toolsdk.WithMCPResultBytesMax(api.DeploymentValues.MCPResultBytesMax.Value()),
 			toolsdk.WithMCPToolTimeoutMax(api.DeploymentValues.MCPToolTimeoutMax.Value()),
 			toolsdk.WithAgentConnFunc(func(ctx context.Context, agentID uuid.UUID) (workspacesdk.AgentConn, func(), error) {
 				if api.Entitlements.Enabled(codersdk.FeatureBrowserOnly) {

@@ -4285,6 +4285,9 @@ export const DefaultChatDebugRetentionDays = 30;
 export const DefaultChatWorkspaceTTL = 0;
 
 // From codersdk/deployment.go
+export const DefaultMCPResultBytesMax = 1048576;
+
+// From codersdk/deployment.go
 export const DefaultMCPTraceRetentionHours = 24;
 
 // From codersdk/deployment.go
@@ -4394,6 +4397,7 @@ export interface DeploymentValues {
 	readonly workspace_command_activity_history_limit?: number;
 	readonly mcp_trace_enabled?: boolean;
 	readonly mcp_trace_retention_hours?: number;
+	readonly mcp_result_bytes_max?: number;
 	readonly mcp_tool_timeout_max?: number;
 	readonly server_tailnet_agent_idle_timeout?: number;
 	readonly workspace_volume_copy_enabled?: boolean;

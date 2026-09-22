@@ -571,6 +571,83 @@ func TestStartProcess(t *testing.T) {
 	})
 }
 
+func TestStartProcessDuplicateGuard(t *testing.T) {
+	t.Parallel()
+
+	handler := newTestAPI(t)
+	chatID := uuid.New().String()
+	headers := http.Header{workspacesdk.CoderChatIDHeader: {chatID}}
+	request := workspacesdk.StartProcessRequest{
+		Command:     "sleep 60",
+		Fingerprint: "same-logical-launch",
+	}
+
+	first := postStart(t, handler, request, headers)
+	require.Equal(t, http.StatusOK, first.Code, "body: %s", first.Body.String())
+	var firstResp workspacesdk.StartProcessResponse
+	require.NoError(t, json.NewDecoder(first.Body).Decode(&firstResp))
+	require.True(t, firstResp.Started)
+	require.NotEmpty(t, firstResp.ID)
+
+	second := postStart(t, handler, request, headers)
+	require.Equal(t, http.StatusOK, second.Code, "body: %s", second.Body.String())
+	var secondResp workspacesdk.StartProcessResponse
+	require.NoError(t, json.NewDecoder(second.Body).Decode(&secondResp))
+	require.False(t, secondResp.Started, "identical running launch in the same chat must be reused by default")
+	require.Equal(t, firstResp.ID, secondResp.ID)
+
+	request.AllowDuplicate = true
+	third := postStart(t, handler, request, headers)
+	require.Equal(t, http.StatusOK, third.Code, "body: %s", third.Body.String())
+	var thirdResp workspacesdk.StartProcessResponse
+	require.NoError(t, json.NewDecoder(third.Body).Decode(&thirdResp))
+	require.True(t, thirdResp.Started)
+	require.NotEmpty(t, thirdResp.ID)
+	require.NotEqual(t, firstResp.ID, thirdResp.ID)
+
+	for _, id := range []string{firstResp.ID, thirdResp.ID} {
+		w := postSignal(t, handler, id, workspacesdk.SignalProcessRequest{Signal: "kill"})
+		require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
+	}
+}
+
+func TestStartProcessDuplicateGuardInvocationScope(t *testing.T) {
+	t.Parallel()
+
+	handler := newTestAPI(t)
+	request := workspacesdk.StartProcessRequest{
+		Command:     "sleep 60",
+		Fingerprint: "same-logical-launch",
+	}
+	headersA := http.Header{workspacesdk.CoderInvocationScopeHeader: {"mcp:session-a"}}
+	headersB := http.Header{workspacesdk.CoderInvocationScopeHeader: {"mcp:session-b"}}
+
+	first := postStart(t, handler, request, headersA)
+	require.Equal(t, http.StatusOK, first.Code, "body: %s", first.Body.String())
+	var firstResp workspacesdk.StartProcessResponse
+	require.NoError(t, json.NewDecoder(first.Body).Decode(&firstResp))
+	require.True(t, firstResp.Started)
+
+	second := postStart(t, handler, request, headersA)
+	require.Equal(t, http.StatusOK, second.Code, "body: %s", second.Body.String())
+	var secondResp workspacesdk.StartProcessResponse
+	require.NoError(t, json.NewDecoder(second.Body).Decode(&secondResp))
+	require.False(t, secondResp.Started)
+	require.Equal(t, firstResp.ID, secondResp.ID)
+
+	otherScope := postStart(t, handler, request, headersB)
+	require.Equal(t, http.StatusOK, otherScope.Code, "body: %s", otherScope.Body.String())
+	var otherResp workspacesdk.StartProcessResponse
+	require.NoError(t, json.NewDecoder(otherScope.Body).Decode(&otherResp))
+	require.True(t, otherResp.Started)
+	require.NotEqual(t, firstResp.ID, otherResp.ID)
+
+	for _, id := range []string{firstResp.ID, otherResp.ID} {
+		w := postSignal(t, handler, id, workspacesdk.SignalProcessRequest{Signal: "kill"})
+		require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
+	}
+}
+
 func TestListProcesses(t *testing.T) {
 	t.Parallel()
 
@@ -1187,7 +1264,7 @@ func TestSignalProcess(t *testing.T) {
 		handler := newTestAPI(t)
 
 		id := startAndGetID(t, handler, workspacesdk.StartProcessRequest{
-			Command:    "sleep 300",
+			Argv:       []string{"sleep", "300"},
 			Background: true,
 		})
 
@@ -1210,7 +1287,7 @@ func TestSignalProcess(t *testing.T) {
 
 		handler := newTestAPI(t)
 		id := startAndGetID(t, handler, workspacesdk.StartProcessRequest{
-			Command:    "sleep 300",
+			Argv:       []string{"sleep", "300"},
 			Background: true,
 		})
 
@@ -1233,7 +1310,7 @@ func TestSignalProcess(t *testing.T) {
 		handler := newTestAPI(t)
 
 		id := startAndGetID(t, handler, workspacesdk.StartProcessRequest{
-			Command:    "sleep 300",
+			Argv:       []string{"sleep", "300"},
 			Background: true,
 		})
 
@@ -1245,6 +1322,16 @@ func TestSignalProcess(t *testing.T) {
 		// Verify the process exits.
 		resp := waitForExit(t, handler, id)
 		require.False(t, resp.Running)
+	})
+
+	t.Run("OSPIDIsNotATrackedProcessID", func(t *testing.T) {
+		t.Parallel()
+
+		handler := newTestAPI(t)
+		w := postSignal(t, handler, fmt.Sprint(os.Getpid()), workspacesdk.SignalProcessRequest{
+			Signal: "kill",
+		})
+		require.Equal(t, http.StatusNotFound, w.Code, "numeric OS PID must never be treated as a tracked process_id")
 	})
 
 	t.Run("NonexistentProcess", func(t *testing.T) {

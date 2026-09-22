@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -122,8 +123,12 @@ func (api *API) handleStartProcess(rw http.ResponseWriter, r *http.Request) {
 	if chatContext, ok := agentchat.FromContext(ctx); ok {
 		chatID = chatContext.ID.String()
 	}
+	dedupeScope := strings.TrimSpace(r.Header.Get(workspacesdk.CoderInvocationScopeHeader))
+	if dedupeScope == "" && chatID != "" {
+		dedupeScope = "chat:" + chatID
+	}
 
-	proc, err := api.manager.start(req, chatID)
+	proc, started, err := api.manager.startOrReuse(req, chatID, dedupeScope)
 	if err != nil {
 		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
 			Message: "Failed to start process.",
@@ -151,7 +156,7 @@ func (api *API) handleStartProcess(rw http.ResponseWriter, r *http.Request) {
 
 	httpapi.Write(ctx, rw, http.StatusOK, workspacesdk.StartProcessResponse{
 		ID:      proc.id,
-		Started: true,
+		Started: started,
 	})
 }
 

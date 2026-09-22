@@ -17,6 +17,7 @@ import (
 	"github.com/xeipuuv/gojsonschema"
 	"golang.org/x/xerrors"
 
+	"github.com/coder/coder/v2/coderd/workspaceactivityredact"
 	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/codersdk/toolsdk"
 	"github.com/coder/coder/v2/codersdk/workspacesdk"
@@ -26,14 +27,64 @@ import (
 // presentation contract at the protocol boundary. Structured results are not
 // duplicated as text. Opaque payloads stay in content and metadata stays in
 // structuredContent.
-func withAssistantOutputRendering(serverTool server.ServerTool, publicName string) server.ServerTool {
+func withAssistantInputValidation(serverTool server.ServerTool, publicName string) server.ServerTool {
+	var (
+		validatorOnce sync.Once
+		validator     *gojsonschema.Schema
+		validatorErr  error
+	)
+	originalHandler := serverTool.Handler
+	serverTool.Handler = func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		validatorOnce.Do(func() {
+			raw, err := json.Marshal(serverTool.Tool.InputSchema)
+			if err != nil {
+				validatorErr = xerrors.Errorf("marshal input schema: %w", err)
+				return
+			}
+			validator, validatorErr = gojsonschema.NewSchema(gojsonschema.NewBytesLoader(raw))
+			if validatorErr != nil {
+				validatorErr = xerrors.Errorf("compile input schema: %w", validatorErr)
+			}
+		})
+		if validatorErr != nil {
+			return nil, xerrors.Errorf("validate %s input schema: %w", publicName, validatorErr)
+		}
+
+		validation, err := validator.Validate(gojsonschema.NewGoLoader(request.GetArguments()))
+		if err != nil {
+			return nil, xerrors.Errorf("validate %s input: %w", publicName, err)
+		}
+		if !validation.Valid() {
+			messages := make([]string, 0, len(validation.Errors()))
+			for _, item := range validation.Errors() {
+				messages = append(messages, item.String())
+			}
+			return mcp.NewToolResultErrorf("Invalid %s input: %s", publicName, strings.Join(messages, "; ")), nil
+		}
+		return originalHandler(ctx, request)
+	}
+	return serverTool
+}
+
+func withAssistantOutputRendering(serverTool server.ServerTool, publicName string, resultBytesMax int64) server.ServerTool {
 	serverTool.Tool.OutputSchema = assistantOutputSchema(publicName)
 	originalHandler := serverTool.Handler
 	serverTool.Handler = func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if session := server.ClientSessionFromContext(ctx); session != nil {
+			if sessionID := strings.TrimSpace(session.SessionID()); sessionID != "" {
+				ctx = toolsdk.WithInvocationScope(ctx, "mcp:"+sessionID)
+			}
+		}
 		request = withAssistantInputDefaults(publicName, request)
 		result, err := originalHandler(ctx, request)
 		if err != nil {
-			return nil, err
+			// ToolSDK handler failures describe the requested operation (validation,
+			// workspace/file/process state, transport/readiness, and recovery hints).
+			// Surface them as MCP tool errors so the model can read and act on the
+			// message. Rendering/schema/programmer failures below remain protocol
+			// errors because they indicate a broken server contract rather than a
+			// recoverable tool outcome.
+			return mcp.NewToolResultErrorf("%v", err), nil
 		}
 		if result == nil || result.IsError {
 			return result, nil
@@ -51,6 +102,15 @@ func withAssistantOutputRendering(serverTool server.ServerTool, publicName strin
 		}
 		if err := validateAssistantStructuredContent(publicName, serverTool.Tool.OutputSchema, structured); err != nil {
 			return nil, xerrors.Errorf("validate %s output: %w", publicName, err)
+		}
+		if resultBytesMax > 0 {
+			encoded, marshalErr := json.Marshal(rendered)
+			if marshalErr != nil {
+				return nil, xerrors.Errorf("measure %s output: %w", publicName, marshalErr)
+			}
+			if int64(len(encoded)) > resultBytesMax {
+				return mcp.NewToolResultErrorf("Result for %s is %d bytes, exceeding the MCP response safety budget of %d bytes. Retry with a positive limit/max_results or a narrower request and continue with the returned cursor/offset where applicable.", publicName, len(encoded), resultBytesMax), nil
+			}
 		}
 		return rendered, nil
 	}
@@ -272,6 +332,8 @@ func renderAssistantJSON(publicName string, args map[string]any, raw []byte) ([]
 		return emptyContent(), map[string]any{
 			"path":          value.Path,
 			"bytes_written": value.BytesWritten,
+			"created":       value.Created,
+			"replaced":      value.Replaced,
 		}, true, nil
 
 	case "get_file_info":
@@ -310,7 +372,7 @@ func renderAssistantJSON(publicName string, args map[string]any, raw []byte) ([]
 		if err := json.Unmarshal(raw, &value); err != nil {
 			return nil, nil, true, err
 		}
-		return emptyContent(), map[string]any{"source": value.Source, "dest": value.Dest}, true, nil
+		return emptyContent(), map[string]any{"source": value.Source, "dest": value.Dest, "overwritten": value.Overwritten}, true, nil
 
 	case "edit_file", "edit_multiple_files":
 		var value toolsdk.WorkspaceEditFilesResponse
@@ -436,9 +498,9 @@ func renderAssistantJSON(publicName string, args map[string]any, raw []byte) ([]
 			if process.StartedAt > 0 && end >= process.StartedAt {
 				runtimeMs = (end - process.StartedAt) * 1000
 			}
-			command := process.Command
-			if command == "" && len(process.Argv) > 0 {
-				command = strings.Join(process.Argv, " ")
+			command := workspaceactivityredact.Command(process.Command)
+			if process.Command == "" && len(process.Argv) > 0 {
+				command = workspaceactivityredact.CommandArgv(process.Argv)
 			}
 			item := map[string]any{
 				"process_id": process.ID,
@@ -479,7 +541,7 @@ func renderAssistantJSON(publicName string, args map[string]any, raw []byte) ([]
 				"cpu_percent":     process.CPUPercent,
 				"memory_percent":  process.MemoryPercent,
 				"elapsed_seconds": process.ElapsedSeconds,
-				"command":         process.Command,
+				"command":         workspaceactivityredact.Command(process.Command),
 			}
 			if process.StartedAtUnix > 0 {
 				item["started_at"] = time.Unix(process.StartedAtUnix, 0).UTC().Format(time.RFC3339)
@@ -507,6 +569,14 @@ func payloadContent(payload string) []mcp.Content {
 }
 
 func readFileMetadata(value toolsdk.WorkspaceReadFileV2Result, args map[string]any) map[string]any {
+	addPathResolution := func(meta map[string]any) {
+		if value.IsSymlink {
+			meta["is_symlink"] = true
+		}
+		if value.ResolvedPath != "" {
+			meta["resolved_path"] = value.ResolvedPath
+		}
+	}
 	if value.Encoding == "base64" {
 		dataLen := int64(0)
 		if decoded, err := base64.StdEncoding.DecodeString(value.Content); err == nil {
@@ -532,6 +602,7 @@ func readFileMetadata(value toolsdk.WorkspaceReadFileV2Result, args map[string]a
 		if !value.EndOfFile {
 			meta["next_offset"] = value.NextOffset
 		}
+		addPathResolution(meta)
 		return meta
 	}
 
@@ -540,10 +611,12 @@ func readFileMetadata(value toolsdk.WorkspaceReadFileV2Result, args map[string]a
 		start = 1
 	}
 	meta := map[string]any{
-		"path":        value.Path,
-		"start_line":  start,
-		"total_lines": value.TotalLines,
-		"eof":         value.EndOfFile,
+		"path":       value.Path,
+		"start_line": start,
+		"eof":        value.EndOfFile,
+	}
+	if value.EndOfFile {
+		meta["total_lines"] = value.TotalLines
 	}
 	if value.LinesRead > 0 {
 		meta["end_line"] = start + int64(value.LinesRead) - 1
@@ -551,6 +624,7 @@ func readFileMetadata(value toolsdk.WorkspaceReadFileV2Result, args map[string]a
 	if !value.EndOfFile {
 		meta["next_offset"] = value.NextOffset
 	}
+	addPathResolution(meta)
 	return meta
 }
 
@@ -655,6 +729,9 @@ func processStructured(value toolsdk.WorkspaceProcessResult) map[string]any {
 	}
 	if value.Truncated != nil && value.Truncated.OmittedBytes > 0 {
 		structured["truncated_bytes"] = value.Truncated.OmittedBytes
+	}
+	if value.DuplicateReused {
+		structured["duplicate_reused"] = true
 	}
 	return structured
 }
@@ -824,20 +901,20 @@ func assistantOutputSchema(publicName string) mcp.ToolOutputSchema {
 		return top([]string{"entries"}, map[string]any{"entries": array(item), "next_cursor": stringProp()})
 	case "read_file":
 		return top([]string{"path", "eof"}, map[string]any{
-			"path": stringProp(), "start_line": intProp(), "end_line": intProp(), "total_lines": intProp(),
+			"path": stringProp(), "is_symlink": boolProp(), "resolved_path": stringProp(), "start_line": intProp(), "end_line": intProp(), "total_lines": intProp(),
 			"start_byte": intProp(), "end_byte": intProp(), "size": intProp(), "next_offset": intProp(),
 			"eof": boolProp(), "content_encoding": stringProp(), "mime_type": stringProp(),
 		})
 	case "read_multiple_files":
 		errObj := object([]string{"code", "message"}, map[string]any{"code": stringProp(), "message": stringProp()})
 		item := object([]string{"path"}, map[string]any{
-			"path": stringProp(), "content_index": intProp(), "start_line": intProp(), "end_line": intProp(),
+			"path": stringProp(), "is_symlink": boolProp(), "resolved_path": stringProp(), "content_index": intProp(), "start_line": intProp(), "end_line": intProp(),
 			"total_lines": intProp(), "start_byte": intProp(), "end_byte": intProp(), "size": intProp(),
 			"next_offset": intProp(), "eof": boolProp(), "content_encoding": stringProp(), "mime_type": stringProp(), "error": errObj,
 		})
 		return top([]string{"files"}, map[string]any{"files": array(item)})
 	case "write_file":
-		return top([]string{"path", "bytes_written"}, map[string]any{"path": stringProp(), "bytes_written": intProp()})
+		return top([]string{"path", "bytes_written", "created", "replaced"}, map[string]any{"path": stringProp(), "bytes_written": intProp(), "created": boolProp(), "replaced": boolProp()})
 	case "get_file_info":
 		return top([]string{"path", "type", "size"}, map[string]any{
 			"path": stringProp(), "type": stringProp(), "size": intProp(), "mode": stringProp(), "modified_at": stringProp(),
@@ -845,7 +922,7 @@ func assistantOutputSchema(publicName string) mcp.ToolOutputSchema {
 	case "create_directory":
 		return top([]string{"path", "created"}, map[string]any{"path": stringProp(), "created": boolProp()})
 	case "move_file":
-		return top([]string{"source", "dest"}, map[string]any{"source": stringProp(), "dest": stringProp()})
+		return top([]string{"source", "dest", "overwritten"}, map[string]any{"source": stringProp(), "dest": stringProp(), "overwritten": boolProp()})
 	case "edit_file":
 		return top([]string{"path", "replacements"}, map[string]any{"path": stringProp(), "replacements": intProp()})
 	case "edit_multiple_files":
@@ -901,7 +978,7 @@ func processOutputSchema(
 ) mcp.ToolOutputSchema {
 	return top([]string{"process_id", "status", "output_cursor"}, map[string]any{
 		"process_id": stringProp(), "status": stringProp(), "exit_code": intProp(), "output_cursor": intProp(),
-		"output_gap_bytes": intProp(), "has_more": boolProp(), "truncated_bytes": intProp(),
+		"output_gap_bytes": intProp(), "has_more": boolProp(), "truncated_bytes": intProp(), "duplicate_reused": boolProp(),
 	})
 }
 

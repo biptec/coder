@@ -62,11 +62,11 @@ func TestWorkspaceListSystemProcessesSchema(t *testing.T) {
 	t.Parallel()
 
 	schema := WorkspaceListSystemProcesses.Schema
-	require.ElementsMatch(t, []string{"workspace"}, schema.Required)
+	require.ElementsMatch(t, []string{"workspace", "limit"}, schema.Required)
 	require.Contains(t, schema.Properties, "cursor")
 	require.Contains(t, schema.Properties, "filter")
 	limit := schema.Properties["limit"].(map[string]any)
-	require.EqualValues(t, 1, limit["minimum"])
+	require.EqualValues(t, 0, limit["minimum"])
 	require.NotContains(t, limit, "maximum")
 	require.Equal(t, ToolNameWorkspaceListSystemProcesses, WorkspaceListSystemProcesses.Name)
 	require.Equal(t, mcpReadOnlyAnnotations, WorkspaceListSystemProcesses.MCPAnnotations)

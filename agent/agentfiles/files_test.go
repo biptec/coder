@@ -52,6 +52,13 @@ func (fs *testFs) Open(name string) (afero.File, error) {
 	return fs.Fs.Open(name)
 }
 
+func (fs *testFs) OpenFile(name string, flag int, perm os.FileMode) (afero.File, error) {
+	if err := fs.intercept("openfile", name); err != nil {
+		return nil, err
+	}
+	return fs.Fs.OpenFile(name, flag, perm)
+}
+
 func (fs *testFs) Create(name string) (afero.File, error) {
 	if err := fs.intercept("create", name); err != nil {
 		return nil, err
@@ -109,6 +116,13 @@ func (fs *testFs) Rename(oldName, newName string) error {
 	return fs.Fs.Rename(oldName, newName)
 }
 
+func (fs *testFs) Remove(name string) error {
+	if err := fs.intercept("remove", name); err != nil {
+		return err
+	}
+	return fs.Fs.Remove(name)
+}
+
 func TestReadFile(t *testing.T) {
 	t.Parallel()
 
@@ -130,6 +144,8 @@ func TestReadFile(t *testing.T) {
 
 	filePath := filepath.Join(tmpdir, "file")
 	err = afero.WriteFile(fs, filePath, []byte("content"), 0o644)
+	require.NoError(t, err)
+	err = afero.WriteFile(fs.Fs, noPermsFilePath, []byte("blocked"), 0o644)
 	require.NoError(t, err)
 
 	imagePath := filepath.Join(tmpdir, "file.png")
@@ -1527,7 +1543,7 @@ func TestWriteFile_FollowsSymlinks(t *testing.T) {
 	require.Equal(t, "updated", string(data))
 }
 
-func TestEditFiles_FollowsSymlinks(t *testing.T) {
+func TestEditFiles_RejectsFinalSymlink(t *testing.T) {
 	t.Parallel()
 
 	if runtime.GOOS == "windows" {
@@ -1573,17 +1589,17 @@ func TestEditFiles_FollowsSymlinks(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequestWithContext(ctx, http.MethodPost, "/edit-files", buf)
 	api.Routes().ServeHTTP(w, r)
-	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Contains(t, w.Body.String(), "symbolic link")
+	require.Contains(t, w.Body.String(), realPath)
 
-	// The symlink must still be a symlink.
+	// Rejection must leave both the symlink and its target untouched.
 	fi, err := os.Lstat(linkPath)
 	require.NoError(t, err)
 	require.NotZero(t, fi.Mode()&os.ModeSymlink, "symlink was replaced")
-
-	// The real file must have the edited content.
 	data, err := os.ReadFile(realPath)
 	require.NoError(t, err)
-	require.Equal(t, "goodbye world", string(data))
+	require.Equal(t, "hello world", string(data))
 }
 
 func TestEditFiles_FileResults(t *testing.T) {
@@ -1732,7 +1748,7 @@ func TestEditFiles_FileResults(t *testing.T) {
 		require.Contains(t, resp.Files[0].Diff, "-three")
 		require.Contains(t, resp.Files[0].Diff, "+THREE")
 	})
-	t.Run("DiffRequestedSymlinkReportsOriginalPath", func(t *testing.T) {
+	t.Run("DiffRequestedSymlinkIsRejected", func(t *testing.T) {
 		t.Parallel()
 
 		if runtime.GOOS == "windows" {
@@ -1749,23 +1765,25 @@ func TestEditFiles_FileResults(t *testing.T) {
 		linkPath := filepath.Join(dir, "link.txt")
 		require.NoError(t, os.Symlink(realPath, linkPath))
 
-		resp := runEditFiles(t, api, workspacesdk.FileEditRequest{
+		req := workspacesdk.FileEditRequest{
 			IncludeDiff: true,
-			Files: []workspacesdk.FileEdits{
-				{
-					Path: linkPath,
-					Edits: []workspacesdk.FileEdit{
-						{Search: "hello", Replace: "HELLO"},
-					},
-				},
-			},
-		})
-		require.Len(t, resp.Files, 1)
-		// The response must report the caller-supplied path, not the
-		// symlink-resolved target.
-		require.Equal(t, linkPath, resp.Files[0].Path)
-		require.Contains(t, resp.Files[0].Diff, "--- "+linkPath+"\n")
-		require.Contains(t, resp.Files[0].Diff, "+++ "+linkPath+"\n")
+			Files: []workspacesdk.FileEdits{{
+				Path:  linkPath,
+				Edits: []workspacesdk.FileEdit{{Search: "hello", Replace: "HELLO"}},
+			}},
+		}
+		body := bytes.NewBuffer(nil)
+		require.NoError(t, json.NewEncoder(body).Encode(req))
+		w := httptest.NewRecorder()
+		r := httptest.NewRequestWithContext(testutil.Context(t, testutil.WaitShort), http.MethodPost, "/edit-files", body)
+		api.Routes().ServeHTTP(w, r)
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		require.Contains(t, w.Body.String(), "symbolic link")
+		require.Contains(t, w.Body.String(), realPath)
+
+		data, err := os.ReadFile(realPath)
+		require.NoError(t, err)
+		require.Equal(t, "hello\n", string(data))
 	})
 
 	t.Run("DryRunSingleFileReturnsDiffWithoutWriting", func(t *testing.T) {
@@ -2843,6 +2861,102 @@ func TestEditFiles_DuplicatePath_SymlinkAliasRejects(t *testing.T) {
 	data, err := afero.ReadFile(osFs, realPath)
 	require.NoError(t, err)
 	require.Equal(t, original, string(data))
+}
+
+func TestEditFiles_StagingFailureWritesNoTargets(t *testing.T) {
+	t.Parallel()
+
+	tmpdir := os.TempDir()
+	firstPath := filepath.Join(tmpdir, "stage-first.txt")
+	secondPath := filepath.Join(tmpdir, "stage-second.txt")
+	base := afero.NewMemMapFs()
+	fs := newTestFs(base, func(call, file string) error {
+		if call == "openfile" && strings.Contains(file, ".stage-second.txt.tmp.") {
+			return syscall.ENOSPC
+		}
+		return nil
+	})
+	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true}).Leveled(slog.LevelDebug)
+	api := agentfiles.NewAPI(logger, fs, nil)
+
+	require.NoError(t, afero.WriteFile(base, firstPath, []byte("first-old\n"), 0o640))
+	require.NoError(t, afero.WriteFile(base, secondPath, []byte("second-old\n"), 0o600))
+
+	req := workspacesdk.FileEditRequest{Files: []workspacesdk.FileEdits{
+		{Path: firstPath, Edits: []workspacesdk.FileEdit{{Search: "first-old", Replace: "first-new"}}},
+		{Path: secondPath, Edits: []workspacesdk.FileEdit{{Search: "second-old", Replace: "second-new"}}},
+	}}
+	buf := bytes.NewBuffer(nil)
+	require.NoError(t, json.NewEncoder(buf).Encode(req))
+	w := httptest.NewRecorder()
+	r := httptest.NewRequestWithContext(testutil.Context(t, testutil.WaitShort), http.MethodPost, "/edit-files", buf)
+	api.Routes().ServeHTTP(w, r)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code, "body: %s", w.Body.String())
+	require.Contains(t, w.Body.String(), "no space")
+
+	first, err := afero.ReadFile(base, firstPath)
+	require.NoError(t, err)
+	second, err := afero.ReadFile(base, secondPath)
+	require.NoError(t, err)
+	require.Equal(t, "first-old\n", string(first))
+	require.Equal(t, "second-old\n", string(second))
+
+	entries, err := afero.ReadDir(base, tmpdir)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		require.NotContains(t, entry.Name(), ".tmp.", "all staged temporary files must be cleaned after phase-2 staging failure")
+	}
+}
+
+func TestEditFiles_CommitRenameFailureReportsPartialState(t *testing.T) {
+	t.Parallel()
+
+	tmpdir := os.TempDir()
+	firstPath := filepath.Join(tmpdir, "commit-first.txt")
+	secondPath := filepath.Join(tmpdir, "commit-second.txt")
+	base := afero.NewMemMapFs()
+	fs := newTestFs(base, func(call, file string) error {
+		if call == "rename" && file == secondPath {
+			return xerrors.New("injected commit rename failure")
+		}
+		return nil
+	})
+	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true}).Leveled(slog.LevelDebug)
+	api := agentfiles.NewAPI(logger, fs, nil)
+
+	require.NoError(t, afero.WriteFile(base, firstPath, []byte("first-old\n"), 0o640))
+	require.NoError(t, afero.WriteFile(base, secondPath, []byte("second-old\n"), 0o600))
+
+	req := workspacesdk.FileEditRequest{Files: []workspacesdk.FileEdits{
+		{Path: firstPath, Edits: []workspacesdk.FileEdit{{Search: "first-old", Replace: "first-new"}}},
+		{Path: secondPath, Edits: []workspacesdk.FileEdit{{Search: "second-old", Replace: "second-new"}}},
+	}}
+	buf := bytes.NewBuffer(nil)
+	require.NoError(t, json.NewEncoder(buf).Encode(req))
+	w := httptest.NewRecorder()
+	r := httptest.NewRequestWithContext(testutil.Context(t, testutil.WaitShort), http.MethodPost, "/edit-files", buf)
+	api.Routes().ServeHTTP(w, r)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code, "body: %s", w.Body.String())
+	body := w.Body.String()
+	require.Contains(t, body, "partial edit commit")
+	require.Contains(t, body, "failed="+secondPath)
+	require.Contains(t, body, "applied=["+firstPath+"]")
+	require.Contains(t, body, "not_applied=["+secondPath+"]")
+
+	first, err := afero.ReadFile(base, firstPath)
+	require.NoError(t, err)
+	second, err := afero.ReadFile(base, secondPath)
+	require.NoError(t, err)
+	require.Equal(t, "first-new\n", string(first))
+	require.Equal(t, "second-old\n", string(second))
+
+	entries, err := afero.ReadDir(base, tmpdir)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		require.NotContains(t, entry.Name(), ".tmp.", "uncommitted staged files must be cleaned after commit failure")
+	}
 }
 
 // TestEditFiles_ReplaceAll_FuzzyIndentGap locks the CURRENT output

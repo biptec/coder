@@ -14,14 +14,15 @@ import (
 )
 
 type WorkspaceBashArgs struct {
-	Workspace     string               `json:"workspace"`
-	Command       string               `json:"command"`
-	WorkDir       string               `json:"workdir,omitempty"`
-	Env           map[string]string    `json:"env,omitempty"`
-	Interactive   bool                 `json:"interactive,omitempty"`
-	Stdin         string               `json:"stdin,omitempty"`
-	SSH           *WorkspaceSSHOptions `json:"ssh,omitempty"`
-	WaitTimeoutMs *int                 `json:"wait_timeout_ms,omitempty"`
+	Workspace      string               `json:"workspace"`
+	Command        string               `json:"command"`
+	WorkDir        string               `json:"workdir,omitempty"`
+	Env            map[string]string    `json:"env,omitempty"`
+	Interactive    bool                 `json:"interactive,omitempty"`
+	Stdin          string               `json:"stdin,omitempty"`
+	SSH            *WorkspaceSSHOptions `json:"ssh,omitempty"`
+	WaitTimeoutMs  *int                 `json:"wait_timeout_ms,omitempty"`
+	AllowDuplicate bool                 `json:"allow_duplicate,omitempty"`
 }
 
 var WorkspaceBash = Tool[WorkspaceBashArgs, WorkspaceProcessResult]{
@@ -53,7 +54,8 @@ Set ssh to execute on a remote host through the workspace OpenSSH client.`,
 				"stdin": map[string]any{
 					"type": "string", "description": "Optional initial stdin. Non-interactive mode sends EOF after this content; interactive mode keeps stdin open.",
 				},
-				"ssh": workspaceSSHSchema(),
+				"ssh":             workspaceSSHSchema(),
+				"allow_duplicate": map[string]any{"type": "boolean", "description": "Start a second identical concurrently running shell process. Defaults to false; normally an identical running process is reused instead."},
 				"wait_timeout_ms": map[string]any{
 					"type": "integer", "description": "Optional initial output observation interval in milliseconds. Omit or use 0 for an immediate snapshot. This never limits process lifetime.",
 					"minimum": 0,
@@ -80,6 +82,7 @@ Set ssh to execute on a remote host through the workspace OpenSSH client.`,
 			return WorkspaceProcessResult{}, err
 		}
 		defer conn.Close()
+		applyInvocationScopeHeader(ctx, conn)
 
 		request := workspacesdk.StartProcessRequest{
 			Command:     args.Command,
@@ -92,16 +95,23 @@ Set ssh to execute on a remote host through the workspace OpenSSH client.`,
 		if err := applyWorkspaceSSHOptions(&request, args.SSH); err != nil {
 			return WorkspaceProcessResult{}, err
 		}
+		fingerprint, err := processLaunchFingerprint(request)
+		if err != nil {
+			return WorkspaceProcessResult{}, xerrors.Errorf("fingerprint workspace shell launch: %w", err)
+		}
+		request.Fingerprint = fingerprint
+		request.AllowDuplicate = args.AllowDuplicate
+		advisories := commandAdvisories(args.Command)
 		started, err := startWorkspaceProcessWithinObservation(ctx, conn, request, budget)
 		if err != nil {
 			return WorkspaceProcessResult{}, xerrors.Errorf("start workspace shell command: %w", err)
 		}
-		advisories := commandAdvisories(args.Command)
 		resp, observeErr := observeInitialWorkspaceProcess(ctx, conn, started.ID, wait, budget)
 		if observeErr != nil {
-			return WorkspaceProcessResult{ProcessID: started.ID, Running: true, Advisories: advisories}, nil
+			return WorkspaceProcessResult{ProcessID: started.ID, Running: true, Advisories: advisories, DuplicateReused: !started.Started}, nil
 		}
 		result := workspaceProcessResult(started.ID, resp, advisories)
+		result.DuplicateReused = !started.Started
 		next := resp.NextCursor
 		result.NextCursor = &next
 		return result, nil

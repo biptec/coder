@@ -2,7 +2,9 @@ package toolsdk
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -19,6 +21,16 @@ import (
 )
 
 const processSnapshotTimeout = 5 * time.Second
+
+func applyInvocationScopeHeader(ctx context.Context, conn workspacesdk.AgentConn) {
+	scope := InvocationScopeFromContext(ctx)
+	if scope == "" {
+		return
+	}
+	headers := make(http.Header, 1)
+	headers.Set(workspacesdk.CoderInvocationScopeHeader, scope)
+	conn.SetExtraHeaders(headers)
+}
 
 type mcpObservationBudget struct {
 	deadline time.Time
@@ -47,15 +59,40 @@ func (b mcpObservationBudget) remaining() time.Duration {
 	return remaining
 }
 
+func processLaunchFingerprint(req workspacesdk.StartProcessRequest) (string, error) {
+	payload := struct {
+		Command      string            `json:"command,omitempty"`
+		Argv         []string          `json:"argv,omitempty"`
+		WorkDir      string            `json:"workdir,omitempty"`
+		Env          map[string]string `json:"env,omitempty"`
+		Interactive  bool              `json:"interactive,omitempty"`
+		Stdin        string            `json:"stdin,omitempty"`
+		Host         string            `json:"host,omitempty"`
+		IdentityFile string            `json:"identity_file,omitempty"`
+		Port         int               `json:"port,omitempty"`
+	}{
+		Command: req.Command, Argv: req.Argv, WorkDir: req.WorkDir, Env: req.Env,
+		Interactive: req.Interactive, Stdin: req.Stdin, Host: req.Host,
+		IdentityFile: req.IdentityFile, Port: req.Port,
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(raw)
+	return fmt.Sprintf("%x", digest[:]), nil
+}
+
 type WorkspaceProcessStartV2Args struct {
-	Workspace     string               `json:"workspace"`
-	Argv          []string             `json:"argv"`
-	WorkDir       string               `json:"workdir,omitempty"`
-	Env           map[string]string    `json:"env,omitempty"`
-	Interactive   bool                 `json:"interactive,omitempty"`
-	Stdin         string               `json:"stdin,omitempty"`
-	SSH           *WorkspaceSSHOptions `json:"ssh,omitempty"`
-	WaitTimeoutMs *int                 `json:"wait_timeout_ms,omitempty"`
+	Workspace      string               `json:"workspace"`
+	Argv           []string             `json:"argv"`
+	WorkDir        string               `json:"workdir,omitempty"`
+	Env            map[string]string    `json:"env,omitempty"`
+	Interactive    bool                 `json:"interactive,omitempty"`
+	Stdin          string               `json:"stdin,omitempty"`
+	SSH            *WorkspaceSSHOptions `json:"ssh,omitempty"`
+	WaitTimeoutMs  *int                 `json:"wait_timeout_ms,omitempty"`
+	AllowDuplicate bool                 `json:"allow_duplicate,omitempty"`
 }
 
 var WorkspaceProcessStartV2 = Tool[WorkspaceProcessStartV2Args, WorkspaceProcessResult]{
@@ -96,7 +133,8 @@ Set ssh to execute on a remote host through the workspace OpenSSH client.`,
 				"stdin": map[string]any{
 					"type": "string", "description": "Optional initial stdin. Non-interactive mode sends EOF after this content; interactive mode keeps stdin open.",
 				},
-				"ssh": workspaceSSHSchema(),
+				"ssh":             workspaceSSHSchema(),
+				"allow_duplicate": map[string]any{"type": "boolean", "description": "Start a second identical concurrently running process. Defaults to false; normally an identical running process is reused instead."},
 				"wait_timeout_ms": map[string]any{
 					"type": "integer", "description": "Optional initial output observation interval in milliseconds. Omit or use 0 for an immediate snapshot. This never limits the process lifetime.",
 					"minimum": 0,
@@ -123,6 +161,7 @@ Set ssh to execute on a remote host through the workspace OpenSSH client.`,
 			return WorkspaceProcessResult{}, err
 		}
 		defer conn.Close()
+		applyInvocationScopeHeader(ctx, conn)
 		request := workspacesdk.StartProcessRequest{
 			Argv: args.Argv, WorkDir: args.WorkDir, Env: args.Env,
 			Tool: InvocationToolFromContext(ctx), Interactive: args.Interactive, Stdin: args.Stdin,
@@ -130,16 +169,23 @@ Set ssh to execute on a remote host through the workspace OpenSSH client.`,
 		if err := applyWorkspaceSSHOptions(&request, args.SSH); err != nil {
 			return WorkspaceProcessResult{}, err
 		}
+		fingerprint, err := processLaunchFingerprint(request)
+		if err != nil {
+			return WorkspaceProcessResult{}, xerrors.Errorf("fingerprint workspace process launch: %w", err)
+		}
+		request.Fingerprint = fingerprint
+		request.AllowDuplicate = args.AllowDuplicate
+		advisories := argvAdvisories(args.Argv)
 		started, err := startWorkspaceProcessWithinObservation(ctx, conn, request, budget)
 		if err != nil {
 			return WorkspaceProcessResult{}, xerrors.Errorf("start workspace process: %w", err)
 		}
-		advisories := argvAdvisories(args.Argv)
 		resp, observeErr := observeInitialWorkspaceProcess(ctx, conn, started.ID, wait, budget)
 		if observeErr != nil {
-			return WorkspaceProcessResult{ProcessID: started.ID, Running: true, Advisories: advisories}, nil
+			return WorkspaceProcessResult{ProcessID: started.ID, Running: true, Advisories: advisories, DuplicateReused: !started.Started}, nil
 		}
 		result := workspaceProcessResult(started.ID, resp, advisories)
+		result.DuplicateReused = !started.Started
 		next := resp.NextCursor
 		result.NextCursor = &next
 		return result, nil
@@ -148,15 +194,16 @@ Set ssh to execute on a remote host through the workspace OpenSSH client.`,
 
 // WorkspaceProcessResult is the state returned for a tracked workspace process.
 type WorkspaceProcessResult struct {
-	Output     string                          `json:"output"`
-	ExitCode   *int                            `json:"exit_code,omitempty"`
-	ProcessID  string                          `json:"process_id"`
-	Running    bool                            `json:"running"`
-	Truncated  *workspacesdk.ProcessTruncation `json:"truncated,omitempty"`
-	NextCursor *int64                          `json:"next_cursor,omitempty"`
-	GapBytes   int64                           `json:"gap_bytes,omitempty"`
-	HasMore    bool                            `json:"has_more,omitempty"`
-	Advisories []ToolAdvisory                  `json:"advisories,omitempty"`
+	Output          string                          `json:"output"`
+	DuplicateReused bool                            `json:"duplicate_reused,omitempty"`
+	ExitCode        *int                            `json:"exit_code,omitempty"`
+	ProcessID       string                          `json:"process_id"`
+	Running         bool                            `json:"running"`
+	Truncated       *workspacesdk.ProcessTruncation `json:"truncated,omitempty"`
+	NextCursor      *int64                          `json:"next_cursor,omitempty"`
+	GapBytes        int64                           `json:"gap_bytes,omitempty"`
+	HasMore         bool                            `json:"has_more,omitempty"`
+	Advisories      []ToolAdvisory                  `json:"advisories,omitempty"`
 }
 
 type WorkspaceProcessOutputArgs struct {
@@ -199,11 +246,11 @@ After any timeout, 502, reconnect, or uncertain result, use coder_workspace_proc
 				},
 				"limit": map[string]any{
 					"type":        "integer",
-					"description": "Optional maximum incremental bytes to return. If omitted, return all currently retained output from the cursor.",
-					"minimum":     1,
+					"description": "Required output-byte limit. Use 0 to return all currently retained output from the cursor, or a positive value to bound the response.",
+					"minimum":     0,
 				},
 			},
-			Required: []string{"workspace", "process_id"},
+			Required: []string{"workspace", "process_id", "limit"},
 		},
 	},
 	MCPAnnotations: mcpReadOnlyAnnotations,
@@ -308,11 +355,11 @@ Use this after a timeout, 502, reconnect, or any uncertain command result before
 				},
 				"limit": map[string]any{
 					"type":        "integer",
-					"description": "Optional maximum sessions to return. If omitted, return all tracked sessions.",
-					"minimum":     1,
+					"description": "Required session limit. Use 0 to return all tracked sessions, or a positive value to bound the result.",
+					"minimum":     0,
 				},
 			},
-			Required: []string{"workspace"},
+			Required: []string{"workspace", "limit"},
 		},
 	},
 	MCPAnnotations: mcpReadOnlyAnnotations,
@@ -413,7 +460,7 @@ var WorkspaceProcessInput = Tool[WorkspaceProcessInputArgs, WorkspaceProcessInpu
 		Name: ToolNameWorkspaceProcessInput,
 		Description: `Write to stdin of a durable process started with interactive=true and return an output snapshot.
 
-Use close=true to send EOF after optional data. Before writing, the server checkpoints the current output cursor so the response contains only output observed after this interaction. Omit wait_timeout_ms or use 0 for an immediate post-write snapshot; use a positive value to observe for new output. limit is optional and, when omitted, returns all newly retained output.
+Use close=true to send EOF after optional data. Before writing, the server checkpoints the current output cursor so the response contains only output observed after this interaction. Omit wait_timeout_ms or use 0 for an immediate post-write snapshot; use a positive value to observe for new output. limit is required: use 0 for all newly retained output, or a positive value to bound the response.
 
 Input delivery and output observation are deliberately reported separately. If
 stdin was accepted but the follow-up output read fails, success remains true and
@@ -448,11 +495,11 @@ preserves chat/process isolation.`,
 				},
 				"limit": map[string]any{
 					"type":        "integer",
-					"description": "Optional maximum incremental output bytes to return. If omitted, return all newly retained output.",
-					"minimum":     1,
+					"description": "Required incremental output-byte limit. Use 0 for all newly retained output, or a positive value to bound the response.",
+					"minimum":     0,
 				},
 			},
-			Required: []string{"workspace", "process_id"},
+			Required: []string{"workspace", "process_id", "limit"},
 		},
 	},
 	MCPAnnotations: mcpExecutionAnnotations,

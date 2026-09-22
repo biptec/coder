@@ -55,15 +55,15 @@ token returned by a previous limited call and continues toward older processes.`
 				},
 				"limit": map[string]any{
 					"type":        "integer",
-					"description": "Optional maximum number of matching processes to return. If omitted, return all matching processes.",
-					"minimum":     1,
+					"description": "Required process limit. Use 0 to return all matching processes, or a positive value to bound the result.",
+					"minimum":     0,
 				},
 				"filter": map[string]any{
 					"type":        "string",
 					"description": "Optional case-insensitive substring matched against process username and command.",
 				},
 			},
-			Required: []string{"workspace"},
+			Required: []string{"workspace", "limit"},
 		},
 	},
 	MCPAnnotations: mcpReadOnlyAnnotations,
