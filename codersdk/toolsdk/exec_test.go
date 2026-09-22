@@ -14,7 +14,7 @@ func TestWorkspaceExecObservationContract(t *testing.T) {
 
 	require.NotContains(t, toolsdk.WorkspaceExec.Schema.Properties, "timeout_ms")
 	require.Contains(t, toolsdk.WorkspaceExec.Description, "no process execution timeout")
-	require.Contains(t, toolsdk.WorkspaceExec.Description, "single shared 60-second observation budget")
+	require.Contains(t, toolsdk.WorkspaceExec.Description, "deployment-wide MCP tool timeout")
 	require.Contains(t, toolsdk.WorkspaceExec.Description, "process_id")
 	require.Contains(t, toolsdk.WorkspaceExec.Description, "running=true")
 	require.Contains(t, toolsdk.WorkspaceExec.Description, "continues independently")

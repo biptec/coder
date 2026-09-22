@@ -651,6 +651,82 @@ func TestDeploymentValues_MCPTrace(t *testing.T) {
 	})
 }
 
+func TestDeploymentValues_MCPResultBytesMax(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Default", func(t *testing.T) {
+		t.Parallel()
+		dv := &codersdk.DeploymentValues{}
+		opts := dv.Options()
+		require.NoError(t, opts.SetDefaults())
+		require.Equal(t, int64(1<<20), dv.MCPResultBytesMax.Value())
+	})
+
+	t.Run("Environment", func(t *testing.T) {
+		t.Parallel()
+		dv := &codersdk.DeploymentValues{}
+		opts := dv.Options()
+		require.NoError(t, opts.SetDefaults())
+		require.NoError(t, opts.ParseEnv([]serpent.EnvVar{{
+			Name:  "CODER_MCP_RESULT_BYTES_MAX",
+			Value: "2097152",
+		}}))
+		require.Equal(t, int64(2<<20), dv.MCPResultBytesMax.Value())
+	})
+
+	t.Run("RejectNonPositive", func(t *testing.T) {
+		t.Parallel()
+		for _, value := range []string{"0", "-1"} {
+			dv := &codersdk.DeploymentValues{}
+			opts := dv.Options()
+			require.NoError(t, opts.SetDefaults())
+			err := opts.ParseEnv([]serpent.EnvVar{{
+				Name:  "CODER_MCP_RESULT_BYTES_MAX",
+				Value: value,
+			}})
+			require.ErrorContains(t, err, "MCP result bytes max must be greater than zero")
+		}
+	})
+}
+
+func TestDeploymentValues_MCPToolTimeoutMax(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Default", func(t *testing.T) {
+		t.Parallel()
+		dv := &codersdk.DeploymentValues{}
+		opts := dv.Options()
+		require.NoError(t, opts.SetDefaults())
+		require.Equal(t, 280*time.Second, dv.MCPToolTimeoutMax.Value())
+	})
+
+	t.Run("Environment", func(t *testing.T) {
+		t.Parallel()
+		dv := &codersdk.DeploymentValues{}
+		opts := dv.Options()
+		require.NoError(t, opts.SetDefaults())
+		require.NoError(t, opts.ParseEnv([]serpent.EnvVar{{
+			Name:  "CODER_MCP_TOOL_TIMEOUT_MAX",
+			Value: "90s",
+		}}))
+		require.Equal(t, 90*time.Second, dv.MCPToolTimeoutMax.Value())
+	})
+
+	t.Run("RejectNonPositive", func(t *testing.T) {
+		t.Parallel()
+		for _, value := range []string{"0s", "-1s"} {
+			dv := &codersdk.DeploymentValues{}
+			opts := dv.Options()
+			require.NoError(t, opts.SetDefaults())
+			err := opts.ParseEnv([]serpent.EnvVar{{
+				Name:  "CODER_MCP_TOOL_TIMEOUT_MAX",
+				Value: value,
+			}})
+			require.ErrorContains(t, err, "MCP tool timeout max must be greater than zero")
+		}
+	})
+}
+
 func TestDeploymentValues_ServerTailnetAgentIdleTimeout(t *testing.T) {
 	t.Parallel()
 

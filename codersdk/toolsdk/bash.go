@@ -14,109 +14,107 @@ import (
 )
 
 type WorkspaceBashArgs struct {
-	Workspace string `json:"workspace"`
-	Command   string `json:"command"`
+	Workspace      string               `json:"workspace"`
+	Command        string               `json:"command"`
+	WorkDir        string               `json:"workdir,omitempty"`
+	Env            map[string]string    `json:"env,omitempty"`
+	Interactive    bool                 `json:"interactive,omitempty"`
+	Stdin          string               `json:"stdin,omitempty"`
+	SSH            *WorkspaceSSHOptions `json:"ssh,omitempty"`
+	WaitTimeoutMs  *int                 `json:"wait_timeout_ms,omitempty"`
+	AllowDuplicate bool                 `json:"allow_duplicate,omitempty"`
 }
 
-type WorkspaceBashResult struct {
-	Output     string                          `json:"output"`
-	ExitCode   int                             `json:"exit_code"`
-	ProcessID  string                          `json:"process_id,omitempty"`
-	Running    bool                            `json:"running,omitempty"`
-	Truncated  *workspacesdk.ProcessTruncation `json:"truncated,omitempty"`
-	Advisories []ToolAdvisory                  `json:"advisories,omitempty"`
-}
-
-var WorkspaceBash = Tool[WorkspaceBashArgs, WorkspaceBashResult]{
+var WorkspaceBash = Tool[WorkspaceBashArgs, WorkspaceProcessResult]{
 	Tool: aisdk.Tool{
 		Name: ToolNameWorkspaceBash,
-		Description: `Execute a bash command in a Coder workspace.
+		Description: `Execute an intentional POSIX shell command with sh -c as a durable tracked process.
 
-Use this convenience tool for short shell commands. Bash has no process execution timeout. One MCP call uses a single shared 60-second observation budget across workspace readiness, process-start acknowledgement, and process observation. If the process finishes within the remaining budget, the tool returns its final output and exit code. If it is still running when the budget is exhausted, the tool returns process_id, running=true, and the latest available output while the same durable process continues independently on the workspace Agent. While running=true, exit_code is only a legacy placeholder and MUST be ignored; it is not the process exit status, timeout, or failure. exit_code is meaningful only when running=false. Continue observing it with coder_workspace_process_output; do not start the command again. If process-start acknowledgement is lost, use coder_workspace_process_list before retrying because the process may already exist.
+Use this tool only when shell syntax such as pipes, redirects, &&, loops,
+substitutions, or expansion is intentional. For direct executable argv without
+shell parsing, use start_process.
 
-For commands that are expected to be long-running, expensive, side-effectful, or non-idempotent, prefer coder_workspace_process_start so process_id is returned without waiting for process completion. If shell syntax is not required, prefer coder_workspace_exec.
+After start acknowledgement this call observes initial output only when a positive
+wait_timeout_ms is requested. Omit it or use 0 for an immediate snapshot.
+Observation time never limits process lifetime. The response always includes
+process_id and current process state.
 
-In the standard Developer Workspace, only /home/coder is persistent across workspace recreation. The system filesystem outside /home/coder is ephemeral. Prefer durable tools and dependencies under $HOME. sudo is available for temporary system changes and diagnostics, but changes made with sudo outside /home/coder can disappear when the workspace is recreated. When a command invokes sudo, this tool returns a structured advisory separately from command output; stdout/stderr are not modified.
-
-This tool provides the same functionality as the 'coder ssh <workspace> <command>' CLI command.
-It automatically starts the workspace if it's stopped and waits for the agent to be ready.
-The output is trimmed of leading and trailing whitespace.
-
-The workspace parameter supports various formats:
-- workspace (uses current user)
-- owner/workspace
-- owner--workspace
-- workspace.agent (specific agent)
-- owner/workspace.agent
-
-For file operations (list, write, edit), always prefer the dedicated file tools.
-Do not use bash commands (ls, cat, echo, heredoc, etc.) to list, write, or read
-files when the file tools are available. The bash tool should be used for:
-
-	- Running commands and scripts
-	- Installing packages
-	- Starting services
-	- Executing programs
-
-Examples:
-- workspace: "john/dev-env", command: "git status"
-- workspace: "my-workspace", command: "npm test"
-- workspace: "my-workspace.main", command: "docker ps"`,
+Set interactive=true only when later interact_with_process calls are required.
+Set ssh to execute on a remote host through the workspace OpenSSH client.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
-				"workspace": map[string]any{
-					"type":        "string",
-					"description": "The workspace name in format [owner/]workspace[.agent]. If owner is not specified, the authenticated user is used.",
+				"workspace": map[string]any{"type": "string", "description": "The workspace name in format [owner/]workspace[.agent]."},
+				"command":   map[string]any{"type": "string", "description": "Shell command executed with explicit sh -c semantics."},
+				"workdir":   map[string]any{"type": "string", "description": "Optional working directory."},
+				"env": map[string]any{
+					"type": "object", "description": "Optional environment variable overrides.",
+					"additionalProperties": map[string]any{"type": "string"},
 				},
-				"command": map[string]any{
-					"type":        "string",
-					"description": "The bash command to execute in the workspace.",
+				"interactive": map[string]any{"type": "boolean", "description": "Keep stdin open for later interact_with_process calls. Defaults to false."},
+				"stdin": map[string]any{
+					"type": "string", "description": "Optional initial stdin. Non-interactive mode sends EOF after this content; interactive mode keeps stdin open.",
+				},
+				"ssh":             workspaceSSHSchema(),
+				"allow_duplicate": map[string]any{"type": "boolean", "description": "Start a second identical concurrently running shell process. Defaults to false; normally an identical running process is reused instead."},
+				"wait_timeout_ms": map[string]any{
+					"type": "integer", "description": "Optional initial output observation interval in milliseconds. Omit or use 0 for an immediate snapshot. This never limits process lifetime.",
+					"minimum": 0,
 				},
 			},
 			Required: []string{"workspace", "command"},
 		},
 	},
-	MCPAnnotations: mcpDestructiveAnnotations,
-	Handler: func(ctx context.Context, deps Deps, args WorkspaceBashArgs) (res WorkspaceBashResult, err error) {
+	MCPAnnotations: mcpExecutionAnnotations,
+	Handler: func(ctx context.Context, deps Deps, args WorkspaceBashArgs) (WorkspaceProcessResult, error) {
 		if args.Workspace == "" {
-			return WorkspaceBashResult{}, xerrors.New("workspace name cannot be empty")
+			return WorkspaceProcessResult{}, xerrors.New("workspace name cannot be empty")
 		}
 		if args.Command == "" {
-			return WorkspaceBashResult{}, xerrors.New("command cannot be empty")
+			return WorkspaceProcessResult{}, xerrors.New("command cannot be empty")
 		}
-
-		budget := newMCPObservationBudget()
+		wait, err := workspaceInitialProcessWaitDuration(args.WaitTimeoutMs, deps.MCPToolTimeoutMax())
+		if err != nil {
+			return WorkspaceProcessResult{}, err
+		}
+		budget := newMCPObservationBudget(deps)
 		conn, err := openAgentConnWithBudget(ctx, deps, args.Workspace, budget)
 		if err != nil {
-			return WorkspaceBashResult{}, err
+			return WorkspaceProcessResult{}, err
 		}
 		defer conn.Close()
+		applyInvocationScopeHeader(ctx, conn)
 
-		started, err := startWorkspaceProcessWithinObservation(ctx, conn, workspacesdk.StartProcessRequest{
-			Command: args.Command,
-			Tool:    InvocationToolFromContext(ctx),
-		}, budget)
+		request := workspacesdk.StartProcessRequest{
+			Command:     args.Command,
+			WorkDir:     args.WorkDir,
+			Env:         args.Env,
+			Tool:        InvocationToolFromContext(ctx),
+			Interactive: args.Interactive,
+			Stdin:       args.Stdin,
+		}
+		if err := applyWorkspaceSSHOptions(&request, args.SSH); err != nil {
+			return WorkspaceProcessResult{}, err
+		}
+		fingerprint, err := processLaunchFingerprint(request)
 		if err != nil {
-			return WorkspaceBashResult{}, xerrors.Errorf("start workspace bash: %w", err)
+			return WorkspaceProcessResult{}, xerrors.Errorf("fingerprint workspace shell launch: %w", err)
 		}
-
-		resp, err := observeWorkspaceProcess(ctx, conn, started.ID, budget)
+		request.Fingerprint = fingerprint
+		request.AllowDuplicate = args.AllowDuplicate
+		advisories := commandAdvisories(args.Command)
+		started, err := startWorkspaceProcessWithinObservation(ctx, conn, request, budget)
 		if err != nil {
-			return WorkspaceBashResult{}, err
+			return WorkspaceProcessResult{}, xerrors.Errorf("start workspace shell command: %w", err)
 		}
-
-		result := workspaceProcessResult(started.ID, resp, commandAdvisories(args.Command))
-		bashResult := WorkspaceBashResult{
-			Output:     result.Output,
-			ExitCode:   result.ExitCode,
-			Running:    result.Running,
-			Truncated:  result.Truncated,
-			Advisories: result.Advisories,
+		resp, observeErr := observeInitialWorkspaceProcess(ctx, conn, started.ID, wait, budget)
+		if observeErr != nil {
+			return WorkspaceProcessResult{ProcessID: started.ID, Running: true, Advisories: advisories, DuplicateReused: !started.Started}, nil
 		}
-		if result.Running {
-			bashResult.ProcessID = result.ProcessID
-		}
-		return bashResult, nil
+		result := workspaceProcessResult(started.ID, resp, advisories)
+		result.DuplicateReused = !started.Started
+		next := resp.NextCursor
+		result.NextCursor = &next
+		return result, nil
 	},
 }
 

@@ -79,31 +79,32 @@ func TestPhase2DirectArgvExecution(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-func TestPhase2InputSizeLimit(t *testing.T) {
+func TestPhase2InputHasNoHiddenSizeLimit(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX executable paths")
 	}
 	t.Parallel()
 
 	handler := newTestAPI(t)
-	tooLarge := strings.Repeat("x", workspacesdk.MaxProcessInputBytes+1)
-	w := postStart(t, handler, workspacesdk.StartProcessRequest{
-		Argv:  []string{"/bin/cat"},
-		Stdin: tooLarge,
+	payload := strings.Repeat("x", (1<<20)+1)
+
+	initialID := startAndGetID(t, handler, workspacesdk.StartProcessRequest{
+		Argv:  []string{"/bin/sh", "-c", "cat >/dev/null"},
+		Stdin: payload,
 	})
-	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.Contains(t, w.Body.String(), "stdin cannot exceed")
+	initial := waitForExit(t, handler, initialID)
+	require.NotNil(t, initial.ExitCode)
+	require.Zero(t, *initial.ExitCode)
 
 	id := startAndGetID(t, handler, workspacesdk.StartProcessRequest{
-		Argv:        []string{"/bin/cat"},
+		Argv:        []string{"/bin/sh", "-c", "cat >/dev/null"},
 		Interactive: true,
 	})
-	w = postInput(t, handler, id, workspacesdk.ProcessInputRequest{Data: tooLarge})
-	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.Contains(t, w.Body.String(), "data cannot exceed")
-	w = postInput(t, handler, id, workspacesdk.ProcessInputRequest{Close: true})
+	w := postInput(t, handler, id, workspacesdk.ProcessInputRequest{Data: payload, Close: true})
 	require.Equal(t, http.StatusOK, w.Code)
-	_ = waitForExit(t, handler, id)
+	result := waitForExit(t, handler, id)
+	require.NotNil(t, result.ExitCode)
+	require.Zero(t, *result.ExitCode)
 }
 
 func TestPhase2InteractiveInput(t *testing.T) {

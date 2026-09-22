@@ -15,6 +15,7 @@ import (
 
 	"github.com/aymanbagabas/go-udiff"
 	"github.com/google/uuid"
+	"github.com/spf13/afero"
 	"golang.org/x/xerrors"
 
 	"cdr.dev/slog/v3"
@@ -93,6 +94,24 @@ func (api *API) streamFile(ctx context.Context, rw http.ResponseWriter, path str
 		return http.StatusBadRequest, xerrors.Errorf("file path must be absolute: %q", path)
 	}
 
+	stat, err := api.filesystem.Stat(path)
+	if err != nil {
+		status := http.StatusInternalServerError
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			status = http.StatusNotFound
+		case errors.Is(err, os.ErrPermission):
+			status = http.StatusForbidden
+		}
+		return status, err
+	}
+	if stat.IsDir() {
+		return http.StatusBadRequest, xerrors.Errorf("open %s: not a file", path)
+	}
+	if !stat.Mode().IsRegular() {
+		return http.StatusBadRequest, xerrors.Errorf("path is not a regular file: %s (%s)", path, stat.Mode().Type())
+	}
+
 	f, err := api.filesystem.Open(path)
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -105,15 +124,6 @@ func (api *API) streamFile(ctx context.Context, rw http.ResponseWriter, path str
 		return status, err
 	}
 	defer f.Close()
-
-	stat, err := f.Stat()
-	if err != nil {
-		return http.StatusInternalServerError, err
-	}
-
-	if stat.IsDir() {
-		return http.StatusBadRequest, xerrors.Errorf("open %s: not a file", path)
-	}
 
 	size := stat.Size()
 	if limit == 0 {
@@ -300,12 +310,33 @@ func (api *API) readFileLines(_ context.Context, path string, offset, limit int6
 	}
 }
 
+type writeFileOptions struct {
+	strict         bool
+	overwrite      bool
+	expectedExists bool
+}
+
 func (api *API) HandleWriteFile(rw http.ResponseWriter, r *http.Request) {
+	api.serveWriteFile(rw, r, writeFileOptions{})
+}
+
+// HandleWriteFileStrict is the mutation-safe write endpoint used by the public
+// assistant write_file tool. The legacy endpoint keeps its historical
+// mkdir/symlink-following behavior for compatibility.
+func (api *API) HandleWriteFileStrict(rw http.ResponseWriter, r *http.Request) {
+	api.serveWriteFile(rw, r, writeFileOptions{strict: true})
+}
+
+func (api *API) serveWriteFile(rw http.ResponseWriter, r *http.Request, opts writeFileOptions) {
 	ctx := r.Context()
 
 	query := r.URL.Query()
 	parser := httpapi.NewQueryParamParser().RequiredNotEmpty("path")
 	path := parser.String(query, "", "path")
+	if opts.strict {
+		opts.overwrite = parser.Boolean(query, false, "overwrite")
+		opts.expectedExists = parser.Boolean(query, false, "expected_exists")
+	}
 	parser.ErrorExcessParams(query)
 	if len(parser.Errors) > 0 {
 		httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
@@ -315,7 +346,7 @@ func (api *API) HandleWriteFile(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	status, err := api.writeFile(ctx, r, path)
+	status, err := api.writeFile(ctx, r, path, opts)
 	if err != nil {
 		httpapi.Write(ctx, rw, status, codersdk.Response{
 			Message: err.Error(),
@@ -335,9 +366,12 @@ func (api *API) HandleWriteFile(rw http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (api *API) writeFile(ctx context.Context, r *http.Request, path string) (HTTPResponseCode, error) {
+func (api *API) writeFile(ctx context.Context, r *http.Request, path string, opts writeFileOptions) (HTTPResponseCode, error) {
 	if !filepath.IsAbs(path) {
 		return http.StatusBadRequest, xerrors.Errorf("file path must be absolute: %q", path)
+	}
+	if opts.strict {
+		return api.writeFileStrict(ctx, path, r.Body, opts)
 	}
 
 	resolved, err := api.resolvePath(path)
@@ -371,6 +405,119 @@ func (api *API) writeFile(ctx context.Context, r *http.Request, path string) (HT
 	}
 
 	return api.atomicWrite(ctx, path, mode, r.Body)
+}
+
+func (api *API) lstat(path string) (os.FileInfo, error) {
+	lstater, ok := api.filesystem.(afero.Lstater)
+	if !ok {
+		return nil, xerrors.New("filesystem does not support lstat required for mutation-safe write")
+	}
+	info, usedLstat, err := lstater.LstatIfPossible(path)
+	if !usedLstat {
+		if _, symlinkCapable := api.filesystem.(afero.Linker); symlinkCapable {
+			return nil, xerrors.New("filesystem did not perform lstat required for mutation-safe write")
+		}
+	}
+	return info, err
+}
+
+func (api *API) strictWriteTargetMode(info os.FileInfo, path string, opts writeFileOptions) (*os.FileMode, int, error) {
+	if info.Mode()&os.ModeSymlink != 0 {
+		if resolved, err := api.resolvePath(path); err == nil && resolved != path {
+			return nil, http.StatusBadRequest, xerrors.Errorf("write target %q is a symbolic link to %q; retry explicitly with the resolved target if replacement is intentional", path, resolved)
+		}
+		return nil, http.StatusBadRequest, xerrors.Errorf("write target %q is a symbolic link; retry explicitly with its resolved target if replacement is intentional", path)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, http.StatusBadRequest, xerrors.Errorf("write target is not a regular file: %s (%s)", path, info.Mode().Type())
+	}
+	if !opts.overwrite {
+		return nil, http.StatusConflict, xerrors.Errorf("file already exists: %s; use edit_file for targeted changes or retry write_file with overwrite=true when complete replacement is intentional", path)
+	}
+	mode := info.Mode()
+	return &mode, 0, nil
+}
+
+func (api *API) writeFileStrict(ctx context.Context, path string, r io.Reader, opts writeFileOptions) (HTTPResponseCode, error) {
+	parent := filepath.Dir(path)
+	parentInfo, err := api.filesystem.Stat(parent)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return http.StatusNotFound, xerrors.Errorf("parent directory does not exist: %s; create it explicitly with create_directory", parent)
+		}
+		return filesystemStatus(err), xerrors.Errorf("inspect parent directory %q: %w", parent, err)
+	}
+	if !parentInfo.IsDir() {
+		return http.StatusBadRequest, xerrors.Errorf("parent path is not a directory: %s", parent)
+	}
+
+	var mode *os.FileMode
+	initialExists := false
+	info, err := api.lstat(path)
+	switch {
+	case err == nil:
+		initialExists = true
+		var (
+			status    int
+			targetErr error
+		)
+		mode, status, targetErr = api.strictWriteTargetMode(info, path, opts)
+		if targetErr != nil {
+			return status, targetErr
+		}
+		if !opts.expectedExists {
+			return http.StatusConflict, xerrors.Errorf("write target changed since preflight: %s now exists; inspect the path and retry", path)
+		}
+	case errors.Is(err, os.ErrNotExist):
+		if opts.expectedExists {
+			return http.StatusConflict, xerrors.Errorf("write target changed since preflight: %s no longer exists; inspect the path and retry", path)
+		}
+		mode = nil
+	default:
+		return filesystemStatus(err), xerrors.Errorf("inspect write target %q: %w", path, err)
+	}
+
+	status, tmpName, err := api.stageWrite(ctx, path, mode, r)
+	if err != nil {
+		return status, err
+	}
+	cleanup := func() { _ = api.filesystem.Remove(tmpName) }
+
+	// Re-check the final component immediately before commit. This closes the
+	// preflight race for overwrite=false and rejects a symlink/special file that
+	// appeared while content was being staged. Rename itself never follows a
+	// symlink, so a still-later race cannot mutate the symlink target.
+	finalInfo, finalErr := api.lstat(path)
+	switch {
+	case finalErr == nil:
+		_, finalStatus, targetErr := api.strictWriteTargetMode(finalInfo, path, opts)
+		if targetErr != nil {
+			cleanup()
+			return finalStatus, targetErr
+		}
+		if !initialExists {
+			cleanup()
+			return http.StatusConflict, xerrors.Errorf("write target changed while content was staged: %s appeared; inspect the path and retry", path)
+		}
+	case errors.Is(finalErr, os.ErrNotExist):
+		if initialExists {
+			cleanup()
+			return http.StatusConflict, xerrors.Errorf("write target changed while content was staged: %s disappeared; inspect the path and retry", path)
+		}
+	default:
+		cleanup()
+		return filesystemStatus(finalErr), xerrors.Errorf("recheck write target %q before commit: %w", path, finalErr)
+	}
+
+	if err := api.filesystem.Rename(tmpName, path); err != nil {
+		cleanup()
+		status := http.StatusInternalServerError
+		if errors.Is(err, os.ErrPermission) {
+			status = http.StatusForbidden
+		}
+		return status, xerrors.Errorf("write %s: %w", path, err)
+	}
+	return 0, nil
 }
 
 func (api *API) HandleEditFiles(rw http.ResponseWriter, r *http.Request) {
@@ -430,8 +577,12 @@ func (api *API) HandleEditFiles(rw http.ResponseWriter, r *http.Request) {
 	var pending []pendingEdit
 	var combinedErr error
 	status := http.StatusOK
+	matchMode := fileEditAllowFuzzy
+	if req.ExactOnly {
+		matchMode = fileEditExactOnly
+	}
 	for _, edit := range req.Files {
-		s, p, err := api.prepareFileEdit(edit.Path, edit.Edits)
+		s, p, err := api.prepareFileEdit(edit.Path, edit.Edits, matchMode)
 		if s > status {
 			status = s
 		}
@@ -450,22 +601,53 @@ func (api *API) HandleEditFiles(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Phase 2: write all files via atomicWrite. A failure here
-	// (e.g. disk full) can leave earlier files committed. True
-	// cross-file atomicity would require filesystem transactions.
-	for _, p := range pending {
-		mode := p.mode
-		s, err := api.atomicWrite(ctx, p.path, &mode, strings.NewReader(p.content))
-		if err != nil {
-			httpapi.Write(ctx, rw, s, codersdk.Response{
-				Message: err.Error(),
-			})
-			return
+	// Phase 2: stage every write completely before changing any target. This
+	// catches the common partial-apply failures (disk full, write/close errors,
+	// permission failures) before the first commit rename. Cross-file atomicity
+	// is still not claimed: a rare rename failure during commit can leave earlier
+	// targets committed, so that state is reported explicitly.
+	if !req.DryRun {
+		type stagedEdit struct {
+			pending pendingEdit
+			temp    string
+		}
+		staged := make([]stagedEdit, 0, len(pending))
+		cleanupStaged := func(from int) {
+			for i := from; i < len(staged); i++ {
+				_ = api.filesystem.Remove(staged[i].temp)
+			}
+		}
+
+		for _, p := range pending {
+			mode := p.mode
+			s, temp, err := api.stageWrite(ctx, p.path, &mode, strings.NewReader(p.content))
+			if err != nil {
+				cleanupStaged(0)
+				httpapi.Write(ctx, rw, s, codersdk.Response{Message: err.Error()})
+				return
+			}
+			staged = append(staged, stagedEdit{pending: p, temp: temp})
+		}
+
+		for i, item := range staged {
+			if err := api.filesystem.Rename(item.temp, item.pending.path); err != nil {
+				cleanupStaged(i)
+				applied := make([]string, 0, i)
+				for _, done := range staged[:i] {
+					applied = append(applied, done.pending.origPath)
+				}
+				notApplied := make([]string, 0, len(staged)-i)
+				for _, rest := range staged[i:] {
+					notApplied = append(notApplied, rest.pending.origPath)
+				}
+				httpapi.Write(ctx, rw, filesystemStatus(err), codersdk.Response{Message: fmt.Sprintf("partial edit commit: failed=%s: %v; applied=%v; not_applied=%v", item.pending.origPath, err, applied, notApplied)})
+				return
+			}
 		}
 	}
 
-	// Track edited paths for git watch.
-	if api.pathStore != nil {
+	// Track only files that were actually edited, never dry-run previews.
+	if !req.DryRun && api.pathStore != nil {
 		if chatContext, ok := agentchat.FromContext(ctx); ok {
 			filePaths := make([]string, 0, len(req.Files))
 			for _, f := range req.Files {
@@ -501,9 +683,16 @@ func (api *API) HandleEditFiles(rw http.ResponseWriter, r *http.Request) {
 	httpapi.Write(ctx, rw, http.StatusOK, resp)
 }
 
+type fileEditMatchMode int
+
+const (
+	fileEditAllowFuzzy fileEditMatchMode = iota
+	fileEditExactOnly
+)
+
 // prepareFileEdit validates, reads, and computes edits for a single
 // file without writing anything to disk.
-func (api *API) prepareFileEdit(path string, edits []workspacesdk.FileEdit) (int, *pendingEdit, error) {
+func (api *API) prepareFileEdit(path string, edits []workspacesdk.FileEdit, matchMode fileEditMatchMode) (int, *pendingEdit, error) {
 	if path == "" {
 		return http.StatusBadRequest, nil, xerrors.New("\"path\" is required")
 	}
@@ -516,11 +705,23 @@ func (api *API) prepareFileEdit(path string, edits []workspacesdk.FileEdit) (int
 		return http.StatusBadRequest, nil, xerrors.New("must specify at least one edit")
 	}
 
+	origPath := path
+	callerInfo, callerInfoErr := api.fileInfo(path)
+	if callerInfoErr == nil && callerInfo.IsSymlink {
+		resolved, resolveErr := api.resolvePath(path)
+		if resolveErr == nil && resolved != path {
+			return http.StatusBadRequest, nil, xerrors.Errorf("edit target %q is a symbolic link to %q; retry explicitly with the resolved target if this mutation is intentional", path, resolved)
+		}
+		return http.StatusBadRequest, nil, xerrors.Errorf("edit target %q is a symbolic link; retry explicitly with its resolved target if this mutation is intentional", path)
+	}
+	if callerInfoErr != nil && !errors.Is(callerInfoErr, os.ErrNotExist) {
+		return filesystemStatus(callerInfoErr), nil, callerInfoErr
+	}
+
 	resolved, err := api.resolvePath(path)
 	if err != nil {
-		return http.StatusInternalServerError, nil, xerrors.Errorf("resolve symlink %q: %w", path, err)
+		return http.StatusInternalServerError, nil, xerrors.Errorf("resolve path %q: %w", path, err)
 	}
-	origPath := path
 	path = resolved
 
 	f, err := api.filesystem.Open(path)
@@ -540,9 +741,11 @@ func (api *API) prepareFileEdit(path string, edits []workspacesdk.FileEdit) (int
 	if err != nil {
 		return http.StatusInternalServerError, nil, err
 	}
-
 	if stat.IsDir() {
 		return http.StatusBadRequest, nil, xerrors.Errorf("open %s: not a file", path)
+	}
+	if !stat.Mode().IsRegular() {
+		return http.StatusBadRequest, nil, xerrors.Errorf("edit target is not a regular file: %s (%s)", path, stat.Mode().Type())
 	}
 
 	data, err := io.ReadAll(f)
@@ -557,14 +760,65 @@ func (api *API) prepareFileEdit(path string, edits []workspacesdk.FileEdit) (int
 		if edit.ExpectedReplacements != nil && *edit.ExpectedReplacements < 1 {
 			return http.StatusBadRequest, nil, xerrors.Errorf("edit %s: expected_replacements must be at least 1", path)
 		}
+
 		diagnostic := diagnoseFileEdit(content, edit)
-		if edit.ExpectedReplacements != nil {
-			if diagnostic.ReplacementCount != *edit.ExpectedReplacements {
+		if matchMode == fileEditExactOnly {
+			if edit.Search == "" {
 				return http.StatusBadRequest, nil, xerrors.Errorf(
-					"edit %s: search matched %d occurrences using %s matching; expected %d",
-					path, diagnostic.ReplacementCount, diagnostic.MatchMode, *edit.ExpectedReplacements,
+					"edit %s: search string must not be empty; include the exact text you want to match",
+					path,
 				)
 			}
+			exactCount := strings.Count(content, edit.Search)
+			if edit.ExpectedReplacements != nil && exactCount != *edit.ExpectedReplacements {
+				return http.StatusBadRequest, nil, xerrors.Errorf(
+					"edit %s: search matched %d occurrences using exact matching; expected %d",
+					path, exactCount, *edit.ExpectedReplacements,
+				)
+			}
+			if exactCount == 0 {
+				if diagnostic.MatchMode != "none" {
+					candidate := exactEditCandidate(content, edit.Search, diagnostic.MatchMode)
+					if candidate != "" {
+						return http.StatusBadRequest, nil, xerrors.Errorf(
+							"edit %s: exact match not found. Closest candidate using %s matching:\n\n%s\n\nUse the exact candidate text above and retry",
+							path, diagnostic.MatchMode, candidate,
+						)
+					}
+					return http.StatusBadRequest, nil, xerrors.Errorf(
+						"edit %s: search string not found in file using exact matching; found %d candidate occurrence(s) using %s matching. Read the file and retry with the exact text",
+						path, diagnostic.ReplacementCount, diagnostic.MatchMode,
+					)
+				}
+				return http.StatusBadRequest, nil, xerrors.Errorf(
+					"edit %s: search string not found in file using exact matching. Read the file and retry with the exact text",
+					path,
+				)
+			}
+			if !edit.ReplaceAll && exactCount != 1 {
+				return http.StatusBadRequest, nil, xerrors.Errorf(
+					"edit %s: search string matches %d occurrences using exact matching; include more surrounding context or set replace_all=true",
+					path, exactCount,
+				)
+			}
+			if edit.ReplaceAll {
+				content = strings.ReplaceAll(content, edit.Search, edit.Replace)
+			} else {
+				content = strings.Replace(content, edit.Search, edit.Replace, 1)
+			}
+			diagnostics = append(diagnostics, workspacesdk.FileEditDiagnostic{
+				MatchMode:            "exact",
+				ReplacementCount:     exactCount,
+				ExpectedReplacements: edit.ExpectedReplacements,
+			})
+			continue
+		}
+
+		if edit.ExpectedReplacements != nil && diagnostic.ReplacementCount != *edit.ExpectedReplacements {
+			return http.StatusBadRequest, nil, xerrors.Errorf(
+				"edit %s: search matched %d occurrences using %s matching; expected %d",
+				path, diagnostic.ReplacementCount, diagnostic.MatchMode, *edit.ExpectedReplacements,
+			)
 		}
 		var err error
 		content, err = fuzzyReplace(content, edit)
@@ -584,65 +838,59 @@ func (api *API) prepareFileEdit(path string, edits []workspacesdk.FileEdit) (int
 	}, nil
 }
 
-// atomicWrite writes content from r to path via a temp file in the
-// same directory. If the target exists, its permissions are preserved.
-// On failure the temp file is cleaned up and the original is
-// untouched.
-func (api *API) atomicWrite(ctx context.Context, path string, mode *os.FileMode, r io.Reader) (int, error) {
+// stageWrite writes and closes a same-directory temporary file without
+// changing the target. Callers may stage multiple writes before committing any
+// rename, which prevents ordinary write failures from causing a partial batch.
+func (api *API) stageWrite(ctx context.Context, path string, mode *os.FileMode, r io.Reader) (int, string, error) {
 	logger := api.logger.With(agentchat.Fields(ctx)...)
-
 	dir := filepath.Dir(path)
 	tmpName := filepath.Join(dir, fmt.Sprintf(".%s.tmp.%s", filepath.Base(path), uuid.New().String()[:8]))
-
 	tmpfile, err := api.filesystem.OpenFile(tmpName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, os.ErrPermission) {
 			status = http.StatusForbidden
 		}
-		return status, err
+		return status, "", err
 	}
-
 	cleanup := func() {
 		if err := api.filesystem.Remove(tmpName); err != nil {
 			logger.Warn(ctx, "unable to clean up temp file", slog.Error(err))
 		}
 	}
-
-	_, err = io.Copy(tmpfile, r)
-	if err != nil {
+	if _, err = io.Copy(tmpfile, r); err != nil {
 		_ = tmpfile.Close()
 		cleanup()
-		return http.StatusInternalServerError, xerrors.Errorf("write %s: %w", path, err)
+		return http.StatusInternalServerError, "", xerrors.Errorf("write %s: %w", path, err)
 	}
-
-	// Close before rename to flush buffered data and catch write
-	// errors (e.g. delayed allocation failures).
 	if err := tmpfile.Close(); err != nil {
 		cleanup()
-		return http.StatusInternalServerError, xerrors.Errorf("write %s: %w", path, err)
+		return http.StatusInternalServerError, "", xerrors.Errorf("write %s: %w", path, err)
 	}
-
-	// Set permissions on the temp file before rename so there is
-	// no window where the target has wrong permissions.
 	if mode != nil {
 		if err := api.filesystem.Chmod(tmpName, *mode); err != nil {
-			logger.Warn(ctx, "unable to set file permissions",
-				slog.F("path", path),
-				slog.Error(err),
-			)
+			cleanup()
+			return http.StatusInternalServerError, "", xerrors.Errorf("set permissions for %s: %w", path, err)
 		}
 	}
+	return 0, tmpName, nil
+}
 
+// atomicWrite stages content and commits it with one same-directory rename.
+// On failure the temporary file is cleaned up and the original is untouched.
+func (api *API) atomicWrite(ctx context.Context, path string, mode *os.FileMode, r io.Reader) (int, error) {
+	status, tmpName, err := api.stageWrite(ctx, path, mode, r)
+	if err != nil {
+		return status, err
+	}
 	if err := api.filesystem.Rename(tmpName, path); err != nil {
-		cleanup()
+		_ = api.filesystem.Remove(tmpName)
 		status := http.StatusInternalServerError
 		if errors.Is(err, os.ErrPermission) {
 			status = http.StatusForbidden
 		}
 		return status, xerrors.Errorf("write %s: %w", path, err)
 	}
-
 	return 0, nil
 }
 
@@ -1533,6 +1781,43 @@ outer:
 
 // countLineMatches counts how many non-overlapping contiguous
 // subsequences of contentLines match searchLines according to eq.
+func exactEditCandidate(content, search, matchMode string) string {
+	contentLines := strings.SplitAfter(content, "\n")
+	searchLines := strings.SplitAfter(search, "\n")
+	if len(searchLines) > 0 && searchLines[len(searchLines)-1] == "" {
+		searchLines = searchLines[:len(searchLines)-1]
+	}
+	if len(searchLines) == 0 {
+		return ""
+	}
+
+	var eq func(a, b string) bool
+	switch matchMode {
+	case "trim_trailing_whitespace":
+		eq = func(a, b string) bool {
+			aContent, aEnding := splitEnding(a)
+			bContent, bEnding := splitEnding(b)
+			return endingsMatch(aEnding, bEnding) &&
+				strings.TrimRight(aContent, " \t") == strings.TrimRight(bContent, " \t")
+		}
+	case "indentation_tolerant":
+		eq = func(a, b string) bool {
+			aContent, aEnding := splitEnding(a)
+			bContent, bEnding := splitEnding(b)
+			return endingsMatch(aEnding, bEnding) &&
+				strings.TrimSpace(aContent) == strings.TrimSpace(bContent)
+		}
+	default:
+		return ""
+	}
+
+	start, end, ok := seekLines(contentLines, searchLines, eq)
+	if !ok || start < 0 || end > len(contentLines) || start >= end {
+		return ""
+	}
+	return strings.Join(contentLines[start:end], "")
+}
+
 func countLineMatches(contentLines, searchLines []string, eq func(a, b string) bool) int {
 	count := 0
 	if len(searchLines) == 0 || len(searchLines) > len(contentLines) {

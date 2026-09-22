@@ -547,6 +547,16 @@ mcpTraceEnabled: false
 # deletion.
 # (default: 24, type: int)
 mcpTraceRetentionHours: 24
+# Maximum encoded size of one assistant-facing MCP tool result. This is a
+# transport/resource safety ceiling, not a public result limit: oversized results
+# fail explicitly and are never silently truncated.
+# (default: 1048576, type: int)
+mcpResultBytesMax: 1048576
+# Maximum wall-clock duration of a single MCP tool call, including workspace
+# readiness, agent connection, execution or observation, recovery, and response
+# preparation. Durable processes continue independently after this limit.
+# (default: 4m40s, type: duration)
+mcpToolTimeoutMax: 4m40s
 # How long coderd keeps an unused workspace-agent destination subscribed in its
 # server tailnet before removing the tunnel. Active connections are never expired.
 # This applies to the shared coderd server tailnet, including MCP workspace

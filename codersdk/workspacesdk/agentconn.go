@@ -87,6 +87,10 @@ const (
 	// CoderAncestorChatIDsHeader is the HTTP header containing a
 	// JSON array of ancestor chat UUIDs.
 	CoderAncestorChatIDsHeader = "Coder-Ancestor-Chat-Ids"
+	// CoderInvocationScopeHeader carries an internal, non-user-visible identity
+	// used only to deduplicate assistant process launches. Unlike CoderChatIDHeader,
+	// this value is not a chat UUID and must not affect chat isolation/history.
+	CoderInvocationScopeHeader = "Coder-Invocation-Scope"
 )
 
 // AgentConn represents a connection to a workspace agent.
@@ -107,6 +111,7 @@ type AgentConn interface {
 	GetPeerDiagnostics() tailnet.PeerDiagnostics
 	ListContainers(ctx context.Context) (codersdk.WorkspaceAgentListContainersResponse, error)
 	ListProcesses(ctx context.Context) (ListProcessesResponse, error)
+	ListSystemProcesses(ctx context.Context) (ListSystemProcessesResponse, error)
 	ListeningPorts(ctx context.Context) (codersdk.WorkspaceAgentListeningPortsResponse, error)
 	Netcheck(ctx context.Context) (healthsdk.AgentNetcheckReport, error)
 	Ping(ctx context.Context) (time.Duration, bool, *ipnstate.PingResult, error)
@@ -131,6 +136,7 @@ type AgentConn interface {
 	ReadFile(ctx context.Context, path string, offset, limit int64) (io.ReadCloser, string, error)
 	ReadFileLines(ctx context.Context, path string, offset, limit int64, limits ReadFileLinesLimits) (ReadFileLinesResponse, error)
 	WriteFile(ctx context.Context, path string, reader io.Reader) error
+	WriteFileStrict(ctx context.Context, path string, reader io.Reader, overwrite, expectedExists bool) error
 	EditFiles(ctx context.Context, edits FileEditRequest) (FileEditResponse, error)
 	SSH(ctx context.Context) (*gonet.TCPConn, error)
 	SSHClient(ctx context.Context) (*ssh.Client, error)
@@ -866,8 +872,8 @@ func (c *agentConn) RecreateDevcontainer(ctx context.Context, devcontainerID str
 	return m, nil
 }
 
-// MaxProcessInputBytes is the maximum initial or incremental stdin payload
-// accepted by the workspace process API in a single request.
+// MaxProcessInputBytes is the legacy coder_workspace_exec client-side stdin cap.
+// The assistant-facing durable process API does not impose this arbitrary limit.
 const MaxProcessInputBytes = 1 << 20
 
 // MCPToolEnvironmentVariable carries MCP tool attribution across SSH session
@@ -893,6 +899,19 @@ type StartProcessRequest struct {
 	// Stdin is delivered once at process start. For non-interactive processes it
 	// is followed by EOF. For interactive processes the stdin pipe remains open.
 	Stdin string `json:"stdin,omitempty"`
+	// Host enables execution through the workspace's OpenSSH client. It accepts
+	// an explicit host or user@host target and is never interpreted as shell text.
+	Host string `json:"host,omitempty"`
+	// IdentityFile is an optional absolute path inside the workspace to an SSH
+	// private key. It is input-only and is never returned in process metadata.
+	IdentityFile string `json:"identity_file,omitempty"`
+	// Port overrides the SSH destination port. Zero uses OpenSSH configuration/defaults.
+	Port int `json:"port,omitempty"`
+	// Fingerprint is an opaque digest used by assistant-facing launch tools to
+	// detect an identical already-running launch intent inside the Agent. It is
+	// input-only and never returned in process metadata.
+	Fingerprint    string `json:"fingerprint,omitempty"`
+	AllowDuplicate bool   `json:"allow_duplicate,omitempty"`
 }
 
 // StartProcessResponse is returned when a process is started.
@@ -907,12 +926,34 @@ type ListProcessesResponse struct {
 	Processes []ProcessInfo `json:"processes"`
 }
 
+// ListSystemProcessesResponse contains a point-in-time snapshot of operating
+// system processes visible to the workspace agent.
+type ListSystemProcessesResponse struct {
+	Processes []SystemProcessInfo `json:"processes"`
+}
+
+// SystemProcessInfo describes an operating system process. Unlike ProcessInfo,
+// these entries are not necessarily processes started or tracked by Coder.
+type SystemProcessInfo struct {
+	PID            int32    `json:"pid"`
+	PPID           int32    `json:"ppid"`
+	Username       string   `json:"username,omitempty"`
+	CPUPercent     float64  `json:"cpu_percent"`
+	MemoryPercent  float32  `json:"memory_percent"`
+	StartedAtUnix  int64    `json:"started_at_unix,omitempty"`
+	ElapsedSeconds int64    `json:"elapsed_seconds,omitempty"`
+	Command        string   `json:"command,omitempty"`
+	Argv           []string `json:"argv,omitempty"`
+}
+
 // ProcessInfo describes a tracked process on the agent.
 type ProcessInfo struct {
 	ID          string   `json:"id"`
 	Command     string   `json:"command,omitempty"`
 	Argv        []string `json:"argv,omitempty"`
 	WorkDir     string   `json:"workdir,omitempty"`
+	Host        string   `json:"host,omitempty"`
+	Port        int      `json:"port,omitempty"`
 	Tool        string   `json:"tool,omitempty"`
 	Background  bool     `json:"background"`
 	Interactive bool     `json:"interactive,omitempty"`
@@ -1003,13 +1044,15 @@ type ListDirectoryRequest struct {
 	Path          string `json:"path"`
 	Depth         int    `json:"depth,omitempty"`
 	IncludeHidden bool   `json:"include_hidden,omitempty"`
-	Cursor        int    `json:"cursor,omitempty"`
+	Cursor        int    `json:"cursor,omitempty"`     // legacy numeric continuation
+	AfterPath     string `json:"after_path,omitempty"` // stable lexical continuation
 	Limit         int    `json:"limit,omitempty"`
 }
 
 type ListDirectoryResponse struct {
 	Entries    []WorkspaceFileInfo `json:"entries"`
-	NextCursor *int                `json:"next_cursor,omitempty"`
+	NextCursor *int                `json:"next_cursor,omitempty"` // legacy numeric continuation
+	HasMore    bool                `json:"has_more"`
 }
 
 // WorkspaceFileInfo describes a filesystem path without reading file content.
@@ -1319,10 +1362,41 @@ func (c *agentConn) ReadFile(ctx context.Context, path string, offset, limit int
 
 // WriteFile writes to a file in the workspace.
 func (c *agentConn) WriteFile(ctx context.Context, path string, reader io.Reader) error {
+	return c.writeFileRequest(ctx, "/api/v0/write-file", path, reader)
+}
+
+// WriteFileStrict writes through the Agent's mutation-safe endpoint used by
+// assistant-facing write_file. Unlike the legacy endpoint it never creates a
+// missing parent directory and rejects a final-component symlink.
+func (c *agentConn) WriteFileStrict(ctx context.Context, path string, reader io.Reader, overwrite, expectedExists bool) error {
 	ctx, span := tracing.StartSpan(ctx)
 	defer span.End()
 
-	res, err := c.apiRequest(ctx, http.MethodPost, agentAPIPath("/api/v0/write-file", neturl.Values{
+	res, err := c.apiRequest(ctx, http.MethodPost, agentAPIPath("/api/v0/write-file-strict", neturl.Values{
+		"path":            []string{path},
+		"overwrite":       []string{strconv.FormatBool(overwrite)},
+		"expected_exists": []string{strconv.FormatBool(expectedExists)},
+	}), reader)
+	if err != nil {
+		return xerrors.Errorf("do request: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return codersdk.ReadBodyAsError(res)
+	}
+
+	var m codersdk.Response
+	if err := json.NewDecoder(res.Body).Decode(&m); err != nil {
+		return xerrors.Errorf("decode response body: %w", err)
+	}
+	return nil
+}
+
+func (c *agentConn) writeFileRequest(ctx context.Context, route, path string, reader io.Reader) error {
+	ctx, span := tracing.StartSpan(ctx)
+	defer span.End()
+
+	res, err := c.apiRequest(ctx, http.MethodPost, agentAPIPath(route, neturl.Values{
 		"path": []string{path},
 	}), reader)
 	if err != nil {
@@ -1403,6 +1477,13 @@ type FileEditRequest struct {
 	// and return it in FileEditResponse.Files[i].Diff. When false
 	// (default) the agent skips diff computation and Files is nil.
 	IncludeDiff bool `json:"include_diff,omitempty"`
+	// DryRun validates and computes the edit result without writing files or
+	// recording edited paths. It shares the apply preparation path.
+	DryRun bool `json:"dry_run,omitempty"`
+	// ExactOnly disables the Agent's legacy whitespace-tolerant fuzzy apply.
+	// Assistant-facing edit tools set this so tolerant matching is diagnostic
+	// only and never changes a file unless the requested search matches exactly.
+	ExactOnly bool `json:"exact_only,omitempty"`
 }
 
 // FileEditResponse is the success response for the edit-files endpoint.
@@ -1509,6 +1590,23 @@ func (c *agentConn) ListProcesses(ctx context.Context) (ListProcessesResponse, e
 		return ListProcessesResponse{}, codersdk.ReadBodyAsError(res)
 	}
 	var resp ListProcessesResponse
+	return resp, json.NewDecoder(res.Body).Decode(&resp)
+}
+
+// ListSystemProcesses returns a point-in-time snapshot of operating system
+// processes visible to the workspace agent.
+func (c *agentConn) ListSystemProcesses(ctx context.Context) (ListSystemProcessesResponse, error) {
+	ctx, span := tracing.StartSpan(ctx)
+	defer span.End()
+	res, err := c.apiRequest(ctx, http.MethodGet, "/api/v0/processes/system", nil)
+	if err != nil {
+		return ListSystemProcessesResponse{}, xerrors.Errorf("do request: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return ListSystemProcessesResponse{}, codersdk.ReadBodyAsError(res)
+	}
+	var resp ListSystemProcessesResponse
 	return resp, json.NewDecoder(res.Body).Decode(&resp)
 }
 

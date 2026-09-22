@@ -616,6 +616,8 @@ const (
 	DefaultWorkspaceActivityNowThreshold        = 5 * time.Minute
 	DefaultWorkspaceCommandActivityHistoryLimit = int64(0)
 	DefaultMCPTraceRetentionHours               = int64(24)
+	DefaultMCPResultBytesMax                    = int64(1 << 20)
+	DefaultMCPToolTimeoutMax                    = 280 * time.Second
 	DefaultServerTailnetAgentIdleTimeout        = 30 * time.Minute
 )
 
@@ -657,6 +659,8 @@ type DeploymentValues struct {
 	WorkspaceCommandActivityHistoryLimit    serpent.Int64                        `json:"workspace_command_activity_history_limit,omitempty" typescript:",notnull"`
 	MCPTraceEnabled                         serpent.Bool                         `json:"mcp_trace_enabled,omitempty" typescript:",notnull"`
 	MCPTraceRetentionHours                  serpent.Int64                        `json:"mcp_trace_retention_hours,omitempty" typescript:",notnull"`
+	MCPResultBytesMax                       serpent.Int64                        `json:"mcp_result_bytes_max,omitempty" typescript:",notnull"`
+	MCPToolTimeoutMax                       serpent.Duration                     `json:"mcp_tool_timeout_max,omitempty" typescript:",notnull"`
 	ServerTailnetAgentIdleTimeout           serpent.Duration                     `json:"server_tailnet_agent_idle_timeout,omitempty" typescript:",notnull"`
 	WorkspaceVolumeCopyEnabled              serpent.Bool                         `json:"workspace_volume_copy_enabled,omitempty" typescript:",notnull"`
 	WorkspaceVolumeCopyNamespace            serpent.String                       `json:"workspace_volume_copy_namespace,omitempty" typescript:",notnull"`
@@ -3657,6 +3661,37 @@ communicating directly.`,
 				}
 				return nil
 			}),
+		},
+		{
+			Name:        "MCP Result Bytes Max",
+			Description: "Maximum encoded size of one assistant-facing MCP tool result. This is a transport/resource safety ceiling, not a public result limit: oversized results fail explicitly and are never silently truncated.",
+			Flag:        "mcp-result-bytes-max",
+			Env:         "CODER_MCP_RESULT_BYTES_MAX",
+			YAML:        "mcpResultBytesMax",
+			Hidden:      true,
+			Default:     fmt.Sprintf("%d", DefaultMCPResultBytesMax),
+			Value: serpent.Validate(&c.MCPResultBytesMax, func(value *serpent.Int64) error {
+				if value.Value() <= 0 {
+					return xerrors.New("MCP result bytes max must be greater than zero")
+				}
+				return nil
+			}),
+		},
+		{
+			Name:        "MCP Tool Timeout Max",
+			Description: "Maximum wall-clock duration of a single MCP tool call, including workspace readiness, agent connection, execution or observation, recovery, and response preparation. Durable processes continue independently after this limit.",
+			Flag:        "mcp-tool-timeout-max",
+			Env:         "CODER_MCP_TOOL_TIMEOUT_MAX",
+			YAML:        "mcpToolTimeoutMax",
+			Hidden:      true,
+			Default:     DefaultMCPToolTimeoutMax.String(),
+			Value: serpent.Validate(&c.MCPToolTimeoutMax, func(value *serpent.Duration) error {
+				if value.Value() <= 0 {
+					return xerrors.New("MCP tool timeout max must be greater than zero")
+				}
+				return nil
+			}),
+			Annotations: serpent.Annotations{}.Mark(annotationFormatDuration, "true"),
 		},
 		{
 			Name:        "Server Tailnet Agent Idle Timeout",

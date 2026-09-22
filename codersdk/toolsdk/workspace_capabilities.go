@@ -8,10 +8,11 @@ import (
 	"io/fs"
 	"net/http"
 
+	"golang.org/x/xerrors"
+
 	"github.com/coder/aisdk-go"
 	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/codersdk/workspacesdk"
-	"golang.org/x/xerrors"
 )
 
 const (
@@ -63,7 +64,7 @@ Call this before installing software when beginning substantial work in a worksp
 func readWorkspaceCapabilities(ctx context.Context, conn workspacesdk.AgentConn) (WorkspaceCapabilitiesResult, error) {
 	info, err := conn.FileInfo(ctx, workspaceCapabilitiesPath)
 	if err != nil {
-		if isWorkspaceCapabilitiesNotFound(err) {
+		if isWorkspaceFileNotFound(err) {
 			return WorkspaceCapabilitiesResult{
 				Available: false,
 				Message:   "This workspace image does not publish a capabilities manifest.",
@@ -77,7 +78,7 @@ func readWorkspaceCapabilities(ctx context.Context, conn workspacesdk.AgentConn)
 
 	reader, _, err := conn.ReadFile(ctx, workspaceCapabilitiesPath, 0, maxWorkspaceCapabilitiesBytes)
 	if err != nil {
-		if isWorkspaceCapabilitiesNotFound(err) {
+		if isWorkspaceFileNotFound(err) {
 			return WorkspaceCapabilitiesResult{
 				Available: false,
 				Message:   "This workspace image does not publish a capabilities manifest.",
@@ -96,7 +97,7 @@ func readWorkspaceCapabilities(ctx context.Context, conn workspacesdk.AgentConn)
 	return WorkspaceCapabilitiesResult{Available: true, Manifest: json.RawMessage(payload)}, nil
 }
 
-func isWorkspaceCapabilitiesNotFound(err error) bool {
+func isWorkspaceFileNotFound(err error) bool {
 	if errors.Is(err, fs.ErrNotExist) {
 		return true
 	}

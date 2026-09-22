@@ -370,6 +370,21 @@ func (mr *MockAgentConnMockRecorder) ListSearches(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSearches", reflect.TypeOf((*MockAgentConn)(nil).ListSearches), ctx)
 }
 
+// ListSystemProcesses mocks base method.
+func (m *MockAgentConn) ListSystemProcesses(ctx context.Context) (workspacesdk.ListSystemProcessesResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSystemProcesses", ctx)
+	ret0, _ := ret[0].(workspacesdk.ListSystemProcessesResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSystemProcesses indicates an expected call of ListSystemProcesses.
+func (mr *MockAgentConnMockRecorder) ListSystemProcesses(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSystemProcesses", reflect.TypeOf((*MockAgentConn)(nil).ListSystemProcesses), ctx)
+}
+
 // ListeningPorts mocks base method.
 func (m *MockAgentConn) ListeningPorts(ctx context.Context) (codersdk.WorkspaceAgentListeningPortsResponse, error) {
 	m.ctrl.T.Helper()
@@ -802,4 +817,18 @@ func (m *MockAgentConn) WriteFile(ctx context.Context, path string, reader io.Re
 func (mr *MockAgentConnMockRecorder) WriteFile(ctx, path, reader any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteFile", reflect.TypeOf((*MockAgentConn)(nil).WriteFile), ctx, path, reader)
+}
+
+// WriteFileStrict mocks base method.
+func (m *MockAgentConn) WriteFileStrict(ctx context.Context, path string, reader io.Reader, overwrite, expectedExists bool) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WriteFileStrict", ctx, path, reader, overwrite, expectedExists)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// WriteFileStrict indicates an expected call of WriteFileStrict.
+func (mr *MockAgentConnMockRecorder) WriteFileStrict(ctx, path, reader, overwrite, expectedExists any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteFileStrict", reflect.TypeOf((*MockAgentConn)(nil).WriteFileStrict), ctx, path, reader, overwrite, expectedExists)
 }

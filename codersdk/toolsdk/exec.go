@@ -10,11 +10,12 @@ import (
 )
 
 type WorkspaceExecArgs struct {
-	Workspace string            `json:"workspace"`
-	Argv      []string          `json:"argv"`
-	WorkDir   string            `json:"workdir,omitempty"`
-	Env       map[string]string `json:"env,omitempty"`
-	Stdin     string            `json:"stdin,omitempty"`
+	Workspace string               `json:"workspace"`
+	Argv      []string             `json:"argv"`
+	WorkDir   string               `json:"workdir,omitempty"`
+	Env       map[string]string    `json:"env,omitempty"`
+	Stdin     string               `json:"stdin,omitempty"`
+	SSH       *WorkspaceSSHOptions `json:"ssh,omitempty"`
 }
 
 type WorkspaceExecResult struct {
@@ -32,10 +33,12 @@ var WorkspaceExec = Tool[WorkspaceExecArgs, WorkspaceExecResult]{
 		Description: `Execute a program directly in a Coder workspace without shell parsing.
 
 argv[0] is the executable and every later element is passed as exactly one argument.
-Use this tool instead of bash whenever shell syntax (pipes, redirects, &&, loops, expansions)
+Use this tool instead of a shell command whenever shell syntax (pipes, redirects, &&, loops, expansions)
 is not intentionally required. This avoids JSON -> shell -> quoting ambiguity.
 
-Exec has no process execution timeout. One MCP call uses a single shared 60-second observation budget across workspace readiness, process-start acknowledgement, and process observation. If the process finishes within the remaining budget, the tool returns its final output and exit code. If it is still running when the budget is exhausted, the tool returns process_id, running=true, and the latest available output while the same durable process continues independently on the workspace Agent. While running=true, exit_code is only a legacy placeholder and MUST be ignored; it is not the process exit status, timeout, or failure. exit_code is meaningful only when running=false. Continue observing it with coder_workspace_process_output; do not start the command again. If process-start acknowledgement is lost, use coder_workspace_process_list before retrying because the process may already exist.
+Set ssh to execute the same structured argv remotely through the workspace's OpenSSH client. The SSH destination and key path are passed as argv/options rather than interpolated into shell syntax.
+
+Exec has no process execution timeout. One MCP call is bounded by the deployment-wide MCP tool timeout across workspace readiness, process-start acknowledgement, and process observation. If the process finishes within the remaining budget, the tool returns its final output and exit code. If it is still running when the budget is exhausted, the tool returns process_id, running=true, and the latest available output while the same durable process continues independently on the workspace Agent. While running=true, exit_code is only a legacy placeholder and MUST be ignored; it is not the process exit status, timeout, or failure. exit_code is meaningful only when running=false. Continue observing it with coder_workspace_process_output; do not start the command again. If process-start acknowledgement is lost, use coder_workspace_process_list before retrying because the process may already exist.
 
 For commands that are expected to be long-running, expensive, side-effectful, or non-idempotent, prefer coder_workspace_process_start_v2 with argv so process_id is returned without waiting for process completion.`,
 		Schema: aisdk.Schema{
@@ -64,11 +67,12 @@ For commands that are expected to be long-running, expensive, side-effectful, or
 					"description": "Optional stdin delivered once, followed by EOF. Maximum 1 MiB.",
 					"maxLength":   workspacesdk.MaxProcessInputBytes,
 				},
+				"ssh": workspaceSSHSchema(),
 			},
 			Required: []string{"workspace", "argv"},
 		},
 	},
-	MCPAnnotations: mcpDestructiveAnnotations,
+	MCPAnnotations: mcpExecutionAnnotations,
 	Handler: func(ctx context.Context, deps Deps, args WorkspaceExecArgs) (WorkspaceExecResult, error) {
 		if args.Workspace == "" {
 			return WorkspaceExecResult{}, xerrors.New("workspace name cannot be empty")
@@ -79,20 +83,24 @@ For commands that are expected to be long-running, expensive, side-effectful, or
 		if len(args.Stdin) > workspacesdk.MaxProcessInputBytes {
 			return WorkspaceExecResult{}, xerrors.Errorf("stdin cannot exceed %d bytes", workspacesdk.MaxProcessInputBytes)
 		}
-		budget := newMCPObservationBudget()
+		budget := newMCPObservationBudget(deps)
 		conn, err := openAgentConnWithBudget(ctx, deps, args.Workspace, budget)
 		if err != nil {
 			return WorkspaceExecResult{}, err
 		}
 		defer conn.Close()
 
-		started, err := startWorkspaceProcessWithinObservation(ctx, conn, workspacesdk.StartProcessRequest{
+		request := workspacesdk.StartProcessRequest{
 			Argv:    args.Argv,
 			WorkDir: args.WorkDir,
 			Env:     args.Env,
 			Tool:    InvocationToolFromContext(ctx),
 			Stdin:   args.Stdin,
-		}, budget)
+		}
+		if err := applyWorkspaceSSHOptions(&request, args.SSH); err != nil {
+			return WorkspaceExecResult{}, err
+		}
+		started, err := startWorkspaceProcessWithinObservation(ctx, conn, request, budget)
 		if err != nil {
 			return WorkspaceExecResult{}, xerrors.Errorf("start workspace exec: %w", err)
 		}
@@ -104,9 +112,15 @@ For commands that are expected to be long-running, expensive, side-effectful, or
 			return WorkspaceExecResult{}, waitErr
 		}
 		result := workspaceProcessResult(started.ID, resp, argvAdvisories(args.Argv))
+		// Preserve the legacy/full-catalog exec response shape. The assistant-facing
+		// catalog no longer exposes exec and therefore never sees this placeholder.
+		legacyExitCode := 124
+		if result.ExitCode != nil {
+			legacyExitCode = *result.ExitCode
+		}
 		return WorkspaceExecResult{
 			Output:     result.Output,
-			ExitCode:   result.ExitCode,
+			ExitCode:   legacyExitCode,
 			ProcessID:  result.ProcessID,
 			Running:    result.Running,
 			Truncated:  result.Truncated,
