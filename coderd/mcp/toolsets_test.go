@@ -234,35 +234,128 @@ func TestDeveloperToolAnnotations(t *testing.T) {
 	}
 }
 
-func TestDeveloperToolDescriptionsReferenceOnlyPublicNames(t *testing.T) {
+func TestDeveloperToolPublicMetadataConsistency(t *testing.T) {
 	t.Parallel()
 
 	toolsByName := assistantToolsBySDKName()
 	replacements := make([]string, 0, len(developerToolAliases)*2)
+	publicNames := map[string]struct{}{"list_recent_tool_calls": {}}
 	for _, alias := range developerToolAliases {
 		replacements = append(replacements, alias.SDKName, alias.MCPName)
+		publicNames[alias.MCPName] = struct{}{}
 	}
 	replacer := strings.NewReplacer(replacements...)
 
-	internalNames := make([]string, 0, len(developerToolAliases))
-	for _, alias := range developerToolAliases {
-		internalNames = append(internalNames, alias.SDKName)
+	for historical, publicName := range assistantToolReferenceAliases {
+		require.Contains(t, publicNames, publicName,
+			"historical tool reference %s rewrites to unpublished tool %s", historical, publicName)
 	}
 
 	for _, alias := range developerToolAliases {
 		tool, ok := toolsByName[alias.SDKName]
 		require.True(t, ok, alias.SDKName)
-		description := assistantToolReferenceReplacer.Replace(replacer.Replace(tool.Description))
-		schema := rewriteSchemaProperties(tool.Schema.Properties, replacer)
-		schema = rewriteSchemaProperties(schema, assistantToolReferenceReplacer)
-		schemaText := fmt.Sprintf("%v", schema)
+		serverTool := mcpFromSDK(tool, toolsdk.Deps{})
+		rewriteAssistantToolDefinition(&serverTool.Tool, replacer, alias.MCPName)
 
-		for _, internalName := range internalNames {
-			require.NotContains(t, description, internalName,
-				"%s description references internal tool %s", alias.MCPName, internalName)
-			require.NotContains(t, schemaText, internalName,
-				"%s schema references internal tool %s", alias.MCPName, internalName)
+		description := serverTool.Tool.Description
+		schemaText := fmt.Sprintf("%v", serverTool.Tool.InputSchema.Properties)
+
+		// The final public metadata must be idempotent. If a second rewrite
+		// changes it, a historical/internal tool token leaked through the first
+		// pass or a public name is being rewritten as a substring of itself.
+		require.Equal(t, description, rewriteAssistantToolReferences(description), alias.MCPName)
+		require.Equal(t, schemaText, rewriteAssistantToolReferences(schemaText), alias.MCPName)
+		require.NotContains(t, description, "read_read_", alias.MCPName)
+		require.NotContains(t, description, "get_get_", alias.MCPName)
+
+		requireRequiredSchemaDescriptionsNotOptional(
+			t,
+			alias.MCPName,
+			serverTool.Tool.InputSchema.Properties,
+			serverTool.Tool.InputSchema.Required,
+		)
+		lowerDescription := strings.ToLower(description)
+		for _, required := range serverTool.Tool.InputSchema.Required {
+			require.NotContains(
+				t,
+				lowerDescription,
+				strings.ToLower(required)+" is optional",
+				"%s marks required field %s as optional in its tool description",
+				alias.MCPName,
+				required,
+			)
 		}
+	}
+}
+
+func requireRequiredSchemaDescriptionsNotOptional(
+	t *testing.T,
+	path string,
+	properties map[string]any,
+	required []string,
+) {
+	t.Helper()
+
+	for _, name := range required {
+		property, ok := properties[name].(map[string]any)
+		if !ok {
+			continue
+		}
+		description, _ := property["description"].(string)
+		require.NotContains(
+			t,
+			strings.ToLower(description),
+			"optional",
+			"%s.%s is required but its property description says optional",
+			path,
+			name,
+		)
+	}
+
+	for name, raw := range properties {
+		property, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if nested, ok := property["properties"].(map[string]any); ok {
+			requireRequiredSchemaDescriptionsNotOptional(
+				t,
+				path+"."+name,
+				nested,
+				schemaRequiredStrings(property["required"]),
+			)
+		}
+		items, ok := property["items"].(map[string]any)
+		if !ok {
+			continue
+		}
+		nested, ok := items["properties"].(map[string]any)
+		if !ok {
+			continue
+		}
+		requireRequiredSchemaDescriptionsNotOptional(
+			t,
+			path+"."+name+"[]",
+			nested,
+			schemaRequiredStrings(items["required"]),
+		)
+	}
+}
+
+func schemaRequiredStrings(value any) []string {
+	switch value := value.(type) {
+	case []string:
+		return value
+	case []any:
+		result := make([]string, 0, len(value))
+		for _, item := range value {
+			if text, ok := item.(string); ok {
+				result = append(result, text)
+			}
+		}
+		return result
+	default:
+		return nil
 	}
 }
 
@@ -278,11 +371,11 @@ func TestRewriteAssistantReadProcessOutputSemantics(t *testing.T) {
 	require.Contains(t, cursor["description"], "Omit it to start at 0")
 }
 
-func TestAssistantToolReferenceReplacer(t *testing.T) {
+func TestRewriteAssistantToolReferences(t *testing.T) {
 	t.Parallel()
 
 	input := "use process_start, then process_output; recover with process_list and write with read_files"
-	got := assistantToolReferenceReplacer.Replace(input)
+	got := rewriteAssistantToolReferences(input)
 	require.Equal(t,
 		"use start_process, then read_process_output; recover with list_sessions and write with read_multiple_files",
 		got,
@@ -291,18 +384,28 @@ func TestAssistantToolReferenceReplacer(t *testing.T) {
 	// Full SDK names must collapse all the way to real public names.
 	require.Equal(t,
 		"use start_process, then read_process_output; recover with list_sessions",
-		assistantToolReferenceReplacer.Replace(
+		rewriteAssistantToolReferences(
 			"use "+toolsdk.ToolNameWorkspaceProcessStartV2+
 				", then "+toolsdk.ToolNameWorkspaceProcessOutput+
 				"; recover with "+toolsdk.ToolNameWorkspaceProcessList,
 		),
 	)
 	require.NotContains(t,
-		assistantToolReferenceReplacer.Replace(toolsdk.WorkspaceProcessOutput.Description),
+		rewriteAssistantToolReferences(toolsdk.WorkspaceProcessOutput.Description),
 		"coder_workspace_",
 	)
 
+	// Public names are already canonical and rewriting them must be idempotent.
+	for _, publicName := range []string{
+		"read_process_output",
+		"get_search_results",
+		"read_multiple_files",
+		"list_recent_tool_calls",
+	} {
+		require.Equal(t, publicName, rewriteAssistantToolReferences(publicName))
+	}
+
 	// Generic words are intentionally untouched; they may describe concepts
 	// rather than tool names.
-	require.Equal(t, "bash status capabilities", assistantToolReferenceReplacer.Replace("bash status capabilities"))
+	require.Equal(t, "bash status capabilities", rewriteAssistantToolReferences("bash status capabilities"))
 }
