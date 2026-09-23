@@ -559,7 +559,7 @@ var WorkspaceWriteFileV2 = Tool[WorkspaceWriteFileV2Args, WorkspaceWriteFileV2Re
 		}
 
 		if err := conn.WriteFileStrict(ctx, args.Path, bytes.NewReader(data), args.Overwrite, replaced); err != nil {
-			return WorkspaceWriteFileV2Result{}, err
+			return WorkspaceWriteFileV2Result{}, workspaceAgentToolError(err)
 		}
 		return WorkspaceWriteFileV2Result{Path: args.Path, BytesWritten: len(data), Created: created, Replaced: replaced}, nil
 	},

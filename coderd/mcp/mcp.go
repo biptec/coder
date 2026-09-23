@@ -207,42 +207,74 @@ type toolAlias struct {
 	MCPName string
 }
 
-// assistantToolReferenceReplacer rewrites historical/internal tool
-// references into names that actually exist in the assistant-facing catalog.
-// Full SDK names must appear before shorter suffixes so a reference such as
-// "coder_workspace_process_start" becomes "start_process", never the
-// nonexistent "coder_workspace_start_process".
-var assistantToolReferenceReplacer = strings.NewReplacer(
-	toolsdk.ToolNameWorkspaceReadFilesV2, "read_multiple_files",
-	toolsdk.ToolNameWorkspaceFileInfo, "get_file_info",
-	toolsdk.ToolNameWorkspaceEditFiles, "edit_multiple_files",
-	toolsdk.ToolNameWorkspaceSearchStart, "start_search",
-	toolsdk.ToolNameWorkspaceSearchResults, "get_search_results",
-	toolsdk.ToolNameWorkspaceSearchList, "list_searches",
-	toolsdk.ToolNameWorkspaceSearchStop, "stop_search",
-	toolsdk.ToolNameWorkspaceBash, "execute_shell_command",
-	toolsdk.ToolNameWorkspaceExec, "start_process",
-	toolsdk.ToolNameWorkspaceProcessStartV2, "start_process",
-	toolsdk.ToolNameWorkspaceProcessStart, "start_process",
-	toolsdk.ToolNameWorkspaceProcessOutput, "read_process_output",
-	toolsdk.ToolNameWorkspaceProcessList, "list_sessions",
-	toolsdk.ToolNameWorkspaceProcessInput, "interact_with_process",
-	toolsdk.ToolNameWorkspaceProcessSignal, "signal_process",
-	toolsdk.ToolNameWorkspaceCapabilities, "get_workspace_capabilities",
-	"read_files", "read_multiple_files",
-	"file_info", "get_file_info",
-	"edit_files", "edit_multiple_files",
-	"search_start", "start_search",
-	"search_results", "get_search_results",
-	"search_list", "list_searches",
-	"search_stop", "stop_search",
-	"process_start", "start_process",
-	"process_output", "read_process_output",
-	"process_list", "list_sessions",
-	"process_input", "interact_with_process",
-	"process_signal", "signal_process",
-	"recent_activity", "list_recent_tool_calls",
-)
+// assistantToolReferenceAliases rewrites historical/internal tool references into
+// names that actually exist in the assistant-facing catalog. Rewriting is token
+// based rather than substring based so already-public names remain idempotent:
+// for example, "read_process_output" must never become
+// "read_read_process_output".
+var assistantToolReferenceAliases = map[string]string{
+	toolsdk.ToolNameWorkspaceReadFilesV2:    "read_multiple_files",
+	toolsdk.ToolNameWorkspaceFileInfo:       "get_file_info",
+	toolsdk.ToolNameWorkspaceEditFiles:      "edit_multiple_files",
+	toolsdk.ToolNameWorkspaceSearchStart:    "start_search",
+	toolsdk.ToolNameWorkspaceSearchResults:  "get_search_results",
+	toolsdk.ToolNameWorkspaceSearchList:     "list_searches",
+	toolsdk.ToolNameWorkspaceSearchStop:     "stop_search",
+	toolsdk.ToolNameWorkspaceBash:           "execute_shell_command",
+	toolsdk.ToolNameWorkspaceExec:           "start_process",
+	toolsdk.ToolNameWorkspaceProcessStartV2: "start_process",
+	toolsdk.ToolNameWorkspaceProcessStart:   "start_process",
+	toolsdk.ToolNameWorkspaceProcessOutput:  "read_process_output",
+	toolsdk.ToolNameWorkspaceProcessList:    "list_sessions",
+	toolsdk.ToolNameWorkspaceProcessInput:   "interact_with_process",
+	toolsdk.ToolNameWorkspaceProcessSignal:  "signal_process",
+	toolsdk.ToolNameWorkspaceCapabilities:   "get_workspace_capabilities",
+	"read_files":                            "read_multiple_files",
+	"file_info":                             "get_file_info",
+	"edit_files":                            "edit_multiple_files",
+	"search_start":                          "start_search",
+	"search_results":                        "get_search_results",
+	"search_list":                           "list_searches",
+	"search_stop":                           "stop_search",
+	"process_start":                         "start_process",
+	"process_output":                        "read_process_output",
+	"process_list":                          "list_sessions",
+	"process_input":                         "interact_with_process",
+	"process_signal":                        "signal_process",
+	"recent_activity":                       "list_recent_tool_calls",
+}
+
+func rewriteAssistantToolReferences(input string) string {
+	var rewritten strings.Builder
+	rewritten.Grow(len(input))
+
+	for i := 0; i < len(input); {
+		if !assistantToolReferenceChar(input[i]) {
+			_ = rewritten.WriteByte(input[i])
+			i++
+			continue
+		}
+		end := i + 1
+		for end < len(input) && assistantToolReferenceChar(input[end]) {
+			end++
+		}
+		token := input[i:end]
+		if replacement, ok := assistantToolReferenceAliases[token]; ok {
+			_, _ = rewritten.WriteString(replacement)
+		} else {
+			_, _ = rewritten.WriteString(token)
+		}
+		i = end
+	}
+	return rewritten.String()
+}
+
+func assistantToolReferenceChar(value byte) bool {
+	return value == '_' ||
+		value >= 'a' && value <= 'z' ||
+		value >= 'A' && value <= 'Z' ||
+		value >= '0' && value <= '9'
+}
 
 var developerToolAliases = []toolAlias{
 	{SDKName: toolsdk.ToolNameGetWorkspace, MCPName: "get_workspace"},
@@ -389,12 +421,7 @@ func (s *Server) registerAliasedTools(client *codersdk.Client, aliases []toolAli
 		}
 		serverTool := mcpFromSDK(tool, toolDeps)
 		serverTool = withAssistantOutputRendering(serverTool, alias.MCPName, toolDeps.MCPResultBytesMax())
-		serverTool.Tool.Name = alias.MCPName
-		serverTool.Tool.Description = assistantToolReferenceReplacer.Replace(replacer.Replace(serverTool.Tool.Description))
-		serverTool.Tool.InputSchema.Properties = rewriteSchemaProperties(serverTool.Tool.InputSchema.Properties, replacer)
-		serverTool.Tool.InputSchema.Properties = rewriteSchemaProperties(serverTool.Tool.InputSchema.Properties, assistantToolReferenceReplacer)
-		rewriteAssistantToolSemantics(&serverTool.Tool, alias.MCPName)
-		rewriteAssistantWorkspaceDescriptions(serverTool.Tool.InputSchema.Properties)
+		rewriteAssistantToolDefinition(&serverTool.Tool, replacer, alias.MCPName)
 		serverTool = withAssistantInputValidation(serverTool, alias.MCPName)
 		serverTool = s.withActivityTracking(serverTool, alias.MCPName)
 		serverTool = withSharedWorkspaceResolution(serverTool, client)
@@ -409,6 +436,15 @@ const (
 	assistantWorkspaceDescription      = "The workspace ID or name in the format [owner/]workspace. A bare name is accepted only when it uniquely identifies one accessible workspace; use owner/workspace when multiple accessible workspaces share the same name."
 	assistantWorkspaceAgentDescription = "The workspace name in the format [owner/]workspace[.agent]. A bare name is accepted only when it uniquely identifies one accessible workspace; use owner/workspace when multiple accessible workspaces share the same name."
 )
+
+func rewriteAssistantToolDefinition(tool *mcp.Tool, aliasReplacer *strings.Replacer, publicName string) {
+	tool.Name = publicName
+	tool.Description = rewriteAssistantToolReferences(aliasReplacer.Replace(tool.Description))
+	tool.InputSchema.Properties = rewriteSchemaProperties(tool.InputSchema.Properties, aliasReplacer)
+	tool.InputSchema.Properties = rewriteSchemaToolReferences(tool.InputSchema.Properties)
+	rewriteAssistantToolSemantics(tool, publicName)
+	rewriteAssistantWorkspaceDescriptions(tool.InputSchema.Properties)
+}
 
 func rewriteAssistantToolSemantics(tool *mcp.Tool, publicName string) {
 	switch publicName {
@@ -551,27 +587,35 @@ func isNotFoundError(err error) bool {
 }
 
 func rewriteSchemaProperties(properties map[string]any, replacer *strings.Replacer) map[string]any {
+	return rewriteSchemaPropertiesWith(properties, replacer.Replace)
+}
+
+func rewriteSchemaToolReferences(properties map[string]any) map[string]any {
+	return rewriteSchemaPropertiesWith(properties, rewriteAssistantToolReferences)
+}
+
+func rewriteSchemaPropertiesWith(properties map[string]any, rewrite func(string) string) map[string]any {
 	cloned := make(map[string]any, len(properties))
 	for key, item := range properties {
-		cloned[key] = rewriteSchemaStrings(item, replacer)
+		cloned[key] = rewriteSchemaStringsWith(item, rewrite)
 	}
 	return cloned
 }
 
-func rewriteSchemaStrings(value any, replacer *strings.Replacer) any {
+func rewriteSchemaStringsWith(value any, rewrite func(string) string) any {
 	switch value := value.(type) {
 	case string:
-		return replacer.Replace(value)
+		return rewrite(value)
 	case map[string]any:
 		cloned := make(map[string]any, len(value))
 		for key, item := range value {
-			cloned[key] = rewriteSchemaStrings(item, replacer)
+			cloned[key] = rewriteSchemaStringsWith(item, rewrite)
 		}
 		return cloned
 	case []any:
 		cloned := make([]any, len(value))
 		for i, item := range value {
-			cloned[i] = rewriteSchemaStrings(item, replacer)
+			cloned[i] = rewriteSchemaStringsWith(item, rewrite)
 		}
 		return cloned
 	default:

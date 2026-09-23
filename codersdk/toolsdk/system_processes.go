@@ -38,10 +38,11 @@ process in the workspace. signal_process accepts tracked process IDs, not OS
 PIDs returned by this tool.
 
 Results are sorted by real process start time, newest first, with PID as a
-stable tie-breaker. limit is optional; when omitted all matching processes in
-the current OS snapshot are returned. filter performs a case-insensitive
-substring match against username and command. cursor is an opaque continuation
-token returned by a previous limited call and continues toward older processes.`,
+stable tie-breaker. limit is required: use 0 to return all matching processes
+in the current OS snapshot, or a positive value to bound the result. filter
+performs a case-insensitive substring match against username and command.
+cursor is an opaque continuation token returned by a previous limited call and
+continues toward older processes.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
 				"workspace": map[string]any{
@@ -86,7 +87,7 @@ token returned by a previous limited call and continues toward older processes.`
 		defer cancel()
 		response, err := conn.ListSystemProcesses(operationCtx)
 		if err != nil {
-			return WorkspaceListSystemProcessesResult{}, xerrors.Errorf("list workspace system processes: %w", err)
+			return WorkspaceListSystemProcessesResult{}, xerrors.Errorf("list workspace system processes: %w", workspaceAgentToolError(err))
 		}
 		return paginateSystemProcesses(response.Processes, args.Filter, args.Cursor, args.Limit)
 	},
