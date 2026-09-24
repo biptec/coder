@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path"
 	"sort"
@@ -28,6 +29,10 @@ import (
 // duplicated as text. Opaque payloads stay in content and metadata stays in
 // structuredContent.
 func withAssistantInputValidation(serverTool server.ServerTool, publicName string) server.ServerTool {
+	if rawSchema := semanticAssistantInputSchema(publicName, serverTool.Tool.InputSchema); len(rawSchema) > 0 {
+		serverTool.Tool.RawInputSchema = rawSchema
+		serverTool.Tool.InputSchema = mcp.ToolInputSchema{}
+	}
 	var (
 		validatorOnce sync.Once
 		validator     *gojsonschema.Schema
@@ -36,10 +41,14 @@ func withAssistantInputValidation(serverTool server.ServerTool, publicName strin
 	originalHandler := serverTool.Handler
 	serverTool.Handler = func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		validatorOnce.Do(func() {
-			raw, err := json.Marshal(serverTool.Tool.InputSchema)
-			if err != nil {
-				validatorErr = xerrors.Errorf("marshal input schema: %w", err)
-				return
+			raw := serverTool.Tool.RawInputSchema
+			if len(raw) == 0 {
+				var err error
+				raw, err = json.Marshal(serverTool.Tool.InputSchema)
+				if err != nil {
+					validatorErr = xerrors.Errorf("marshal input schema: %w", err)
+					return
+				}
 			}
 			validator, validatorErr = gojsonschema.NewSchema(gojsonschema.NewBytesLoader(raw))
 			if validatorErr != nil {
@@ -66,6 +75,57 @@ func withAssistantInputValidation(serverTool server.ServerTool, publicName strin
 	return serverTool
 }
 
+func isSemanticAssistantTool(publicName string) bool {
+	switch publicName {
+	case "find_symbol", "find_references", "find_implementations", "get_diagnostics":
+		return true
+	default:
+		return false
+	}
+}
+
+func semanticAssistantInputSchema(publicName string, schema mcp.ToolInputSchema) json.RawMessage {
+	if !isSemanticAssistantTool(publicName) {
+		return nil
+	}
+	properties := make(map[string]any, len(schema.Properties))
+	for key, value := range schema.Properties {
+		properties[key] = cloneSchemaValue(value)
+	}
+	if target, ok := properties["target"].(map[string]any); ok {
+		target["additionalProperties"] = false
+	}
+	raw, err := json.Marshal(map[string]any{
+		"type":                 "object",
+		"properties":           properties,
+		"required":             schema.Required,
+		"additionalProperties": false,
+	})
+	if err != nil {
+		return nil
+	}
+	return raw
+}
+
+func cloneSchemaValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		cloned := make(map[string]any, len(typed))
+		for key, item := range typed {
+			cloned[key] = cloneSchemaValue(item)
+		}
+		return cloned
+	case []any:
+		cloned := make([]any, len(typed))
+		for i, item := range typed {
+			cloned[i] = cloneSchemaValue(item)
+		}
+		return cloned
+	default:
+		return value
+	}
+}
+
 func withAssistantOutputRendering(serverTool server.ServerTool, publicName string, resultBytesMax int64) server.ServerTool {
 	serverTool.Tool.OutputSchema = assistantOutputSchema(publicName)
 	originalHandler := serverTool.Handler
@@ -78,6 +138,16 @@ func withAssistantOutputRendering(serverTool server.ServerTool, publicName strin
 		request = withAssistantInputDefaults(publicName, request)
 		result, err := originalHandler(ctx, request)
 		if err != nil {
+			var semanticErr *workspacesdk.SemanticError
+			if errors.As(err, &semanticErr) {
+				toolResult := mcp.NewToolResultErrorf("%v", err)
+				structured := map[string]any{"code": semanticErr.Code, "message": semanticErr.Message}
+				if semanticErr.Detail != "" {
+					structured["detail"] = semanticErr.Detail
+				}
+				toolResult.StructuredContent = structured
+				return toolResult, nil
+			}
 			// ToolSDK handler failures describe the requested operation (validation,
 			// workspace/file/process state, transport/readiness, and recovery hints).
 			// Surface them as MCP tool errors so the model can read and act on the
@@ -109,7 +179,15 @@ func withAssistantOutputRendering(serverTool server.ServerTool, publicName strin
 				return nil, xerrors.Errorf("measure %s output: %w", publicName, marshalErr)
 			}
 			if int64(len(encoded)) > resultBytesMax {
-				return mcp.NewToolResultErrorf("Result for %s is %d bytes, exceeding the MCP response safety budget of %d bytes. Retry with a positive limit/max_results or a narrower request and continue with the returned cursor/offset where applicable.", publicName, len(encoded), resultBytesMax), nil
+				message := fmt.Sprintf("Result for %s is %d bytes, exceeding the MCP response safety budget of %d bytes. Retry with a positive limit/max_results or a narrower request and continue with the returned cursor/offset where applicable.", publicName, len(encoded), resultBytesMax)
+				toolResult := mcp.NewToolResultError(message)
+				if isSemanticAssistantTool(publicName) {
+					toolResult.StructuredContent = map[string]any{
+						"code":    "response_too_large",
+						"message": message,
+					}
+				}
+				return toolResult, nil
 			}
 		}
 		return rendered, nil
@@ -524,6 +602,13 @@ func renderAssistantJSON(publicName string, args map[string]any, raw []byte) ([]
 		structured := map[string]any{"sessions": sessions}
 		if value.NextCursor != "" {
 			structured["next_cursor"] = value.NextCursor
+		}
+		return emptyContent(), structured, true, nil
+
+	case "find_symbol", "find_references", "find_implementations", "get_diagnostics":
+		var structured map[string]any
+		if err := json.Unmarshal(raw, &structured); err != nil {
+			return nil, nil, true, err
 		}
 		return emptyContent(), structured, true, nil
 
@@ -959,12 +1044,108 @@ func assistantOutputSchema(publicName string) mcp.ToolOutputSchema {
 			"started_at": stringProp(), "exit_code": intProp(), "target": stringProp(),
 		})
 		return top([]string{"sessions"}, map[string]any{"sessions": array(item), "next_cursor": stringProp()})
+	case "find_symbol", "find_references", "find_implementations", "get_diagnostics":
+		return semanticAssistantOutputSchema(publicName, top, stringProp, boolProp)
 	case "list_processes":
 		item := object([]string{"pid", "ppid", "user", "cpu_percent", "memory_percent", "elapsed_seconds", "command"}, map[string]any{
 			"pid": intProp(), "ppid": intProp(), "user": stringProp(), "cpu_percent": numberProp(),
 			"memory_percent": numberProp(), "elapsed_seconds": intProp(), "command": stringProp(), "started_at": stringProp(),
 		})
 		return top([]string{"processes"}, map[string]any{"processes": array(item), "next_cursor": stringProp()})
+	default:
+		return mcp.ToolOutputSchema{}
+	}
+}
+
+func semanticAssistantOutputSchema(
+	publicName string,
+	top func([]string, map[string]any) mcp.ToolOutputSchema,
+	stringProp func() map[string]any,
+	boolProp func() map[string]any,
+) mcp.ToolOutputSchema {
+	object := func(required []string, properties map[string]any) map[string]any {
+		out := map[string]any{"type": "object", "properties": properties, "additionalProperties": false}
+		if len(required) > 0 {
+			out["required"] = required
+		}
+		return out
+	}
+	array := func(items map[string]any) map[string]any {
+		return map[string]any{"type": "array", "items": items}
+	}
+	positiveInt := func() map[string]any { return map[string]any{"type": "integer", "minimum": 1} }
+	nonnegativeInt := func() map[string]any { return map[string]any{"type": "integer", "minimum": 0} }
+	enumString := func(values ...string) map[string]any { return map[string]any{"type": "string", "enum": values} }
+	position := object([]string{"line", "column"}, map[string]any{
+		"line": positiveInt(), "column": positiveInt(),
+	})
+	rangeSchema := object([]string{"start", "end"}, map[string]any{
+		"start": position, "end": position,
+	})
+	target := object([]string{"path", "line", "column"}, map[string]any{
+		"path": stringProp(), "line": positiveInt(), "column": positiveInt(),
+	})
+	contextSchema := object([]string{"start_line", "end_line", "text"}, map[string]any{
+		"start_line": positiveInt(), "end_line": positiveInt(), "text": stringProp(),
+	})
+	coverage := object([]string{"status"}, map[string]any{
+		"status": map[string]any{"type": "string", "enum": []string{"complete", "partial", "unknown"}},
+		"reason": stringProp(),
+	})
+	symbolKinds := []string{"file", "module", "namespace", "package", "class", "method", "property", "field", "constructor", "enum", "interface", "function", "variable", "constant", "string", "number", "boolean", "array", "object", "key", "null", "enum_member", "struct", "event", "operator", "type_parameter", "trait", "macro", "type", "unknown"}
+	countFields := func(itemName string, items map[string]any) map[string]any {
+		return map[string]any{
+			itemName:         items,
+			"returned_count": nonnegativeInt(),
+			"observed_count": nonnegativeInt(),
+			"truncated":      boolProp(),
+			"coverage":       coverage,
+		}
+	}
+
+	switch publicName {
+	case "find_symbol":
+		symbol := object([]string{"name", "kind", "language", "path", "selection_range", "locator"}, map[string]any{
+			"name": stringProp(), "kind": enumString(symbolKinds...), "language": stringProp(), "path": stringProp(),
+			"container": stringProp(), "detail": stringProp(), "range": rangeSchema,
+			"selection_range": rangeSchema, "locator": target, "context": contextSchema,
+		})
+		properties := countFields("symbols", array(symbol))
+		return top([]string{"symbols", "returned_count", "observed_count", "truncated", "coverage"}, properties)
+	case "find_references":
+		containing := object([]string{"name", "kind"}, map[string]any{"name": stringProp(), "kind": enumString(symbolKinds...)})
+		reference := object([]string{"path", "language", "range", "locator"}, map[string]any{
+			"path": stringProp(), "language": stringProp(), "range": rangeSchema, "locator": target,
+			"containing_symbol": containing, "context": contextSchema,
+		})
+		properties := countFields("references", array(reference))
+		properties["target"] = target
+		return top([]string{"target", "references", "returned_count", "observed_count", "truncated", "coverage"}, properties)
+	case "find_implementations":
+		implementation := object([]string{"path", "language", "range", "locator"}, map[string]any{
+			"path": stringProp(), "language": stringProp(), "range": rangeSchema,
+			"selection_range": rangeSchema, "locator": target, "name": stringProp(), "kind": enumString(symbolKinds...),
+			"container": stringProp(), "detail": stringProp(), "context": contextSchema,
+		})
+		properties := countFields("implementations", array(implementation))
+		properties["target"] = target
+		return top([]string{"target", "implementations", "returned_count", "observed_count", "truncated", "coverage"}, properties)
+	case "get_diagnostics":
+		related := object([]string{"path", "range", "message"}, map[string]any{
+			"path": stringProp(), "range": rangeSchema, "message": stringProp(),
+		})
+		diagnostic := object([]string{"path", "severity", "message", "range"}, map[string]any{
+			"path": stringProp(), "severity": enumString("error", "warning", "information", "hint"), "message": stringProp(), "range": rangeSchema,
+			"source": stringProp(), "code": stringProp(), "code_href": stringProp(),
+			"tags": array(enumString("unnecessary", "deprecated")), "related_information": array(related), "context": contextSchema,
+		})
+		fileStatus := object([]string{"path", "status", "diagnostic_count"}, map[string]any{
+			"path": stringProp(), "language": stringProp(), "status": enumString("ok", "unsupported_language", "capability_unsupported", "not_ready", "error"),
+			"freshness": enumString("fresh", "unknown"), "diagnostic_count": nonnegativeInt(), "message": stringProp(),
+		})
+		properties := countFields("diagnostics", array(diagnostic))
+		properties["files"] = array(fileStatus)
+		return top([]string{"files", "diagnostics", "returned_count", "observed_count", "truncated", "coverage"}, properties)
 	default:
 		return mcp.ToolOutputSchema{}
 	}

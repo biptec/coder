@@ -130,6 +130,10 @@ const (
 	ToolNameWorkspacePortForward         = "coder_workspace_port_forward"
 	ToolNameWorkspaceListApps            = "coder_workspace_list_apps"
 	ToolNameWorkspaceCapabilities        = "coder_workspace_capabilities"
+	ToolNameWorkspaceFindSymbol          = "coder_workspace_find_symbol"
+	ToolNameWorkspaceFindReferences      = "coder_workspace_find_references"
+	ToolNameWorkspaceFindImplementations = "coder_workspace_find_implementations"
+	ToolNameWorkspaceGetDiagnostics      = "coder_workspace_get_diagnostics"
 	ToolNameCreateTask                   = "coder_create_task"
 	ToolNameDeleteTask                   = "coder_delete_task"
 	ToolNameListTasks                    = "coder_list_tasks"
@@ -348,6 +352,12 @@ var (
 		DestructiveHint: false,
 		IdempotentHint:  false,
 		OpenWorldHint:   false,
+	}
+	semanticReadOnlyAnnotations = MCPToolAnnotations{
+		ReadOnlyHint:    true,
+		DestructiveHint: false,
+		IdempotentHint:  true,
+		OpenWorldHint:   true,
 	}
 	mcpMutationIdempotentAnnotations = MCPToolAnnotations{
 		ReadOnlyHint:    false,

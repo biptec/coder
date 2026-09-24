@@ -17,19 +17,18 @@ import (
 	reflect "reflect"
 	time "time"
 
-	uuid "github.com/google/uuid"
-	gomock "go.uber.org/mock/gomock"
-	ssh "golang.org/x/crypto/ssh"
-	gonet "gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
-	ipnstate "tailscale.com/ipn/ipnstate"
-	speedtest "tailscale.com/net/speedtest"
-
 	slog "cdr.dev/slog/v3"
 	codersdk "github.com/coder/coder/v2/codersdk"
 	healthsdk "github.com/coder/coder/v2/codersdk/healthsdk"
 	workspacesdk "github.com/coder/coder/v2/codersdk/workspacesdk"
 	wsjson "github.com/coder/coder/v2/codersdk/wsjson"
 	tailnet "github.com/coder/coder/v2/tailnet"
+	uuid "github.com/google/uuid"
+	gomock "go.uber.org/mock/gomock"
+	ssh "golang.org/x/crypto/ssh"
+	gonet "gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
+	ipnstate "tailscale.com/ipn/ipnstate"
+	speedtest "tailscale.com/net/speedtest"
 )
 
 // MockAgentConn is a mock of AgentConn interface.
@@ -281,6 +280,51 @@ func (mr *MockAgentConnMockRecorder) FileInfo(ctx, path any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FileInfo", reflect.TypeOf((*MockAgentConn)(nil).FileInfo), ctx, path)
 }
 
+// FindSemanticImplementations mocks base method.
+func (m *MockAgentConn) FindSemanticImplementations(ctx context.Context, req workspacesdk.SemanticFindImplementationsRequest) (workspacesdk.SemanticFindImplementationsResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindSemanticImplementations", ctx, req)
+	ret0, _ := ret[0].(workspacesdk.SemanticFindImplementationsResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindSemanticImplementations indicates an expected call of FindSemanticImplementations.
+func (mr *MockAgentConnMockRecorder) FindSemanticImplementations(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindSemanticImplementations", reflect.TypeOf((*MockAgentConn)(nil).FindSemanticImplementations), ctx, req)
+}
+
+// FindSemanticReferences mocks base method.
+func (m *MockAgentConn) FindSemanticReferences(ctx context.Context, req workspacesdk.SemanticFindReferencesRequest) (workspacesdk.SemanticFindReferencesResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindSemanticReferences", ctx, req)
+	ret0, _ := ret[0].(workspacesdk.SemanticFindReferencesResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindSemanticReferences indicates an expected call of FindSemanticReferences.
+func (mr *MockAgentConnMockRecorder) FindSemanticReferences(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindSemanticReferences", reflect.TypeOf((*MockAgentConn)(nil).FindSemanticReferences), ctx, req)
+}
+
+// FindSemanticSymbols mocks base method.
+func (m *MockAgentConn) FindSemanticSymbols(ctx context.Context, req workspacesdk.SemanticFindSymbolsRequest) (workspacesdk.SemanticFindSymbolsResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindSemanticSymbols", ctx, req)
+	ret0, _ := ret[0].(workspacesdk.SemanticFindSymbolsResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindSemanticSymbols indicates an expected call of FindSemanticSymbols.
+func (mr *MockAgentConnMockRecorder) FindSemanticSymbols(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindSemanticSymbols", reflect.TypeOf((*MockAgentConn)(nil).FindSemanticSymbols), ctx, req)
+}
+
 // GetPeerDiagnostics mocks base method.
 func (m *MockAgentConn) GetPeerDiagnostics() tailnet.PeerDiagnostics {
 	m.ctrl.T.Helper()
@@ -293,6 +337,21 @@ func (m *MockAgentConn) GetPeerDiagnostics() tailnet.PeerDiagnostics {
 func (mr *MockAgentConnMockRecorder) GetPeerDiagnostics() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPeerDiagnostics", reflect.TypeOf((*MockAgentConn)(nil).GetPeerDiagnostics))
+}
+
+// GetSemanticDiagnostics mocks base method.
+func (m *MockAgentConn) GetSemanticDiagnostics(ctx context.Context, req workspacesdk.SemanticDiagnosticsRequest) (workspacesdk.SemanticDiagnosticsResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSemanticDiagnostics", ctx, req)
+	ret0, _ := ret[0].(workspacesdk.SemanticDiagnosticsResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSemanticDiagnostics indicates an expected call of GetSemanticDiagnostics.
+func (mr *MockAgentConnMockRecorder) GetSemanticDiagnostics(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSemanticDiagnostics", reflect.TypeOf((*MockAgentConn)(nil).GetSemanticDiagnostics), ctx, req)
 }
 
 // LS mocks base method.

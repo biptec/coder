@@ -1641,6 +1641,7 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 		"execute_shell_command",
 		"start_process", "read_process_output", "list_sessions", "list_processes", "interact_with_process", "signal_process",
 		"list_apps", "get_workspace_capabilities", "list_recent_tool_calls",
+		"find_symbol", "find_references", "find_implementations", "get_diagnostics",
 	}, developerTools)
 	assert.NotContains(t, developerTools, "port_forward")
 	assert.NotContains(t, developerTools, toolsdk.ToolNameWorkspaceReadFile)
@@ -1738,6 +1739,7 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 		"list_directory", "read_file", "read_multiple_files", "get_file_info",
 		"start_search", "get_search_results", "list_searches", "stop_search",
 		"read_process_output", "list_sessions", "list_processes", "list_apps", "get_workspace_capabilities", "list_recent_tool_calls",
+		"find_symbol", "find_references", "find_implementations", "get_diagnostics",
 	}, readonlyTools)
 	assert.NotContains(t, readonlyTools, "write_file")
 	assert.NotContains(t, readonlyTools, "create_directory")
@@ -1906,7 +1908,10 @@ func TestMCPHTTP_E2E_DeveloperToolCalls(t *testing.T) {
 		require.Equal(t, "object", tool.OutputSchema.Type, "%s must advertise an outputSchema", tool.Name)
 		require.NotEmpty(t, tool.OutputSchema.Properties, "%s outputSchema must describe structuredContent", tool.Name)
 	}
-	require.Len(t, publicTools, 25)
+	require.Len(t, publicTools, 29)
+	for _, name := range []string{"find_symbol", "find_references", "find_implementations", "get_diagnostics"} {
+		require.Contains(t, publicTools, name)
+	}
 
 	called := make(map[string]struct{}, len(publicTools))
 	call := func(name string, args map[string]any) *mcp.CallToolResult {
@@ -1918,6 +1923,18 @@ func TestMCPHTTP_E2E_DeveloperToolCalls(t *testing.T) {
 		require.False(t, result.IsError, "%s returned an MCP tool error: %#v", name, result.Content)
 		_, structuredOK := result.StructuredContent.(map[string]any)
 		require.True(t, structuredOK, "%s must return structuredContent, got %T", name, result.StructuredContent)
+		called[name] = struct{}{}
+		return result
+	}
+	callError := func(name string, args map[string]any) *mcp.CallToolResult {
+		t.Helper()
+		_, ok := publicTools[name]
+		require.True(t, ok, "tool %q must exist in tools/list before tools/call", name)
+		result, err := mcpClient.CallTool(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{Name: name, Arguments: args}})
+		require.NoError(t, err, name)
+		require.True(t, result.IsError, "%s must return an MCP tool error for this request", name)
+		_, structuredOK := result.StructuredContent.(map[string]any)
+		require.True(t, structuredOK, "%s error must return structuredContent, got %T", name, result.StructuredContent)
 		called[name] = struct{}{}
 		return result
 	}
@@ -2359,6 +2376,26 @@ func TestMCPHTTP_E2E_DeveloperToolCalls(t *testing.T) {
 	require.NotEmpty(t, activityCursor)
 	result = call("list_recent_tool_calls", map[string]any{"workspace": workspace, "limit": 1, "cursor": activityCursor})
 	require.Len(t, requireStructuredOnly("list_recent_tool_calls", result)["calls"].([]any), 1)
+
+	unsupportedPath := filepath.Join(t.TempDir(), "unsupported.py")
+	require.NoError(t, os.WriteFile(unsupportedPath, []byte("value = 1\n"), 0o600))
+	semanticErrorResult := callError("find_symbol", map[string]any{
+		"workspace": workspace, "root": unsupportedPath, "query": "value", "limit": 20,
+	})
+	require.Equal(t, "unsupported_language", structured(semanticErrorResult)["code"])
+	semanticTarget := map[string]any{"path": unsupportedPath, "line": 1, "column": 1}
+	semanticErrorResult = callError("find_references", map[string]any{
+		"workspace": workspace, "target": semanticTarget, "limit": 20,
+	})
+	require.Equal(t, "unsupported_language", structured(semanticErrorResult)["code"])
+	semanticErrorResult = callError("find_implementations", map[string]any{
+		"workspace": workspace, "target": semanticTarget, "limit": 20,
+	})
+	require.Equal(t, "unsupported_language", structured(semanticErrorResult)["code"])
+	semanticErrorResult = callError("get_diagnostics", map[string]any{
+		"workspace": workspace, "paths": []any{unsupportedPath}, "limit": 20,
+	})
+	require.Equal(t, "unsupported_language", structured(semanticErrorResult)["code"])
 
 	require.Equal(t, publicToolsToSet(publicTools), called,
 		"every tool returned by tools/list must be exercised through tools/call")

@@ -48,6 +48,7 @@ import (
 	"github.com/coder/coder/v2/agent/agentgit"
 	"github.com/coder/coder/v2/agent/agentproc"
 	"github.com/coder/coder/v2/agent/agentscripts"
+	"github.com/coder/coder/v2/agent/agentsemantic"
 	"github.com/coder/coder/v2/agent/agentsocket"
 	"github.com/coder/coder/v2/agent/agentssh"
 	"github.com/coder/coder/v2/agent/boundarylogproxy"
@@ -374,6 +375,7 @@ type agent struct {
 	filesAPI         *agentfiles.API
 	gitAPI           *agentgit.API
 	processAPI       *agentproc.API
+	semanticAPI      *agentsemantic.API
 	desktopAPI       *agentdesktop.API
 	mcpManager       *agentmcp.Manager
 	mcpAPI           *agentmcp.API
@@ -507,7 +509,18 @@ func (a *agent) init() {
 	a.containerAPI = agentcontainers.NewAPI(a.logger.Named("containers"), containerAPIOpts...)
 
 	pathStore := agentgit.NewPathStore()
-	a.filesAPI = agentfiles.NewAPI(a.logger.Named("files"), a.filesystem, pathStore)
+	semanticManager := agentsemantic.NewManager(a.gracefulCtx, a.logger.Named("semantic"), a.execer, a.updateCommandEnv)
+	a.semanticAPI = agentsemantic.NewAPI(semanticManager)
+	a.filesAPI = agentfiles.NewAPI(
+		a.logger.Named("files"),
+		a.filesystem,
+		pathStore,
+		agentfiles.WithMutationObserver(func(ctx context.Context, paths []string) {
+			if err := semanticManager.NotifyPathsChanged(ctx, paths...); err != nil {
+				a.logger.Warn(ctx, "semantic synchronization after file mutation failed", slog.Error(err))
+			}
+		}),
+	)
 	a.processAPI = agentproc.NewAPI(a.logger.Named("processes"), a.execer, a.filesystem, pathStore, a.envInfo, a.updateCommandEnv, func() string {
 		if m := a.manifest.Load(); m != nil {
 			return m.Directory
@@ -2644,6 +2657,12 @@ func (a *agent) Close() error {
 
 	if err := a.containerAPI.Close(); err != nil {
 		a.logger.Error(a.hardCtx, "container API close", slog.Error(err))
+	}
+
+	if a.semanticAPI != nil {
+		if err := a.semanticAPI.Close(); err != nil {
+			a.logger.Error(a.hardCtx, "semantic API close", slog.Error(err))
+		}
 	}
 
 	if err := a.processAPI.Close(); err != nil {
