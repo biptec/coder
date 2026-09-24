@@ -1738,6 +1738,7 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 		"list_directory", "read_file", "read_multiple_files", "get_file_info",
 		"start_search", "get_search_results", "list_searches", "stop_search",
 		"read_process_output", "list_sessions", "list_processes", "list_apps", "get_workspace_capabilities", "list_recent_tool_calls",
+		"find_symbol", "find_references", "find_implementations", "get_diagnostics",
 	}, readonlyTools)
 	assert.NotContains(t, readonlyTools, "write_file")
 	assert.NotContains(t, readonlyTools, "create_directory")
