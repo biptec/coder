@@ -679,6 +679,22 @@ func TestManagerImplementationsEmptyAndScoped(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, all.Implementations, 2)
 
+	runMethod, err := manager.FindSymbols(ctx, workspacesdk.SemanticFindSymbolsRequest{
+		Root: interfacePath, Query: "Run", Match: "exact", Kinds: []string{"method"}, Limit: 20,
+	})
+	require.NoError(t, err)
+	require.Len(t, runMethod.Symbols, 1)
+
+	methodImplementations, err := manager.FindImplementations(ctx, workspacesdk.SemanticFindImplementationsRequest{
+		Target: runMethod.Symbols[0].Locator,
+		Limit:  20,
+	})
+	require.NoError(t, err)
+	require.Len(t, methodImplementations.Implementations, 2)
+	for _, implementation := range methodImplementations.Implementations {
+		require.NotEqual(t, interfacePath, implementation.Path, "queried interface method must not be returned as its own implementation")
+	}
+
 	limited, err := manager.FindImplementations(ctx, workspacesdk.SemanticFindImplementationsRequest{
 		Target: runner.Symbols[0].Locator,
 		Limit:  1,
