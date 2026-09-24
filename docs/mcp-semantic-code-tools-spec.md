@@ -4,7 +4,7 @@ Status: APPROVED IMPLEMENTATION SPECIFICATION - approved by human reviewer on 20
 Project: biptec/coder
 Target branch family: custom/v2.35.3
 Baseline public API: docs/mcp-public-api-spec-next.md
-Draft date: 2026-09-23
+Approval date: 2026-09-23
 Initial implementation scope: Go only, using the gopls already present in the Developer Workspace image
 Primary contract rule: after approval, this document becomes the implementation contract for the four semantic code tools. Implementation must be reconciled against this document before PR review.
 
