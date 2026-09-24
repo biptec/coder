@@ -1462,9 +1462,18 @@ func (m *Manager) FindImplementations(ctx context.Context, req workspacesdk.Sema
 	implementations := make([]workspacesdk.SemanticImplementation, 0, len(locations))
 	for _, location := range locations {
 		implementation, ok := session.implementationFromLocation(location, req.ContextLines, scopePath)
-		if ok {
-			implementations = append(implementations, implementation)
+		if !ok {
+			continue
 		}
+		// Some semantic backends (including gopls for interface methods) may
+		// return the queried declaration itself as an implementation. The
+		// public contract treats the target as the query subject, not as one
+		// of its implementations, so remove an exact self-location before
+		// deduplication and public limiting.
+		if implementation.Path == path && semanticRangeContainsPosition(implementation.Range, req.Target.Line, req.Target.Column) {
+			continue
+		}
+		implementations = append(implementations, implementation)
 	}
 	implementations = dedupeImplementations(implementations)
 	sort.Slice(implementations, func(i, j int) bool {
@@ -1538,6 +1547,19 @@ func (s *semanticSession) implementationFromLocation(location lspLocation, conte
 		Locator:  reference.Locator,
 		Context:  reference.Context,
 	}, true
+}
+
+func semanticRangeContainsPosition(r workspacesdk.SemanticRange, line, column int) bool {
+	if line < r.Start.Line || line > r.End.Line {
+		return false
+	}
+	if line == r.Start.Line && column < r.Start.Column {
+		return false
+	}
+	if line == r.End.Line && column >= r.End.Column {
+		return false
+	}
+	return true
 }
 
 func dedupeImplementations(values []workspacesdk.SemanticImplementation) []workspacesdk.SemanticImplementation {
