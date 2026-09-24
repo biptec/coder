@@ -1,6 +1,7 @@
 package agentfiles
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -12,20 +13,42 @@ import (
 
 // API exposes file-related operations performed through the agent.
 type API struct {
-	logger     slog.Logger
-	filesystem afero.Fs
-	pathStore  *agentgit.PathStore
-	searches   *searchManager
+	logger           slog.Logger
+	filesystem       afero.Fs
+	pathStore        *agentgit.PathStore
+	searches         *searchManager
+	mutationObserver func(context.Context, []string)
 }
 
-func NewAPI(logger slog.Logger, filesystem afero.Fs, pathStore *agentgit.PathStore) *API {
+// Option configures the workspace file API.
+type Option func(*API)
+
+// WithMutationObserver registers a best-effort callback for paths changed by
+// file mutations. The callback runs only after a mutation has committed.
+func WithMutationObserver(observer func(context.Context, []string)) Option {
+	return func(api *API) {
+		api.mutationObserver = observer
+	}
+}
+
+func NewAPI(logger slog.Logger, filesystem afero.Fs, pathStore *agentgit.PathStore, opts ...Option) *API {
 	api := &API{
 		logger:     logger,
 		filesystem: filesystem,
 		pathStore:  pathStore,
 		searches:   newSearchManager(filesystem),
 	}
+	for _, opt := range opts {
+		opt(api)
+	}
 	return api
+}
+
+func (api *API) notifyMutation(ctx context.Context, paths ...string) {
+	if api.mutationObserver == nil || len(paths) == 0 {
+		return
+	}
+	api.mutationObserver(ctx, append([]string(nil), paths...))
 }
 
 // Routes returns the HTTP handler for file-related routes.

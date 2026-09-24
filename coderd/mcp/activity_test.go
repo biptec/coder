@@ -271,8 +271,8 @@ func TestActivityToolNames(t *testing.T) {
 
 	developer := ActivityToolNames(codersdk.MCPToolsetDeveloper)
 	require.True(t, sort.StringsAreSorted(developer))
-	require.Len(t, developer, 25)
-	for _, toolName := range []string{"start_process", "execute_shell_command", "read_process_output", "read_file", "get_workspace_capabilities", "list_recent_tool_calls"} {
+	require.Len(t, developer, 29)
+	for _, toolName := range []string{"start_process", "execute_shell_command", "read_process_output", "read_file", "get_workspace_capabilities", "list_recent_tool_calls", "find_symbol", "find_references", "find_implementations", "get_diagnostics"} {
 		require.Contains(t, developer, toolName)
 	}
 	require.NotContains(t, developer, "exec")

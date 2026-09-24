@@ -1,4 +1,3 @@
-//nolint:testpackage // This test exercises internal semantic HTTP error normalization.
 package workspacesdk
 
 import (

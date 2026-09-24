@@ -360,6 +360,7 @@ func (api *API) serveWriteFile(rw http.ResponseWriter, r *http.Request, opts wri
 			api.pathStore.AddPaths(append([]uuid.UUID{chatContext.ID}, chatContext.AncestorIDs...), []string{path})
 		}
 	}
+	api.notifyMutation(ctx, path)
 
 	httpapi.Write(ctx, rw, http.StatusOK, codersdk.Response{
 		Message: fmt.Sprintf("Successfully wrote to %q", path),
@@ -606,6 +607,7 @@ func (api *API) HandleEditFiles(rw http.ResponseWriter, r *http.Request) {
 	// permission failures) before the first commit rename. Cross-file atomicity
 	// is still not claimed: a rare rename failure during commit can leave earlier
 	// targets committed, so that state is reported explicitly.
+	committedPaths := make([]string, 0, len(pending))
 	if !req.DryRun {
 		type stagedEdit struct {
 			pending pendingEdit
@@ -632,6 +634,7 @@ func (api *API) HandleEditFiles(rw http.ResponseWriter, r *http.Request) {
 		for i, item := range staged {
 			if err := api.filesystem.Rename(item.temp, item.pending.path); err != nil {
 				cleanupStaged(i)
+				api.notifyMutation(ctx, committedPaths...)
 				applied := make([]string, 0, i)
 				for _, done := range staged[:i] {
 					applied = append(applied, done.pending.origPath)
@@ -643,8 +646,11 @@ func (api *API) HandleEditFiles(rw http.ResponseWriter, r *http.Request) {
 				httpapi.Write(ctx, rw, filesystemStatus(err), codersdk.Response{Message: fmt.Sprintf("partial edit commit: failed=%s: %v; applied=%v; not_applied=%v", item.pending.origPath, err, applied, notApplied)})
 				return
 			}
+			committedPaths = append(committedPaths, item.pending.path)
 		}
 	}
+
+	api.notifyMutation(ctx, committedPaths...)
 
 	// Track only files that were actually edited, never dry-run previews.
 	if !req.DryRun && api.pathStore != nil {

@@ -186,6 +186,80 @@ func (m *Manager) ensureOpen() error {
 	return nil
 }
 
+// NotifyPathsChanged synchronizes source files that are already open in an
+// active semantic backend. It never starts a backend for an untracked path.
+func (m *Manager) NotifyPathsChanged(ctx context.Context, paths ...string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+
+	m.mu.Lock()
+	sessions := make([]*semanticSession, 0, len(m.sessions))
+	for _, session := range m.sessions {
+		sessions = append(sessions, session)
+	}
+	m.mu.Unlock()
+	if len(sessions) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(paths))
+	var joined error
+	for _, requestedPath := range paths {
+		if !filepath.IsAbs(requestedPath) {
+			joined = errors.Join(joined, xerrors.Errorf("semantic mutation path must be absolute: %q", requestedPath))
+			continue
+		}
+		path := filepath.Clean(requestedPath)
+		if resolved, err := filepath.EvalSymlinks(path); err == nil {
+			path = filepath.Clean(resolved)
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		for _, session := range sessions {
+			if err := session.refreshTrackedDocument(ctx, path); err != nil {
+				joined = errors.Join(joined, xerrors.Errorf("synchronize semantic document %q: %w", path, err))
+			}
+		}
+	}
+	return joined
+}
+
+func (s *semanticSession) refreshTrackedDocument(ctx context.Context, path string) error {
+	s.docsMu.Lock()
+	state, tracked := s.docs[path]
+	if !tracked {
+		s.docsMu.Unlock()
+		return nil
+	}
+	info, statErr := os.Stat(path)
+	if statErr != nil || !info.Mode().IsRegular() {
+		if err := s.client.notify(ctx, "textDocument/didClose", map[string]any{
+			"textDocument": map[string]any{"uri": state.uri},
+		}); err != nil {
+			s.docsMu.Unlock()
+			return err
+		}
+		delete(s.docs, path)
+		s.docsMu.Unlock()
+
+		s.pullDiagnosticsMu.Lock()
+		delete(s.pullDiagnostics, state.uri)
+		s.pullDiagnosticsMu.Unlock()
+
+		if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+			return statErr
+		}
+		return nil
+	}
+	s.docsMu.Unlock()
+
+	_, err := s.syncDocument(ctx, path, syncIfChanged)
+	return err
+}
+
 func (m *Manager) getSession(ctx context.Context, root string) (*semanticSession, error) {
 	if err := m.ensureOpen(); err != nil {
 		return nil, err
@@ -231,7 +305,7 @@ func (m *Manager) getSession(ctx context.Context, root string) (*semanticSession
 			return nil, semanticError(CodeBackendUnavailable, "Semantic manager is closed.", nil)
 		}
 
-		if info, err := os.Stat(trustedGoplsPath); err != nil || !info.Mode().IsRegular() {
+		if info, err := os.Stat(trustedGoplsPath); err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
 			if err == nil {
 				err = xerrors.Errorf("%s is not a regular executable file", trustedGoplsPath)
 			}
@@ -934,7 +1008,7 @@ func (m *Manager) FindSymbols(ctx context.Context, req workspacesdk.SemanticFind
 		return workspacesdk.SemanticFindSymbolsResponse{}, semanticError(CodeInvalidPath, "Semantic symbol root is invalid.", err)
 	}
 
-	var symbols []workspacesdk.SemanticSymbol
+	symbols := make([]workspacesdk.SemanticSymbol, 0)
 	coverage := workspacesdk.SemanticCoverage{Status: coverageComplete}
 	switch {
 	case info.Mode().IsRegular():

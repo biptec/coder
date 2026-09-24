@@ -306,6 +306,7 @@ func (api *API) HandleMoveFile(rw http.ResponseWriter, r *http.Request) {
 	if err := api.filesystem.Rename(req.Source, req.Dest); err != nil {
 		if destExists {
 			if rollbackErr := api.filesystem.Rename(backupPath, req.Dest); rollbackErr != nil {
+				api.notifyMutation(ctx, req.Dest, backupPath)
 				httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{Message: xerrors.Errorf("move path: %v; destination rollback also failed: %v; backup remains at %s", err, rollbackErr, backupPath).Error()})
 				return
 			}
@@ -327,6 +328,7 @@ func (api *API) HandleMoveFile(rw http.ResponseWriter, r *http.Request) {
 				httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{Message: xerrors.Errorf("move rolled back because destination backup cleanup failed: %w", cleanupErr).Error()})
 				return
 			}
+			api.notifyMutation(ctx, req.Source, req.Dest, backupPath)
 			httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{Message: xerrors.Errorf(
 				"partial move state after destination backup cleanup failed: cleanup=%v; restore_source=%v; restore_destination=%v; source=%s; destination=%s; backup=%s; do not retry blindly",
 				cleanupErr, restoreSourceErr, restoreDestErr, req.Source, req.Dest, backupPath,
@@ -340,5 +342,6 @@ func (api *API) HandleMoveFile(rw http.ResponseWriter, r *http.Request) {
 			api.pathStore.AddPaths(ids, []string{req.Source, req.Dest})
 		}
 	}
+	api.notifyMutation(ctx, req.Source, req.Dest)
 	httpapi.Write(ctx, rw, http.StatusOK, codersdk.Response{Message: "Path moved."})
 }

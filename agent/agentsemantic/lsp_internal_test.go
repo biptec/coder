@@ -1,4 +1,3 @@
-//nolint:testpackage // These tests intentionally exercise unexported semantic internals.
 package agentsemantic
 
 import (

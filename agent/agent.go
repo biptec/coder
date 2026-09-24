@@ -509,7 +509,18 @@ func (a *agent) init() {
 	a.containerAPI = agentcontainers.NewAPI(a.logger.Named("containers"), containerAPIOpts...)
 
 	pathStore := agentgit.NewPathStore()
-	a.filesAPI = agentfiles.NewAPI(a.logger.Named("files"), a.filesystem, pathStore)
+	semanticManager := agentsemantic.NewManager(a.gracefulCtx, a.logger.Named("semantic"), a.execer, a.updateCommandEnv)
+	a.semanticAPI = agentsemantic.NewAPI(semanticManager)
+	a.filesAPI = agentfiles.NewAPI(
+		a.logger.Named("files"),
+		a.filesystem,
+		pathStore,
+		agentfiles.WithMutationObserver(func(ctx context.Context, paths []string) {
+			if err := semanticManager.NotifyPathsChanged(ctx, paths...); err != nil {
+				a.logger.Warn(ctx, "semantic synchronization after file mutation failed", slog.Error(err))
+			}
+		}),
+	)
 	a.processAPI = agentproc.NewAPI(a.logger.Named("processes"), a.execer, a.filesystem, pathStore, a.envInfo, a.updateCommandEnv, func() string {
 		if m := a.manifest.Load(); m != nil {
 			return m.Directory
@@ -525,8 +536,6 @@ func (a *agent) init() {
 		}
 		return a.startCommandActivity(activitySource, command, argv, environment, workDir, tool)
 	}))
-	semanticManager := agentsemantic.NewManager(a.gracefulCtx, a.logger.Named("semantic"), a.execer, a.updateCommandEnv)
-	a.semanticAPI = agentsemantic.NewAPI(semanticManager)
 	gitOpts := append([]agentgit.Option{
 		agentgit.WithClock(a.clock),
 		agentgit.WithWorkingDirectory(func() string {

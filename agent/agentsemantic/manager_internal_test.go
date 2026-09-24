@@ -1,4 +1,3 @@
-//nolint:testpackage // These tests intentionally exercise unexported semantic internals.
 package agentsemantic
 
 import (
@@ -6,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -78,6 +78,73 @@ func OtherCaller() int {
 }
 `), 0o600))
 	return root, path
+}
+
+func TestNotifyPathsChangedDoesNotStartBackend(t *testing.T) {
+	t.Parallel()
+
+	manager := newLiveGoplsManager(t)
+	path := filepath.Join(t.TempDir(), "untracked.go")
+	require.NoError(t, os.WriteFile(path, []byte("package untracked\n"), 0o600))
+
+	require.NoError(t, manager.NotifyPathsChanged(context.Background(), path))
+
+	manager.mu.Lock()
+	sessionCount := len(manager.sessions)
+	manager.mu.Unlock()
+	require.Zero(t, sessionCount)
+}
+
+//nolint:paralleltest // Live gopls integration is intentionally serialized to avoid resource contention.
+func TestNotifyPathsChangedRefreshesTrackedDocument(t *testing.T) {
+	if _, err := os.Stat(trustedGoplsPath); err != nil {
+		t.Skipf("gopls is not installed in this test environment: %v", err)
+	}
+
+	_, path := writeSemanticFixture(t)
+	manager := newLiveGoplsManager(t)
+	ctx := testutil.Context(t, testutil.WaitLong)
+
+	symbols, err := manager.FindSymbols(ctx, workspacesdk.SemanticFindSymbolsRequest{
+		Root: path, Query: "Target", Match: "exact", Kinds: []string{"function"}, Limit: 20,
+	})
+	require.NoError(t, err)
+	require.Len(t, symbols.Symbols, 1)
+
+	projectRoot, err := goProjectRootForFile(path)
+	require.NoError(t, err)
+	key := languageGo + ":" + projectRoot
+	manager.mu.Lock()
+	session := manager.sessions[key]
+	manager.mu.Unlock()
+	require.NotNil(t, session)
+
+	session.docsMu.Lock()
+	before := session.docs[path]
+	session.docsMu.Unlock()
+	require.Positive(t, before.version)
+
+	contents, err := os.ReadFile(path)
+	require.NoError(t, err)
+	updated := strings.Replace(string(contents), "return value + 1", "return value + 2", 1)
+	require.NotEqual(t, string(contents), updated)
+	require.NoError(t, os.WriteFile(path, []byte(updated), 0o600))
+
+	require.NoError(t, manager.NotifyPathsChanged(ctx, path))
+
+	session.docsMu.Lock()
+	after := session.docs[path]
+	session.docsMu.Unlock()
+	require.Greater(t, after.version, before.version)
+	require.NotEqual(t, before.hash, after.hash)
+
+	require.NoError(t, os.Remove(path))
+	require.NoError(t, manager.NotifyPathsChanged(ctx, path))
+
+	session.docsMu.Lock()
+	_, tracked := session.docs[path]
+	session.docsMu.Unlock()
+	require.False(t, tracked)
 }
 
 func TestDecodeDocumentSymbolResponseForms(t *testing.T) {
@@ -251,6 +318,16 @@ func TestManagerGoSemanticFlow(t *testing.T) {
 	require.Equal(t, path, targetResponse.Symbols[0].Path)
 	require.NotNil(t, targetResponse.Symbols[0].Context)
 	require.Equal(t, 1, targetResponse.ReturnedCount)
+
+	missing, err := manager.FindSymbols(ctx, workspacesdk.SemanticFindSymbolsRequest{
+		Root: path, Query: "DefinitelyMissingSymbol", Match: "exact", Limit: 20,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, missing.Symbols)
+	require.Empty(t, missing.Symbols)
+	missingJSON, err := json.Marshal(missing)
+	require.NoError(t, err)
+	require.Contains(t, string(missingJSON), `"symbols":[]`)
 
 	prefix, err := manager.FindSymbols(ctx, workspacesdk.SemanticFindSymbolsRequest{
 		Root: root, Query: "Targ", Match: "prefix", Limit: 1,

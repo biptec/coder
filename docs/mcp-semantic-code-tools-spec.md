@@ -6,7 +6,7 @@ Target branch family: custom/v2.35.3
 Baseline public API: docs/mcp-public-api-spec-next.md
 Approval date: 2026-09-23
 Initial implementation scope: Go only, using the gopls already present in the Developer Workspace image
-Primary contract rule: after approval, this document becomes the implementation contract for the four semantic code tools. Implementation must be reconciled against this document before PR review.
+Primary contract rule: this document is the authoritative implementation contract for the four semantic code tools. Implementation must be reconciled against this document before PR review.
 
 ---
 
@@ -2001,7 +2001,7 @@ If a future language has semantics that cannot be represented correctly by this 
 
 ## 25. Implementation boundaries
 
-Approval of this document would authorize implementation of the Go MVP only.
+Approval of this document authorizes implementation of the Go MVP only.
 
 It would not automatically authorize:
 
