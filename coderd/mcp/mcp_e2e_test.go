@@ -1641,6 +1641,7 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 		"execute_shell_command",
 		"start_process", "read_process_output", "list_sessions", "list_processes", "interact_with_process", "signal_process",
 		"list_apps", "get_workspace_capabilities", "list_recent_tool_calls",
+		"find_symbol", "find_references", "find_implementations", "get_diagnostics",
 	}, developerTools)
 	assert.NotContains(t, developerTools, "port_forward")
 	assert.NotContains(t, developerTools, toolsdk.ToolNameWorkspaceReadFile)
