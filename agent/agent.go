@@ -48,6 +48,7 @@ import (
 	"github.com/coder/coder/v2/agent/agentgit"
 	"github.com/coder/coder/v2/agent/agentproc"
 	"github.com/coder/coder/v2/agent/agentscripts"
+	"github.com/coder/coder/v2/agent/agentsemantic"
 	"github.com/coder/coder/v2/agent/agentsocket"
 	"github.com/coder/coder/v2/agent/agentssh"
 	"github.com/coder/coder/v2/agent/boundarylogproxy"
@@ -374,6 +375,7 @@ type agent struct {
 	filesAPI         *agentfiles.API
 	gitAPI           *agentgit.API
 	processAPI       *agentproc.API
+	semanticAPI      *agentsemantic.API
 	desktopAPI       *agentdesktop.API
 	mcpManager       *agentmcp.Manager
 	mcpAPI           *agentmcp.API
@@ -523,6 +525,8 @@ func (a *agent) init() {
 		}
 		return a.startCommandActivity(activitySource, command, argv, environment, workDir, tool)
 	}))
+	semanticManager := agentsemantic.NewManager(a.gracefulCtx, a.logger.Named("semantic"), a.execer, a.updateCommandEnv)
+	a.semanticAPI = agentsemantic.NewAPI(semanticManager)
 	gitOpts := append([]agentgit.Option{
 		agentgit.WithClock(a.clock),
 		agentgit.WithWorkingDirectory(func() string {
@@ -2644,6 +2648,12 @@ func (a *agent) Close() error {
 
 	if err := a.containerAPI.Close(); err != nil {
 		a.logger.Error(a.hardCtx, "container API close", slog.Error(err))
+	}
+
+	if a.semanticAPI != nil {
+		if err := a.semanticAPI.Close(); err != nil {
+			a.logger.Error(a.hardCtx, "semantic API close", slog.Error(err))
+		}
 	}
 
 	if err := a.processAPI.Close(); err != nil {

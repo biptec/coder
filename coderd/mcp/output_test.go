@@ -136,6 +136,94 @@ func TestAssistantToolHandlerErrorsAreModelReadable(t *testing.T) {
 	require.Contains(t, textContent(t, result.Content[0]), "overwrite=true")
 }
 
+func TestSemanticInputValidationRejectsUnknownProperties(t *testing.T) {
+	t.Parallel()
+
+	tool := mcpFromSDK(toolsdk.WorkspaceFindReferences.Generic(), toolsdk.Deps{})
+	rewriteAssistantToolSemantics(&tool.Tool, "find_references")
+	tool = withAssistantInputValidation(tool, "find_references")
+
+	result, err := tool.Handler(context.Background(), mcpsdk.CallToolRequest{Params: mcpsdk.CallToolParams{
+		Arguments: map[string]any{
+			"workspace": "owner/workspace",
+			"target": map[string]any{
+				"path": "/repo/file.go", "line": float64(1), "column": float64(1),
+				"unexpected": true,
+			},
+			"limit": float64(20),
+		},
+	}})
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+	require.Contains(t, textContent(t, result.Content[0]), "Additional property unexpected is not allowed")
+
+	marshaled, err := json.Marshal(tool.Tool)
+	require.NoError(t, err)
+	require.Contains(t, string(marshaled), "\"additionalProperties\":false")
+}
+
+func TestSemanticToolErrorsKeepStructuredRecoveryCode(t *testing.T) {
+	t.Parallel()
+
+	tool := server.ServerTool{
+		Handler: func(context.Context, mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
+			return nil, xerrors.Errorf("find semantic references: %w", &workspacesdk.SemanticError{
+				Code:    "unsupported_language",
+				Message: "The current semantic implementation supports Go only.",
+				Detail:  "detected Python",
+			})
+		},
+	}
+	tool = withAssistantOutputRendering(tool, "find_references", 1<<20)
+
+	result, err := tool.Handler(context.Background(), mcpsdk.CallToolRequest{})
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+	structured, ok := result.StructuredContent.(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "unsupported_language", structured["code"])
+	require.Equal(t, "The current semantic implementation supports Go only.", structured["message"])
+	require.Equal(t, "detected Python", structured["detail"])
+}
+
+func TestSemanticOutputRenderingRejectsOversizeResultWithRecoveryCode(t *testing.T) {
+	t.Parallel()
+
+	value := workspacesdk.SemanticFindSymbolsResponse{
+		Symbols: []workspacesdk.SemanticSymbol{{
+			Name:     "Target",
+			Kind:     "function",
+			Language: "go",
+			Path:     "/repo/target.go",
+			Detail:   strings.Repeat("x", 4096),
+			SelectionRange: workspacesdk.SemanticRange{
+				Start: workspacesdk.SemanticPosition{Line: 1, Column: 1},
+				End:   workspacesdk.SemanticPosition{Line: 1, Column: 7},
+			},
+			Locator: workspacesdk.SemanticTarget{Path: "/repo/target.go", Line: 1, Column: 1},
+		}},
+		ReturnedCount: 1,
+		ObservedCount: 1,
+		Coverage:      workspacesdk.SemanticCoverage{Status: "complete"},
+	}
+	tool := server.ServerTool{
+		Handler: func(context.Context, mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
+			return mcpsdk.NewToolResultText(string(mustJSON(t, value))), nil
+		},
+	}
+	tool.Tool.OutputSchema = assistantOutputSchema("find_symbol")
+	tool = withAssistantOutputRendering(tool, "find_symbol", 1024)
+
+	result, err := tool.Handler(context.Background(), mcpsdk.CallToolRequest{})
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+	structured, ok := result.StructuredContent.(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "response_too_large", structured["code"])
+	require.Contains(t, structured["message"], "MCP response safety budget")
+	require.NotContains(t, textContent(t, result.Content[0]), strings.Repeat("x", 128))
+}
+
 func TestAssistantOutputRenderingRejectsOversizeProcessUnlimitedResult(t *testing.T) {
 	t.Parallel()
 
@@ -526,6 +614,18 @@ func TestEveryDeveloperAliasHasRenderableFixtureMatchingSchema(t *testing.T) {
 		"signal_process":             {args: map[string]any{"process_id": "p", "signal": "interrupt"}, value: toolsdk.WorkspaceProcessSignalResult{Success: true}},
 		"list_sessions":              {value: toolsdk.WorkspaceProcessListResult{}},
 		"list_processes":             {value: toolsdk.WorkspaceListSystemProcessesResult{}},
+		"find_symbol": {value: workspacesdk.SemanticFindSymbolsResponse{
+			Symbols: []workspacesdk.SemanticSymbol{}, Coverage: workspacesdk.SemanticCoverage{Status: "complete"},
+		}},
+		"find_references": {value: workspacesdk.SemanticFindReferencesResponse{
+			Target: workspacesdk.SemanticTarget{Path: "/a.go", Line: 1, Column: 1}, References: []workspacesdk.SemanticReference{}, Coverage: workspacesdk.SemanticCoverage{Status: "complete"},
+		}},
+		"find_implementations": {value: workspacesdk.SemanticFindImplementationsResponse{
+			Target: workspacesdk.SemanticTarget{Path: "/a.go", Line: 1, Column: 1}, Implementations: []workspacesdk.SemanticImplementation{}, Coverage: workspacesdk.SemanticCoverage{Status: "complete"},
+		}},
+		"get_diagnostics": {value: workspacesdk.SemanticDiagnosticsResponse{
+			Files: []workspacesdk.SemanticDiagnosticFileStatus{}, Diagnostics: []workspacesdk.SemanticDiagnostic{}, Coverage: workspacesdk.SemanticCoverage{Status: "complete"},
+		}},
 	}
 
 	require.Len(t, developerToolAliases, len(fixtures))

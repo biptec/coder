@@ -32,6 +32,9 @@ func (a *agent) apiHandler() http.Handler {
 	r.Mount("/api/v0", a.filesAPI.Routes())
 	r.Mount("/api/v0/git", a.gitAPI.Routes())
 	r.Mount("/api/v0/processes", a.processAPI.Routes())
+	if a.semanticAPI != nil {
+		r.Mount("/api/v0/semantic", a.semanticAPI.Routes())
+	}
 	r.Mount("/api/v0/desktop", a.desktopAPI.Routes())
 	r.Mount("/api/v0/mcp", a.mcpAPI.Routes())
 	r.Mount("/api/v0/context-config", a.contextConfigAPI.Routes())

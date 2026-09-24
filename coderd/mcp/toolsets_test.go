@@ -39,6 +39,10 @@ func TestDeveloperToolAliases(t *testing.T) {
 		toolsdk.ToolNameWorkspaceProcessSignal:       "signal_process",
 		toolsdk.ToolNameWorkspaceListApps:            "list_apps",
 		toolsdk.ToolNameWorkspaceCapabilities:        "get_workspace_capabilities",
+		toolsdk.ToolNameWorkspaceFindSymbol:          "find_symbol",
+		toolsdk.ToolNameWorkspaceFindReferences:      "find_references",
+		toolsdk.ToolNameWorkspaceFindImplementations: "find_implementations",
+		toolsdk.ToolNameWorkspaceGetDiagnostics:      "get_diagnostics",
 	}
 
 	require.Len(t, developerToolAliases, len(expected))
@@ -83,6 +87,10 @@ func TestReadonlyToolAliases(t *testing.T) {
 		toolsdk.ToolNameWorkspaceListSystemProcesses: {},
 		toolsdk.ToolNameWorkspaceListApps:            {},
 		toolsdk.ToolNameWorkspaceCapabilities:        {},
+		toolsdk.ToolNameWorkspaceFindSymbol:          {},
+		toolsdk.ToolNameWorkspaceFindReferences:      {},
+		toolsdk.ToolNameWorkspaceFindImplementations: {},
+		toolsdk.ToolNameWorkspaceGetDiagnostics:      {},
 	}
 
 	developer := make(map[string]string, len(developerToolAliases))
@@ -129,6 +137,10 @@ func TestDeveloperToolSchemasAreFrozen(t *testing.T) {
 		"list_processes":             {[]string{"workspace", "limit"}, []string{"workspace", "cursor", "limit", "filter"}},
 		"interact_with_process":      {[]string{"workspace", "process_id", "limit"}, []string{"workspace", "process_id", "data", "close", "wait_timeout_ms", "limit"}},
 		"signal_process":             {[]string{"workspace", "process_id", "signal"}, []string{"workspace", "process_id", "signal"}},
+		"find_symbol":                {[]string{"workspace", "root", "query", "limit"}, []string{"workspace", "root", "query", "match", "kinds", "limit", "context_lines"}},
+		"find_references":            {[]string{"workspace", "target", "limit"}, []string{"workspace", "target", "include_declaration", "scope_path", "limit", "context_lines"}},
+		"find_implementations":       {[]string{"workspace", "target", "limit"}, []string{"workspace", "target", "scope_path", "limit", "context_lines"}},
+		"get_diagnostics":            {[]string{"workspace", "paths", "limit"}, []string{"workspace", "paths", "minimum_severity", "include_related_information", "limit", "context_lines"}},
 	}
 	require.Len(t, expected, len(developerToolAliases))
 
@@ -217,6 +229,10 @@ func TestDeveloperToolAnnotations(t *testing.T) {
 		"signal_process":             {false, true, false, true},
 		"list_sessions":              {true, false, true, false},
 		"list_processes":             {true, false, true, false},
+		"find_symbol":                {true, false, true, true},
+		"find_references":            {true, false, true, true},
+		"find_implementations":       {true, false, true, true},
+		"get_diagnostics":            {true, false, true, true},
 	}
 	require.Len(t, expected, len(developerToolAliases))
 

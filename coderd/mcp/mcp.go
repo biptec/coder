@@ -213,35 +213,39 @@ type toolAlias struct {
 // for example, "read_process_output" must never become
 // "read_read_process_output".
 var assistantToolReferenceAliases = map[string]string{
-	toolsdk.ToolNameWorkspaceReadFilesV2:    "read_multiple_files",
-	toolsdk.ToolNameWorkspaceFileInfo:       "get_file_info",
-	toolsdk.ToolNameWorkspaceEditFiles:      "edit_multiple_files",
-	toolsdk.ToolNameWorkspaceSearchStart:    "start_search",
-	toolsdk.ToolNameWorkspaceSearchResults:  "get_search_results",
-	toolsdk.ToolNameWorkspaceSearchList:     "list_searches",
-	toolsdk.ToolNameWorkspaceSearchStop:     "stop_search",
-	toolsdk.ToolNameWorkspaceBash:           "execute_shell_command",
-	toolsdk.ToolNameWorkspaceExec:           "start_process",
-	toolsdk.ToolNameWorkspaceProcessStartV2: "start_process",
-	toolsdk.ToolNameWorkspaceProcessStart:   "start_process",
-	toolsdk.ToolNameWorkspaceProcessOutput:  "read_process_output",
-	toolsdk.ToolNameWorkspaceProcessList:    "list_sessions",
-	toolsdk.ToolNameWorkspaceProcessInput:   "interact_with_process",
-	toolsdk.ToolNameWorkspaceProcessSignal:  "signal_process",
-	toolsdk.ToolNameWorkspaceCapabilities:   "get_workspace_capabilities",
-	"read_files":                            "read_multiple_files",
-	"file_info":                             "get_file_info",
-	"edit_files":                            "edit_multiple_files",
-	"search_start":                          "start_search",
-	"search_results":                        "get_search_results",
-	"search_list":                           "list_searches",
-	"search_stop":                           "stop_search",
-	"process_start":                         "start_process",
-	"process_output":                        "read_process_output",
-	"process_list":                          "list_sessions",
-	"process_input":                         "interact_with_process",
-	"process_signal":                        "signal_process",
-	"recent_activity":                       "list_recent_tool_calls",
+	toolsdk.ToolNameWorkspaceReadFilesV2:         "read_multiple_files",
+	toolsdk.ToolNameWorkspaceFileInfo:            "get_file_info",
+	toolsdk.ToolNameWorkspaceEditFiles:           "edit_multiple_files",
+	toolsdk.ToolNameWorkspaceSearchStart:         "start_search",
+	toolsdk.ToolNameWorkspaceSearchResults:       "get_search_results",
+	toolsdk.ToolNameWorkspaceSearchList:          "list_searches",
+	toolsdk.ToolNameWorkspaceSearchStop:          "stop_search",
+	toolsdk.ToolNameWorkspaceBash:                "execute_shell_command",
+	toolsdk.ToolNameWorkspaceExec:                "start_process",
+	toolsdk.ToolNameWorkspaceProcessStartV2:      "start_process",
+	toolsdk.ToolNameWorkspaceProcessStart:        "start_process",
+	toolsdk.ToolNameWorkspaceProcessOutput:       "read_process_output",
+	toolsdk.ToolNameWorkspaceProcessList:         "list_sessions",
+	toolsdk.ToolNameWorkspaceProcessInput:        "interact_with_process",
+	toolsdk.ToolNameWorkspaceProcessSignal:       "signal_process",
+	toolsdk.ToolNameWorkspaceCapabilities:        "get_workspace_capabilities",
+	toolsdk.ToolNameWorkspaceFindSymbol:          "find_symbol",
+	toolsdk.ToolNameWorkspaceFindReferences:      "find_references",
+	toolsdk.ToolNameWorkspaceFindImplementations: "find_implementations",
+	toolsdk.ToolNameWorkspaceGetDiagnostics:      "get_diagnostics",
+	"read_files":                                 "read_multiple_files",
+	"file_info":                                  "get_file_info",
+	"edit_files":                                 "edit_multiple_files",
+	"search_start":                               "start_search",
+	"search_results":                             "get_search_results",
+	"search_list":                                "list_searches",
+	"search_stop":                                "stop_search",
+	"process_start":                              "start_process",
+	"process_output":                             "read_process_output",
+	"process_list":                               "list_sessions",
+	"process_input":                              "interact_with_process",
+	"process_signal":                             "signal_process",
+	"recent_activity":                            "list_recent_tool_calls",
 }
 
 func rewriteAssistantToolReferences(input string) string {
@@ -301,6 +305,10 @@ var developerToolAliases = []toolAlias{
 	{SDKName: toolsdk.ToolNameWorkspaceProcessSignal, MCPName: "signal_process"},
 	{SDKName: toolsdk.ToolNameWorkspaceListApps, MCPName: "list_apps"},
 	{SDKName: toolsdk.ToolNameWorkspaceCapabilities, MCPName: "get_workspace_capabilities"},
+	{SDKName: toolsdk.ToolNameWorkspaceFindSymbol, MCPName: "find_symbol"},
+	{SDKName: toolsdk.ToolNameWorkspaceFindReferences, MCPName: "find_references"},
+	{SDKName: toolsdk.ToolNameWorkspaceFindImplementations, MCPName: "find_implementations"},
+	{SDKName: toolsdk.ToolNameWorkspaceGetDiagnostics, MCPName: "get_diagnostics"},
 }
 
 var readonlyToolAliases = []toolAlias{
@@ -319,6 +327,10 @@ var readonlyToolAliases = []toolAlias{
 	{SDKName: toolsdk.ToolNameWorkspaceListSystemProcesses, MCPName: "list_processes"},
 	{SDKName: toolsdk.ToolNameWorkspaceListApps, MCPName: "list_apps"},
 	{SDKName: toolsdk.ToolNameWorkspaceCapabilities, MCPName: "get_workspace_capabilities"},
+	{SDKName: toolsdk.ToolNameWorkspaceFindSymbol, MCPName: "find_symbol"},
+	{SDKName: toolsdk.ToolNameWorkspaceFindReferences, MCPName: "find_references"},
+	{SDKName: toolsdk.ToolNameWorkspaceFindImplementations, MCPName: "find_implementations"},
+	{SDKName: toolsdk.ToolNameWorkspaceGetDiagnostics, MCPName: "get_diagnostics"},
 }
 
 // ActivityToolNames returns the assistant-facing tool names exposed by the
@@ -393,6 +405,10 @@ func assistantToolsBySDKName() map[string]toolsdk.GenericTool {
 	toolsByName[toolsdk.ToolNameWorkspaceSearchList] = toolsdk.WorkspaceSearchList.Generic()
 	toolsByName[toolsdk.ToolNameWorkspaceSearchStop] = toolsdk.WorkspaceSearchStop.Generic()
 	toolsByName[toolsdk.ToolNameWorkspaceCapabilities] = toolsdk.WorkspaceCapabilities.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceFindSymbol] = toolsdk.WorkspaceFindSymbol.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceFindReferences] = toolsdk.WorkspaceFindReferences.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceFindImplementations] = toolsdk.WorkspaceFindImplementations.Generic()
+	toolsByName[toolsdk.ToolNameWorkspaceGetDiagnostics] = toolsdk.WorkspaceGetDiagnostics.Generic()
 	return toolsByName
 }
 
