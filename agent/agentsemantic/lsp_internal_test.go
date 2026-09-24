@@ -56,6 +56,32 @@ func TestServerApplyEditIsRejected(t *testing.T) {
 	require.Equal(t, "Coder semantic tools are read-only", response.Result.FailureReason)
 }
 
+func TestProgressNotificationTracksBackendReadiness(t *testing.T) {
+	t.Parallel()
+
+	client := &lspClient{
+		progress:       make(map[string]lspProgressState),
+		progressNotify: make(chan struct{}, 1),
+		done:           make(chan struct{}),
+	}
+	const token = "rustAnalyzer/cachePriming"
+
+	client.handleNotification("$/progress", json.RawMessage(`{"token":"rustAnalyzer/cachePriming","value":{"kind":"begin","title":"Indexing"}}`))
+	client.progressMu.Lock()
+	state := client.progress[token]
+	client.progressMu.Unlock()
+	require.True(t, state.seen)
+	require.False(t, state.done)
+
+	client.handleNotification("$/progress", json.RawMessage(`{"token":"rustAnalyzer/cachePriming","value":{"kind":"end"}}`))
+	client.progressMu.Lock()
+	state = client.progress[token]
+	client.progressMu.Unlock()
+	require.True(t, state.seen)
+	require.True(t, state.done)
+	require.NoError(t, client.waitForProgressEnd(t.Context(), token))
+}
+
 func TestReadLSPMessageRejectsOversizeFrameBeforeAllocation(t *testing.T) {
 	t.Parallel()
 

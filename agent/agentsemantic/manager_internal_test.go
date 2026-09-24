@@ -18,7 +18,7 @@ import (
 	"github.com/coder/coder/v2/testutil"
 )
 
-func newLiveGoplsManager(t *testing.T) *Manager {
+func newLiveSemanticManager(t *testing.T) *Manager {
 	t.Helper()
 	manager := NewManager(
 		context.Background(),
@@ -30,6 +30,11 @@ func newLiveGoplsManager(t *testing.T) *Manager {
 		require.NoError(t, manager.Close())
 	})
 	return manager
+}
+
+func newLiveGoplsManager(t *testing.T) *Manager {
+	t.Helper()
+	return newLiveSemanticManager(t)
 }
 
 func writeSemanticFixture(t *testing.T) (root, path string) {
@@ -768,14 +773,14 @@ func TestManagerDiagnosticsMixedLanguagesArePartial(t *testing.T) {
 	}
 
 	root, goPath := writeSemanticFixture(t)
-	pythonPath := filepath.Join(root, "example.py")
-	require.NoError(t, os.WriteFile(pythonPath, []byte("value = 1\n"), 0o600))
+	unsupportedPath := filepath.Join(root, "Example.java")
+	require.NoError(t, os.WriteFile(unsupportedPath, []byte("class Example {}\n"), 0o600))
 
 	manager := newLiveGoplsManager(t)
 	ctx := testutil.Context(t, testutil.WaitLong)
 
 	result, err := manager.GetDiagnostics(ctx, workspacesdk.SemanticDiagnosticsRequest{
-		Paths: []string{goPath, pythonPath}, Limit: 20,
+		Paths: []string{goPath, unsupportedPath}, Limit: 20,
 	})
 	require.NoError(t, err)
 	require.Len(t, result.Files, 2)
@@ -786,19 +791,19 @@ func TestManagerDiagnosticsMixedLanguagesArePartial(t *testing.T) {
 		statuses[file.Path] = file.Status
 	}
 	require.Equal(t, statusOK, statuses[goPath])
-	require.Equal(t, statusUnsupported, statuses[pythonPath])
+	require.Equal(t, statusUnsupported, statuses[unsupportedPath])
 }
 
 func TestManagerDiagnosticsMixedFailuresReturnPerFileStatuses(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	pythonPath := filepath.Join(root, "example.py")
-	require.NoError(t, os.WriteFile(pythonPath, []byte("value = 1\n"), 0o600))
+	unsupportedPath := filepath.Join(root, "Example.java")
+	require.NoError(t, os.WriteFile(unsupportedPath, []byte("class Example {}\n"), 0o600))
 	missingGoPath := filepath.Join(root, "missing.go")
 
 	manager := newLiveGoplsManager(t)
 	result, err := manager.GetDiagnostics(context.Background(), workspacesdk.SemanticDiagnosticsRequest{
-		Paths: []string{pythonPath, missingGoPath},
+		Paths: []string{unsupportedPath, missingGoPath},
 		Limit: 20,
 	})
 	require.NoError(t, err)
@@ -810,7 +815,7 @@ func TestManagerDiagnosticsMixedFailuresReturnPerFileStatuses(t *testing.T) {
 	for _, file := range result.Files {
 		statuses[file.Path] = file.Status
 	}
-	require.Equal(t, statusUnsupported, statuses[pythonPath])
+	require.Equal(t, statusUnsupported, statuses[unsupportedPath])
 	require.Equal(t, statusError, statuses[missingGoPath])
 }
 
@@ -1033,8 +1038,8 @@ func TestPublicRangeEndIsExclusive(t *testing.T) {
 func TestManagerUnsupportedLanguageIsExplicit(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	path := filepath.Join(root, "example.py")
-	require.NoError(t, os.WriteFile(path, []byte("value = 1\n"), 0o600))
+	path := filepath.Join(root, "Example.java")
+	require.NoError(t, os.WriteFile(path, []byte("class Example {}\n"), 0o600))
 
 	manager := newLiveGoplsManager(t)
 	_, err := manager.FindReferences(context.Background(), workspacesdk.SemanticFindReferencesRequest{

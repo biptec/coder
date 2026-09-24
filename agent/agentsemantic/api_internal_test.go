@@ -95,8 +95,8 @@ func TestAPIStrictJSONRejectsUnknownField(t *testing.T) {
 func TestAPIUnsupportedLanguageKeepsStableCode(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	path := filepath.Join(root, "example.py")
-	require.NoError(t, os.WriteFile(path, []byte("value = 1\n"), 0o600))
+	path := filepath.Join(root, "Example.java")
+	require.NoError(t, os.WriteFile(path, []byte("class Example {}\n"), 0o600))
 
 	api := newSemanticTestAPI(t)
 	response := semanticPOST(t, api.Routes(), "/references", workspacesdk.SemanticFindReferencesRequest{
@@ -108,5 +108,5 @@ func TestAPIUnsupportedLanguageKeepsStableCode(t *testing.T) {
 	var semanticErr workspacesdk.SemanticErrorResponse
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &semanticErr))
 	require.Equal(t, CodeUnsupportedLanguage, semanticErr.Code)
-	require.Contains(t, semanticErr.Message, "current semantic implementation supports Go only")
+	require.Contains(t, semanticErr.Message, "No semantic backend is available")
 }

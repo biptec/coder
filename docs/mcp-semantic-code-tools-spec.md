@@ -2064,3 +2064,36 @@ The following decisions are intentionally explicit so they can be approved or ch
 17. production deployment remains separately approved.
 
 These contract decisions were accepted by the human reviewer on 2026-09-23. Any material deviation discovered during implementation must return to review before changing the public contract.
+
+---
+
+## 28. Approved multi-language expansion
+
+The Go MVP remains the public API baseline. On 2026-09-24 the backend scope was expanded, without changing the four tool names, public schemas, locator format, limit semantics, or error model, to:
+
+- Go: `gopls v0.21.0`;
+- TypeScript/JavaScript: `typescript-language-server 5.3.0` with pinned `TypeScript 6.0.3`;
+- Python: `basedpyright 1.40.1`;
+- Rust: `rust-analyzer 0.3.3057` from the `2026-09-21` release.
+
+TypeScript language-server 5.3.0 is retained because the currently pinned Developer Workspace Node runtime is 22.19.0; upgrading Node is outside this scope.
+
+### 28.1 File and project mapping
+
+Supported mappings are `.go`; `.ts`, `.mts`, `.cts`, `.tsx`; `.js`, `.mjs`, `.cjs`, `.jsx`; `.py`, `.pyi`; and `.rs`. Other languages remain `unsupported_language`.
+
+Project roots are discovered from the existing Go module/workspace rules, TypeScript/JavaScript `tsconfig.json` / `jsconfig.json` / `package.json`, Python `pyrightconfig.json` / `pyproject.toml` / `setup.cfg` / `setup.py`, and Rust `Cargo.toml` / `rust-project.json`. Directory lookup may contain multiple backend/project-root sessions.
+
+### 28.2 Lifecycle and readiness
+
+All backends remain lazy and persistent for the Workspace Agent lifetime, shared across MCP sessions and keyed by backend plus project root. No semantic operation falls back to textual search.
+
+Cold directory `find_symbol` must not rely on a fixed sleep. TypeScript/JavaScript and BasedPyright synchronize a representative source document and wait for the matching diagnostics publication before `workspace/symbol`. Rust project startup waits for rust-analyzer's `rustAnalyzer/cachePriming` work-done progress to finish when a Cargo or rust-project root is present, then synchronizes a representative source document before workspace-symbol lookup.
+
+### 28.3 Immutable image dependencies
+
+The Developer Workspace image must provide stable paths for `/usr/local/bin/typescript-language-server`, `/usr/local/bin/tsc`, `/usr/local/bin/basedpyright-langserver`, `/usr/local/bin/basedpyright`, and `/usr/local/bin/rust-analyzer`. The pinned TypeScript runtime used by the Agent is exposed as the non-executable data path `/usr/local/lib/developer-workspace/typescript/tsserver.js`; the Agent must not depend on mise's internal install layout. The pinned Rust 1.98.0 toolchain also includes `rust-src`.
+
+### 28.4 Acceptance
+
+Completion requires pinned manifest/lock entries, rootfs and running-system verification, real LSP tests for file symbols/references/implementations/diagnostics, cold directory symbol lookup for TypeScript, Python and Rust, unchanged Go behavior and public MCP schemas, and explicit production deployment approval.

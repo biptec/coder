@@ -155,6 +155,10 @@ type lspClient struct {
 	diagnostics map[string]lspDiagnosticSnapshot
 	diagNotify  chan struct{}
 
+	progressMu     sync.Mutex
+	progress       map[string]lspProgressState
+	progressNotify chan struct{}
+
 	rootURI  string
 	rootName string
 
@@ -193,18 +197,20 @@ func newLSPClient(parent context.Context, root string, command func(context.Cont
 	}
 
 	client := &lspClient{
-		ctx:         ctx,
-		cancel:      cancel,
-		cmd:         cmd,
-		stdin:       stdin,
-		stdout:      bufio.NewReaderSize(stdout, 64<<10),
-		stderr:      stderr,
-		pending:     make(map[string]chan rpcResponse),
-		diagnostics: make(map[string]lspDiagnosticSnapshot),
-		diagNotify:  make(chan struct{}, 1),
-		rootURI:     pathToFileURI(root),
-		rootName:    filepath.Base(root),
-		done:        make(chan struct{}),
+		ctx:            ctx,
+		cancel:         cancel,
+		cmd:            cmd,
+		stdin:          stdin,
+		stdout:         bufio.NewReaderSize(stdout, 64<<10),
+		stderr:         stderr,
+		pending:        make(map[string]chan rpcResponse),
+		diagnostics:    make(map[string]lspDiagnosticSnapshot),
+		diagNotify:     make(chan struct{}, 1),
+		progress:       make(map[string]lspProgressState),
+		progressNotify: make(chan struct{}, 1),
+		rootURI:        pathToFileURI(root),
+		rootName:       filepath.Base(root),
+		done:           make(chan struct{}),
 	}
 	go client.readLoop()
 	go func() {
@@ -218,7 +224,7 @@ func newLSPClient(parent context.Context, root string, command func(context.Cont
 	return client, nil
 }
 
-func (c *lspClient) initialize(ctx context.Context) error {
+func (c *lspClient) initialize(ctx context.Context, initializationOptions map[string]any) error {
 	params := map[string]any{
 		"processId": nil,
 		"clientInfo": map[string]any{
@@ -231,6 +237,9 @@ func (c *lspClient) initialize(ctx context.Context) error {
 			"name": c.rootName,
 		}},
 		"capabilities": map[string]any{
+			"window": map[string]any{
+				"workDoneProgress": true,
+			},
 			"general": map[string]any{
 				"positionEncodings": []string{"utf-8", "utf-16"},
 			},
@@ -270,6 +279,9 @@ func (c *lspClient) initialize(ctx context.Context) error {
 				},
 			},
 		},
+	}
+	if initializationOptions != nil {
+		params["initializationOptions"] = initializationOptions
 	}
 	var result lspInitializeResult
 	if err := c.requestInto(ctx, "initialize", params, &result); err != nil {
@@ -476,25 +488,59 @@ func readLSPMessage(reader *bufio.Reader) ([]byte, error) {
 }
 
 func (c *lspClient) handleNotification(method string, params json.RawMessage) {
-	if method != "textDocument/publishDiagnostics" {
-		return
-	}
-	var published lspPublishDiagnosticsParams
-	if json.Unmarshal(params, &published) != nil || published.URI == "" {
-		return
-	}
-	c.diagMu.Lock()
-	c.diagSeq++
-	snapshot := lspDiagnosticSnapshot{
-		seq:         c.diagSeq,
-		version:     published.Version,
-		diagnostics: append([]lspDiagnostic(nil), published.Diagnostics...),
-	}
-	c.diagnostics[published.URI] = snapshot
-	c.diagMu.Unlock()
-	select {
-	case c.diagNotify <- struct{}{}:
-	default:
+	switch method {
+	case "textDocument/publishDiagnostics":
+		var published lspPublishDiagnosticsParams
+		if json.Unmarshal(params, &published) != nil || published.URI == "" {
+			return
+		}
+		c.diagMu.Lock()
+		c.diagSeq++
+		snapshot := lspDiagnosticSnapshot{
+			seq:         c.diagSeq,
+			version:     published.Version,
+			diagnostics: append([]lspDiagnostic(nil), published.Diagnostics...),
+		}
+		c.diagnostics[published.URI] = snapshot
+		c.diagMu.Unlock()
+		select {
+		case c.diagNotify <- struct{}{}:
+		default:
+		}
+	case "$/progress":
+		var progress struct {
+			Token json.RawMessage
+			Value struct {
+				Kind string
+			}
+		}
+		if json.Unmarshal(params, &progress) != nil || len(progress.Token) == 0 {
+			return
+		}
+		var token string
+		if progress.Token[0] == '"' {
+			if json.Unmarshal(progress.Token, &token) != nil {
+				return
+			}
+		} else {
+			token = string(progress.Token)
+		}
+		c.progressMu.Lock()
+		state := c.progress[token]
+		switch progress.Value.Kind {
+		case "begin":
+			state.seen = true
+			state.done = false
+		case "end":
+			state.seen = true
+			state.done = true
+		}
+		c.progress[token] = state
+		c.progressMu.Unlock()
+		select {
+		case c.progressNotify <- struct{}{}:
+		default:
+		}
 	}
 }
 
@@ -543,6 +589,29 @@ func (c *lspClient) handleServerRequest(id json.RawMessage, method string, param
 		response["result"] = result
 	}
 	_ = c.writeMessage(response)
+}
+
+type lspProgressState struct {
+	seen bool
+	done bool
+}
+
+func (c *lspClient) waitForProgressEnd(ctx context.Context, token string) error {
+	for {
+		c.progressMu.Lock()
+		state := c.progress[token]
+		c.progressMu.Unlock()
+		if state.seen && state.done {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-c.done:
+			return c.lastError()
+		case <-c.progressNotify:
+		}
+	}
 }
 
 func (c *lspClient) diagnosticSequence() uint64 {

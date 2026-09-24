@@ -32,8 +32,6 @@ const (
 	maxContextLines         = 10
 	maxDiagnosticsPaths     = 100
 	maxSemanticSourceBytes  = 16 << 20
-	trustedGoplsPath        = "/usr/local/bin/gopls"
-	languageGo              = "go"
 	coverageComplete        = "complete"
 	coveragePartial         = "partial"
 	coverageUnknown         = "unknown"
@@ -100,8 +98,12 @@ type Manager struct {
 }
 
 type semanticSession struct {
-	root   string
-	client *lspClient
+	root    string
+	backend semanticBackend
+	client  *lspClient
+
+	primeMu sync.Mutex
+	primed  bool
 
 	docsMu sync.Mutex
 	docs   map[string]documentState
@@ -260,7 +262,7 @@ func (s *semanticSession) refreshTrackedDocument(ctx context.Context, path strin
 	return err
 }
 
-func (m *Manager) getSession(ctx context.Context, root string) (*semanticSession, error) {
+func (m *Manager) getSession(ctx context.Context, backend semanticBackend, root string) (*semanticSession, error) {
 	if err := m.ensureOpen(); err != nil {
 		return nil, err
 	}
@@ -276,12 +278,12 @@ func (m *Manager) getSession(ctx context.Context, root string) (*semanticSession
 		return nil, semanticError(CodeInvalidPath, "Semantic project root is invalid.", err)
 	}
 
-	key := languageGo + ":" + root
+	key := backend.id + ":" + root
 	m.mu.Lock()
 	if session := m.sessions[key]; session != nil {
 		if session.client.alive() {
 			m.mu.Unlock()
-			m.logger.Debug(ctx, "semantic backend reused", slog.F("language", languageGo), slog.F("root", root))
+			m.logger.Debug(ctx, "semantic backend reused", slog.F("language", backend.id), slog.F("root", root))
 			return session, nil
 		}
 		delete(m.sessions, key)
@@ -294,7 +296,7 @@ func (m *Manager) getSession(ctx context.Context, root string) (*semanticSession
 		if session := m.sessions[key]; session != nil {
 			if session.client.alive() {
 				m.mu.Unlock()
-				m.logger.Debug(m.ctx, "semantic backend reused", slog.F("language", languageGo), slog.F("root", root))
+				m.logger.Debug(m.ctx, "semantic backend reused", slog.F("language", backend.id), slog.F("root", root))
 				return session, nil
 			}
 			delete(m.sessions, key)
@@ -305,28 +307,34 @@ func (m *Manager) getSession(ctx context.Context, root string) (*semanticSession
 			return nil, semanticError(CodeBackendUnavailable, "Semantic manager is closed.", nil)
 		}
 
-		if info, err := os.Stat(trustedGoplsPath); err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
-			if err == nil {
-				err = xerrors.Errorf("%s is not a regular executable file", trustedGoplsPath)
-			}
+		if err := validateSemanticExecutable(backend.executable); err != nil {
 			return nil, semanticError(
 				CodeBackendUnavailable,
-				"Pinned Go semantic backend gopls is unavailable in this workspace.",
+				fmt.Sprintf("Pinned %s semantic backend is unavailable in this workspace.", backend.displayName),
 				err,
 			)
+		}
+		for _, dependency := range backend.requiredFiles {
+			if err := validateSemanticRegularFile(dependency); err != nil {
+				return nil, semanticError(
+					CodeBackendUnavailable,
+					fmt.Sprintf("Pinned %s semantic backend dependency %s is unavailable in this workspace.", backend.displayName, filepath.Base(dependency)),
+					err,
+				)
+			}
 		}
 
 		startCtx, startCancel := context.WithTimeout(m.ctx, backendStartupTimeout)
 		defer startCancel()
 
 		command := func(processCtx context.Context) *exec.Cmd {
-			cmd := m.execer.CommandContext(processCtx, trustedGoplsPath)
+			cmd := m.execer.CommandContext(processCtx, backend.executable, backend.args...)
 			cmd.Dir = root
 			env := os.Environ()
 			if m.updateEnv != nil {
 				updated, envErr := m.updateEnv(env)
 				if envErr != nil {
-					m.logger.Warn(processCtx, "failed to enrich gopls environment; using inherited environment", slog.Error(envErr))
+					m.logger.Warn(processCtx, "failed to enrich semantic backend environment; using inherited environment", slog.F("language", backend.id), slog.Error(envErr))
 				} else {
 					env = updated
 				}
@@ -336,24 +344,37 @@ func (m *Manager) getSession(ctx context.Context, root string) (*semanticSession
 		}
 		client, err := newLSPClient(m.ctx, root, command)
 		if err != nil {
-			return nil, semanticError(CodeBackendStartFailed, "Failed to start Go semantic backend.", err)
+			return nil, semanticError(CodeBackendStartFailed, fmt.Sprintf("Failed to start %s semantic backend.", backend.displayName), err)
 		}
-		if err := client.initialize(startCtx); err != nil {
+		if err := client.initialize(startCtx, backend.initializationOptions); err != nil {
 			closeCtx, closeCancel := context.WithTimeout(context.Background(), time.Second)
 			_ = client.close(closeCtx)
 			closeCancel()
 			detail := err
 			if stderr := client.stderrString(); stderr != "" {
-				detail = xerrors.Errorf("%w; gopls stderr: %s", err, stderr)
+				detail = xerrors.Errorf("%w; %s stderr: %s", err, filepath.Base(backend.executable), stderr)
 			}
 			if errors.Is(err, context.DeadlineExceeded) {
-				return nil, semanticError(CodeBackendNotReady, "Go semantic backend did not initialize before the startup deadline.", detail)
+				return nil, semanticError(CodeBackendNotReady, fmt.Sprintf("%s semantic backend did not initialize before the startup deadline.", backend.displayName), detail)
 			}
-			return nil, semanticError(CodeBackendStartFailed, "Failed to initialize Go semantic backend.", detail)
+			return nil, semanticError(CodeBackendStartFailed, fmt.Sprintf("Failed to initialize %s semantic backend.", backend.displayName), detail)
+		}
+		if readinessToken := readinessProgressTokenForRoot(backend, root); readinessToken != "" {
+			if err := client.waitForProgressEnd(startCtx, readinessToken); err != nil {
+				closeCtx, closeCancel := context.WithTimeout(context.Background(), time.Second)
+				_ = client.close(closeCtx)
+				closeCancel()
+				return nil, semanticError(
+					CodeBackendNotReady,
+					fmt.Sprintf("%s semantic backend did not finish initial indexing before the startup deadline.", backend.displayName),
+					err,
+				)
+			}
 		}
 
 		session := &semanticSession{
 			root:            root,
+			backend:         backend,
 			client:          client,
 			docs:            make(map[string]documentState),
 			pullDiagnostics: make(map[string]pullDiagnosticState),
@@ -371,7 +392,7 @@ func (m *Manager) getSession(ctx context.Context, root string) (*semanticSession
 		m.logger.Debug(
 			m.ctx,
 			"semantic backend ready",
-			slog.F("language", languageGo),
+			slog.F("language", backend.id),
 			slog.F("root", root),
 			slog.F("initialization_ms", time.Since(started).Milliseconds()),
 		)
@@ -393,6 +414,28 @@ func (m *Manager) getSession(ctx context.Context, root string) (*semanticSession
 		}
 		return session, nil
 	}
+}
+
+func validateSemanticExecutable(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+		return xerrors.Errorf("%s is not a regular executable file", path)
+	}
+	return nil
+}
+
+func validateSemanticRegularFile(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return xerrors.Errorf("%s is not a regular file", path)
+	}
+	return nil
 }
 
 func canonicalExistingPath(path string) (string, error) {
@@ -450,35 +493,13 @@ func validateLimit(limit int) error {
 	return nil
 }
 
-func validateGoFile(path string) (string, error) {
-	canonical, err := canonicalExistingPath(path)
-	if err != nil {
-		return "", semanticError(CodeInvalidPath, "Semantic file path is invalid.", err)
-	}
-	info, err := os.Stat(canonical)
-	if err != nil {
-		return "", semanticError(CodeInvalidPath, "Semantic file path is invalid.", err)
-	}
-	if !info.Mode().IsRegular() {
-		return "", semanticError(CodeInvalidPath, "Semantic file path must be a regular file.", xerrors.Errorf("%q is not a regular file", canonical))
-	}
-	if strings.ToLower(filepath.Ext(canonical)) != ".go" {
-		return "", semanticError(
-			CodeUnsupportedLanguage,
-			fmt.Sprintf("No semantic backend is available for %s in this workspace. The current semantic implementation supports Go only.", detectedLanguage(canonical)),
-			nil,
-		)
-	}
-	return canonical, nil
-}
-
 func detectedLanguage(path string) string {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".go":
 		return "Go"
 	case ".py", ".pyi":
 		return "Python"
-	case ".ts", ".tsx":
+	case ".ts", ".tsx", ".mts", ".cts":
 		return "TypeScript"
 	case ".js", ".jsx", ".mjs", ".cjs":
 		return "JavaScript"
@@ -729,11 +750,15 @@ func (s *semanticSession) syncDocument(ctx context.Context, path string, mode do
 	uri := pathToFileURI(path)
 	state, exists := s.docs[path]
 	if !exists {
+		languageID, ok := lspLanguageIDForPath(path)
+		if !ok {
+			return syncedDocument{}, semanticError(CodeUnsupportedLanguage, "No semantic language identifier is available for this file.", nil)
+		}
 		state = documentState{hash: hash, version: 1, uri: uri}
 		if err := s.client.notify(ctx, "textDocument/didOpen", map[string]any{
 			"textDocument": map[string]any{
 				"uri":        uri,
-				"languageId": languageGo,
+				"languageId": languageID,
 				"version":    state.version,
 				"text":       text,
 			},
@@ -944,6 +969,13 @@ func allowedSymbolKind(kind string, kinds []string) bool {
 // names from the language-neutral public API. For example, gopls may expose
 // "(*Server).ServeHTTP"; the public semantic symbol is name="ServeHTTP" with
 // container="Server".
+func (s *semanticSession) normalizeSymbolIdentity(name, kind, container string) (symbolName, symbolContainer string) {
+	if s.backend.id != goBackend.id {
+		return name, container
+	}
+	return normalizeGoSymbolIdentity(name, kind, container)
+}
+
 func normalizeGoSymbolIdentity(name, kind, container string) (symbolName, symbolContainer string) {
 	if kind != "method" {
 		return name, container
@@ -1012,37 +1044,34 @@ func (m *Manager) FindSymbols(ctx context.Context, req workspacesdk.SemanticFind
 	coverage := workspacesdk.SemanticCoverage{Status: coverageComplete}
 	switch {
 	case info.Mode().IsRegular():
-		if strings.ToLower(filepath.Ext(root)) != ".go" {
-			return workspacesdk.SemanticFindSymbolsResponse{}, semanticError(
-				CodeUnsupportedLanguage,
-				fmt.Sprintf("No semantic backend is available for %s in this workspace. The current semantic implementation supports Go only.", detectedLanguage(root)),
-				nil,
-			)
-		}
-		projectRoot, rootErr := goProjectRootForFile(root)
-		if rootErr != nil {
-			return workspacesdk.SemanticFindSymbolsResponse{}, semanticError(CodeInvalidPath, "Unable to determine Go semantic project root.", rootErr)
-		}
-		session, sessionErr := m.getSession(ctx, projectRoot)
-		if sessionErr != nil {
-			return workspacesdk.SemanticFindSymbolsResponse{}, sessionErr
-		}
-		fileSymbols, fileErr := session.findDocumentSymbols(ctx, root, req)
+		_, backend, _, fileErr := validateSemanticFile(root)
 		if fileErr != nil {
 			return workspacesdk.SemanticFindSymbolsResponse{}, fileErr
 		}
+		projectRoot, rootErr := semanticProjectRootForFile(root, backend)
+		if rootErr != nil {
+			return workspacesdk.SemanticFindSymbolsResponse{}, semanticError(CodeInvalidPath, "Unable to determine semantic project root.", rootErr)
+		}
+		session, sessionErr := m.getSession(ctx, backend, projectRoot)
+		if sessionErr != nil {
+			return workspacesdk.SemanticFindSymbolsResponse{}, sessionErr
+		}
+		fileSymbols, symbolErr := session.findDocumentSymbols(ctx, root, req)
+		if symbolErr != nil {
+			return workspacesdk.SemanticFindSymbolsResponse{}, symbolErr
+		}
 		symbols = append(symbols, fileSymbols...)
 	case info.IsDir():
-		roots, directoryCoverage, rootErr := goProjectRootsForDirectory(root)
+		roots, directoryCoverage, rootErr := semanticProjectRootsForDirectory(root)
 		if rootErr != nil {
-			return workspacesdk.SemanticFindSymbolsResponse{}, semanticError(CodeInvalidPath, "Unable to determine Go semantic project roots.", rootErr)
+			return workspacesdk.SemanticFindSymbolsResponse{}, semanticError(CodeInvalidPath, "Unable to determine semantic project roots.", rootErr)
 		}
 		coverage = directoryCoverage
 		successfulRoots := 0
 		var firstRootErr error
 		rootFailures := make([]string, 0)
 		for _, projectRoot := range roots {
-			session, sessionErr := m.getSession(ctx, projectRoot)
+			session, sessionErr := m.getSession(ctx, projectRoot.backend, projectRoot.root)
 			if sessionErr != nil {
 				if firstRootErr == nil {
 					firstRootErr = sessionErr
@@ -1105,11 +1134,15 @@ func (m *Manager) FindSymbols(ctx context.Context, req workspacesdk.SemanticFind
 
 func (s *semanticSession) findDocumentSymbols(ctx context.Context, path string, req workspacesdk.SemanticFindSymbolsRequest) ([]workspacesdk.SemanticSymbol, error) {
 	if !s.client.capabilities.documentSymbols {
-		return nil, semanticError(CodeCapabilityUnsupported, "The Go semantic backend does not support document symbol lookup.", nil)
+		return nil, semanticError(CodeCapabilityUnsupported, fmt.Sprintf("The %s semantic backend does not support document symbol lookup.", s.backend.displayName), nil)
+	}
+	language, ok := semanticLanguageForLocation(path, s.backend)
+	if !ok {
+		return nil, semanticError(CodeUnsupportedLanguage, "Document language does not match the active semantic backend.", nil)
 	}
 	doc, err := s.syncDocument(ctx, path, syncIfChanged)
 	if err != nil {
-		return nil, semanticError(CodeRequestFailed, "Failed to synchronize Go document before symbol lookup.", err)
+		return nil, semanticError(CodeRequestFailed, "Failed to synchronize document before symbol lookup.", err)
 	}
 	raw, err := s.client.request(ctx, "textDocument/documentSymbol", map[string]any{
 		"textDocument": map[string]any{"uri": doc.uri},
@@ -1131,7 +1164,7 @@ func (s *semanticSession) findDocumentSymbols(ctx context.Context, path string, 
 		visit = func(items []lspDocumentSymbol, container string) error {
 			for _, item := range items {
 				kind := symbolKindName(item.Kind)
-				name, symbolContainer := normalizeGoSymbolIdentity(item.Name, kind, container)
+				name, symbolContainer := s.normalizeSymbolIdentity(item.Name, kind, container)
 				if matchSymbolName(name, req.Query, req.Match) && allowedSymbolKind(kind, req.Kinds) {
 					fullRange, rangeErr := publicRangeFromLSP(path, doc.lines, item.Range, s.client.capabilities.positionEncoding)
 					if rangeErr != nil {
@@ -1144,7 +1177,7 @@ func (s *semanticSession) findDocumentSymbols(ctx context.Context, path string, 
 					out = append(out, workspacesdk.SemanticSymbol{
 						Name:           name,
 						Kind:           kind,
-						Language:       languageGo,
+						Language:       language,
 						Path:           path,
 						Container:      symbolContainer,
 						Detail:         item.Detail,
@@ -1204,9 +1237,95 @@ func decodeDocumentSymbolResponse(raw json.RawMessage) ([]lspDocumentSymbol, []l
 	return nil, nil, false, xerrors.New("documentSymbol result is neither DocumentSymbol[] nor SymbolInformation[]")
 }
 
+func representativeSourceFile(root string, backend semanticBackend) (string, error) {
+	root, err := canonicalExistingPath(root)
+	if err != nil {
+		return "", err
+	}
+	var representative string
+	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			if path != root && shouldSkipSemanticDirectory(entry.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		candidateBackend, _, ok := semanticBackendForPath(path)
+		if ok && candidateBackend.id == backend.id {
+			representative = path
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return representative, nil
+}
+
+func (s *semanticSession) primeWorkspaceSymbols(ctx context.Context, requestedRoot string) error {
+	s.primeMu.Lock()
+	defer s.primeMu.Unlock()
+	if s.primed {
+		return nil
+	}
+	if s.backend.id == goBackend.id {
+		s.primed = true
+		return nil
+	}
+
+	primeRoot := requestedRoot
+	if pathWithin(requestedRoot, s.root) {
+		primeRoot = s.root
+	} else if !pathWithin(s.root, requestedRoot) {
+		return semanticError(CodeInvalidPath, "Workspace symbol scope does not intersect the semantic project root.", nil)
+	}
+	representative, err := representativeSourceFile(primeRoot, s.backend)
+	if err != nil {
+		return semanticError(CodeRequestFailed, "Failed to locate a semantic source file for workspace symbol indexing.", err)
+	}
+	if representative == "" {
+		s.primed = true
+		return nil
+	}
+
+	switch s.backend.id {
+	case typeScriptBackend.id, pythonBackend.id:
+		after := s.client.diagnosticSequence()
+		doc, syncErr := s.syncDocument(ctx, representative, syncIfChanged)
+		if syncErr != nil {
+			return semanticError(CodeRequestFailed, "Failed to synchronize a representative document before workspace symbol lookup.", syncErr)
+		}
+		if snapshot, ok := s.client.latestDiagnostics(doc.uri); !ok || snapshot.version != nil && *snapshot.version != doc.version {
+			waitCtx, cancel := context.WithTimeout(ctx, diagnosticsWaitTimeout)
+			_, _, waitErr := s.client.waitForDiagnostics(waitCtx, doc.uri, after, doc.version)
+			cancel()
+			if waitErr != nil {
+				return semanticError(
+					CodeBackendNotReady,
+					fmt.Sprintf("%s semantic backend did not finish indexing before workspace symbol lookup.", s.backend.displayName),
+					waitErr,
+				)
+			}
+		}
+	case rustBackend.id:
+		if _, syncErr := s.syncDocument(ctx, representative, syncIfChanged); syncErr != nil {
+			return semanticError(CodeRequestFailed, "Failed to synchronize a representative Rust document before workspace symbol lookup.", syncErr)
+		}
+	}
+	s.primed = true
+	return nil
+}
+
 func (s *semanticSession) findWorkspaceSymbols(ctx context.Context, requestedRoot string, req workspacesdk.SemanticFindSymbolsRequest) ([]workspacesdk.SemanticSymbol, error) {
 	if !s.client.capabilities.workspaceSymbols {
-		return nil, semanticError(CodeCapabilityUnsupported, "The Go semantic backend does not support workspace symbol lookup.", nil)
+		return nil, semanticError(CodeCapabilityUnsupported, fmt.Sprintf("The %s semantic backend does not support workspace symbol lookup.", s.backend.displayName), nil)
+	}
+	if err := s.primeWorkspaceSymbols(ctx, requestedRoot); err != nil {
+		return nil, err
 	}
 	var items []lspSymbolInformation
 	if err := s.client.requestInto(ctx, "workspace/symbol", map[string]any{"query": req.Query}, &items); err != nil {
@@ -1226,8 +1345,12 @@ func (s *semanticSession) symbolInformationToPublic(items []lspSymbolInformation
 		if err != nil || !pathWithin(requestedRoot, path) {
 			continue
 		}
+		language, ok := semanticLanguageForLocation(path, s.backend)
+		if !ok {
+			continue
+		}
 		kind := symbolKindName(item.Kind)
-		name, container := normalizeGoSymbolIdentity(item.Name, kind, item.ContainerName)
+		name, container := s.normalizeSymbolIdentity(item.Name, kind, item.ContainerName)
 		if !matchSymbolName(name, req.Query, req.Match) || !allowedSymbolKind(kind, req.Kinds) {
 			continue
 		}
@@ -1243,7 +1366,7 @@ func (s *semanticSession) symbolInformationToPublic(items []lspSymbolInformation
 		out = append(out, workspacesdk.SemanticSymbol{
 			Name:           name,
 			Kind:           kind,
-			Language:       languageGo,
+			Language:       language,
 			Path:           path,
 			Container:      container,
 			SelectionRange: publicRange,
@@ -1284,7 +1407,7 @@ func (m *Manager) FindReferences(ctx context.Context, req workspacesdk.SemanticF
 	if err := validateContextLines(req.ContextLines); err != nil {
 		return workspacesdk.SemanticFindReferencesResponse{}, err
 	}
-	path, err := validateGoFile(req.Target.Path)
+	path, backend, _, err := validateSemanticFile(req.Target.Path)
 	if err != nil {
 		return workspacesdk.SemanticFindReferencesResponse{}, err
 	}
@@ -1292,20 +1415,20 @@ func (m *Manager) FindReferences(ctx context.Context, req workspacesdk.SemanticF
 	if err != nil {
 		return workspacesdk.SemanticFindReferencesResponse{}, err
 	}
-	projectRoot, err := goProjectRootForFile(path)
+	projectRoot, err := semanticProjectRootForFile(path, backend)
 	if err != nil {
-		return workspacesdk.SemanticFindReferencesResponse{}, semanticError(CodeInvalidPath, "Unable to determine Go semantic project root.", err)
+		return workspacesdk.SemanticFindReferencesResponse{}, semanticError(CodeInvalidPath, "Unable to determine semantic project root.", err)
 	}
-	session, err := m.getSession(ctx, projectRoot)
+	session, err := m.getSession(ctx, backend, projectRoot)
 	if err != nil {
 		return workspacesdk.SemanticFindReferencesResponse{}, err
 	}
 	if !session.client.capabilities.references {
-		return workspacesdk.SemanticFindReferencesResponse{}, semanticError(CodeCapabilityUnsupported, "The Go semantic backend does not support reference lookup.", nil)
+		return workspacesdk.SemanticFindReferencesResponse{}, semanticError(CodeCapabilityUnsupported, fmt.Sprintf("The %s semantic backend does not support reference lookup.", session.backend.displayName), nil)
 	}
 	doc, err := session.syncDocument(ctx, path, syncIfChanged)
 	if err != nil {
-		return workspacesdk.SemanticFindReferencesResponse{}, semanticError(CodeRequestFailed, "Failed to synchronize Go document before reference lookup.", err)
+		return workspacesdk.SemanticFindReferencesResponse{}, semanticError(CodeRequestFailed, "Failed to synchronize document before reference lookup.", err)
 	}
 	position, err := lspPositionForPublic(doc, workspacesdk.SemanticPosition{Line: req.Target.Line, Column: req.Target.Column}, session.client.capabilities.positionEncoding)
 	if err != nil {
@@ -1380,6 +1503,10 @@ func (s *semanticSession) referenceFromLocation(location lspLocation, contextLin
 	if scopePath != "" && !pathWithin(scopePath, path) {
 		return workspacesdk.SemanticReference{}, false
 	}
+	language, ok := semanticLanguageForLocation(path, s.backend)
+	if !ok {
+		return workspacesdk.SemanticReference{}, false
+	}
 	data, err := readSemanticSource(path)
 	if err != nil {
 		return workspacesdk.SemanticReference{}, false
@@ -1391,7 +1518,7 @@ func (s *semanticSession) referenceFromLocation(location lspLocation, contextLin
 	}
 	return workspacesdk.SemanticReference{
 		Path:     path,
-		Language: languageGo,
+		Language: language,
 		Range:    publicRange,
 		Locator: workspacesdk.SemanticTarget{
 			Path: path, Line: publicRange.Start.Line, Column: publicRange.Start.Column,
@@ -1421,7 +1548,7 @@ func (m *Manager) FindImplementations(ctx context.Context, req workspacesdk.Sema
 	if err := validateContextLines(req.ContextLines); err != nil {
 		return workspacesdk.SemanticFindImplementationsResponse{}, err
 	}
-	path, err := validateGoFile(req.Target.Path)
+	path, backend, _, err := validateSemanticFile(req.Target.Path)
 	if err != nil {
 		return workspacesdk.SemanticFindImplementationsResponse{}, err
 	}
@@ -1429,20 +1556,20 @@ func (m *Manager) FindImplementations(ctx context.Context, req workspacesdk.Sema
 	if err != nil {
 		return workspacesdk.SemanticFindImplementationsResponse{}, err
 	}
-	projectRoot, err := goProjectRootForFile(path)
+	projectRoot, err := semanticProjectRootForFile(path, backend)
 	if err != nil {
-		return workspacesdk.SemanticFindImplementationsResponse{}, semanticError(CodeInvalidPath, "Unable to determine Go semantic project root.", err)
+		return workspacesdk.SemanticFindImplementationsResponse{}, semanticError(CodeInvalidPath, "Unable to determine semantic project root.", err)
 	}
-	session, err := m.getSession(ctx, projectRoot)
+	session, err := m.getSession(ctx, backend, projectRoot)
 	if err != nil {
 		return workspacesdk.SemanticFindImplementationsResponse{}, err
 	}
 	if !session.client.capabilities.implementations {
-		return workspacesdk.SemanticFindImplementationsResponse{}, semanticError(CodeCapabilityUnsupported, "The Go semantic backend does not support implementation lookup.", nil)
+		return workspacesdk.SemanticFindImplementationsResponse{}, semanticError(CodeCapabilityUnsupported, fmt.Sprintf("The %s semantic backend does not support implementation lookup.", session.backend.displayName), nil)
 	}
 	doc, err := session.syncDocument(ctx, path, syncIfChanged)
 	if err != nil {
-		return workspacesdk.SemanticFindImplementationsResponse{}, semanticError(CodeRequestFailed, "Failed to synchronize Go document before implementation lookup.", err)
+		return workspacesdk.SemanticFindImplementationsResponse{}, semanticError(CodeRequestFailed, "Failed to synchronize document before implementation lookup.", err)
 	}
 	position, err := lspPositionForPublic(doc, workspacesdk.SemanticPosition{Line: req.Target.Line, Column: req.Target.Column}, session.client.capabilities.positionEncoding)
 	if err != nil {
@@ -1633,29 +1760,30 @@ func (m *Manager) GetDiagnostics(ctx context.Context, req workspacesdk.SemanticD
 			recordFailure(semanticError(CodeInvalidPath, "One or more diagnostic paths are invalid.", statErr))
 			continue
 		}
-		if strings.ToLower(filepath.Ext(path)) != ".go" {
+		backend, language, supported := semanticBackendForPath(path)
+		if !supported {
 			files = append(files, workspacesdk.SemanticDiagnosticFileStatus{
 				Path: path, Language: strings.ToLower(detectedLanguage(path)), Status: statusUnsupported,
-				Message: "The current semantic implementation supports Go only.",
+				Message: "No configured semantic backend supports this file language.",
 			})
 			recordFailure(semanticError(CodeUnsupportedLanguage, "No supported semantic backend is available for the requested file language.", nil))
 			continue
 		}
 
-		projectRoot, rootErr := goProjectRootForFile(path)
+		projectRoot, rootErr := semanticProjectRootForFile(path, backend)
 		if rootErr != nil {
-			files = append(files, workspacesdk.SemanticDiagnosticFileStatus{Path: path, Language: languageGo, Status: statusError, Message: rootErr.Error()})
-			recordFailure(semanticError(CodeInvalidPath, "Unable to determine Go semantic project root.", rootErr))
+			files = append(files, workspacesdk.SemanticDiagnosticFileStatus{Path: path, Language: language, Status: statusError, Message: rootErr.Error()})
+			recordFailure(semanticError(CodeInvalidPath, "Unable to determine semantic project root.", rootErr))
 			continue
 		}
-		session, sessionErr := m.getSession(ctx, projectRoot)
+		session, sessionErr := m.getSession(ctx, backend, projectRoot)
 		if sessionErr != nil {
 			code := semanticErrorCode(sessionErr)
 			status := statusError
 			if code == CodeBackendNotReady {
 				status = statusNotReady
 			}
-			files = append(files, workspacesdk.SemanticDiagnosticFileStatus{Path: path, Language: languageGo, Status: status, Message: sessionErr.Error()})
+			files = append(files, workspacesdk.SemanticDiagnosticFileStatus{Path: path, Language: language, Status: status, Message: sessionErr.Error()})
 			recordFailure(sessionErr)
 			continue
 		}
@@ -1670,7 +1798,7 @@ func (m *Manager) GetDiagnostics(ctx context.Context, req workspacesdk.SemanticD
 			case CodeBackendNotReady:
 				status = statusNotReady
 			}
-			files = append(files, workspacesdk.SemanticDiagnosticFileStatus{Path: path, Language: languageGo, Status: status, Message: diagErr.Error()})
+			files = append(files, workspacesdk.SemanticDiagnosticFileStatus{Path: path, Language: language, Status: status, Message: diagErr.Error()})
 			recordFailure(diagErr)
 			continue
 		}
@@ -1684,7 +1812,7 @@ func (m *Manager) GetDiagnostics(ctx context.Context, req workspacesdk.SemanticD
 		}
 		diagnostics = append(diagnostics, filtered...)
 		files = append(files, workspacesdk.SemanticDiagnosticFileStatus{
-			Path: path, Language: languageGo, Status: statusOK, Freshness: freshness, DiagnosticCount: len(filtered),
+			Path: path, Language: language, Status: statusOK, Freshness: freshness, DiagnosticCount: len(filtered),
 		})
 		successes++
 		if freshness == "unknown" {
@@ -1763,7 +1891,7 @@ func (s *semanticSession) diagnosticsForFile(
 ) ([]workspacesdk.SemanticDiagnostic, string, error) {
 	doc, err := s.syncDocument(ctx, path, syncIfChanged)
 	if err != nil {
-		return nil, "", semanticError(CodeRequestFailed, "Failed to synchronize Go document before diagnostics.", err)
+		return nil, "", semanticError(CodeRequestFailed, "Failed to synchronize document before diagnostics.", err)
 	}
 
 	var diagnostics []lspDiagnostic
@@ -1799,7 +1927,7 @@ func (s *semanticSession) diagnosticsForFile(
 			if !hasPrevious {
 				return nil, "", semanticError(
 					CodeBackendNotReady,
-					"Go semantic backend returned unchanged diagnostics without a matching current snapshot.",
+					fmt.Sprintf("%s semantic backend returned unchanged diagnostics without a matching current snapshot.", s.backend.displayName),
 					nil,
 				)
 			}
@@ -1807,7 +1935,7 @@ func (s *semanticSession) diagnosticsForFile(
 		default:
 			return nil, "", semanticError(
 				CodeRequestFailed,
-				"Go semantic backend returned an unsupported diagnostic report kind.",
+				fmt.Sprintf("%s semantic backend returned an unsupported diagnostic report kind.", s.backend.displayName),
 				xerrors.Errorf("kind %q", report.Kind),
 			)
 		}
@@ -1818,13 +1946,13 @@ func (s *semanticSession) diagnosticsForFile(
 			after := s.client.diagnosticSequence()
 			doc, err = s.syncDocument(ctx, path, syncForceChange)
 			if err != nil {
-				return nil, "", semanticError(CodeRequestFailed, "Failed to refresh Go document before diagnostics.", err)
+				return nil, "", semanticError(CodeRequestFailed, "Failed to refresh document before diagnostics.", err)
 			}
 			waitCtx, cancel := context.WithTimeout(ctx, diagnosticsWaitTimeout)
 			snapshot, snapshotFreshness, waitErr := s.client.waitForDiagnostics(waitCtx, doc.uri, after, doc.version)
 			cancel()
 			if waitErr != nil {
-				return nil, "", semanticError(CodeBackendNotReady, "Go semantic diagnostics were not ready before the diagnostic wait deadline.", waitErr)
+				return nil, "", semanticError(CodeBackendNotReady, fmt.Sprintf("%s semantic diagnostics were not ready before the diagnostic wait deadline.", s.backend.displayName), waitErr)
 			}
 			diagnostics = snapshot.diagnostics
 			freshness = snapshotFreshness
