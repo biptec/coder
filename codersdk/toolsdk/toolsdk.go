@@ -2219,7 +2219,7 @@ type WorkspaceEditFilesResponse struct {
 var WorkspaceEditFile = Tool[WorkspaceEditFileArgs, WorkspaceEditFilesResponse]{
 	Tool: aisdk.Tool{
 		Name:        ToolNameWorkspaceEditFile,
-		Description: `Edit a file in a workspace using exact search-and-replace operations. The response includes the resulting unified diff.`,
+		Description: `Precisely edit a known workspace file by exact replacements; prefer this over sed/Python/shell editing. Use a process tool only when the edit genuinely requires a program or shell semantics such as shell redirection. The response includes the resulting unified diff.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
 				"workspace": map[string]any{
@@ -2309,7 +2309,7 @@ func workspaceEditFilesRequest(args WorkspaceEditFilesArgs) workspacesdk.FileEdi
 var WorkspaceEditFiles = Tool[WorkspaceEditFilesArgs, WorkspaceEditFilesResponse]{
 	Tool: aisdk.Tool{
 		Name:        ToolNameWorkspaceEditFiles,
-		Description: `Edit one or more files in a workspace. All requested edits are validated before writes begin, and the response includes unified diffs.`,
+		Description: `Coordinate validated edits across multiple known workspace files; prefer this over separate edits or shell scripting. All requested edits are validated before writes begin, and the response includes unified diffs. Validation-before-write is guaranteed; do not assume rollback/transaction semantics after writes begin.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
 				"workspace": map[string]any{
