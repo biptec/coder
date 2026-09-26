@@ -355,7 +355,7 @@ func readWorkspaceFileV2(ctx context.Context, conn workspacesdk.AgentConn, args 
 var WorkspaceReadFileV2 = Tool[WorkspaceReadFileV2Args, WorkspaceReadFileV2Result]{
 	Tool: aisdk.Tool{
 		Name:        ToolNameWorkspaceReadFileV2,
-		Description: `Read a workspace file. Text mode is the default and uses 1-based line offsets while preserving the literal file text. Set binary=true for byte offsets and base64 content. limit is required: use 0 to explicitly request the complete remaining content, or a positive value to bound the result.`,
+		Description: `Read a known workspace file directly; prefer this over shell cat/sed/head/tail. Use it when the path is known and literal file contents are needed. For language-level code discovery, prefer semantic tools first when supported. Text mode is the default and uses 1-based line offsets while preserving the literal file text. Set binary=true for byte offsets and base64 content. limit is required: use 0 to explicitly request the complete remaining content, or a positive value to bound the result.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
 				"workspace": map[string]any{"type": "string", "description": workspaceAgentDescription},
@@ -425,7 +425,7 @@ func readWorkspaceFilesV2(
 var WorkspaceReadFilesV2 = Tool[WorkspaceReadFilesV2Args, WorkspaceReadFilesV2Result]{
 	Tool: aisdk.Tool{
 		Name:        ToolNameWorkspaceReadFilesV2,
-		Description: `Read multiple workspace files in one call. Each file returns its own result or error; one missing file does not fail the whole batch.`,
+		Description: `Read several known workspace files in one call; prefer this over repeated reads or shell loops. Use it when related file paths are already known. Each file returns its own result or error; one missing file does not fail the whole batch.`,
 		Schema: aisdk.Schema{
 			Properties: map[string]any{
 				"workspace": map[string]any{"type": "string", "description": workspaceAgentDescription},
