@@ -28,11 +28,12 @@ type WorkspaceBashArgs struct {
 var WorkspaceBash = Tool[WorkspaceBashArgs, WorkspaceProcessResult]{
 	Tool: aisdk.Tool{
 		Name: ToolNameWorkspaceBash,
-		Description: `Execute an intentional POSIX shell command with sh -c as a durable tracked process.
+		Description: `Execute an intentional POSIX shell command with sh -c as a durable tracked process; use only when shell semantics are needed, not as a substitute for dedicated tools.
 
 Use this tool only when shell syntax such as pipes, redirects, &&, loops,
 substitutions, or expansion is intentional. For direct executable argv without
-shell parsing, use start_process.
+shell parsing, use start_process. Do not use shell execution as a substitute for
+semantic, filesystem, or search tools when a dedicated tool fits.
 
 After start acknowledgement this call observes initial output only when a positive
 wait_timeout_ms is requested. Omit it or use 0 for an immediate snapshot.

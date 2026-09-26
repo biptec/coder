@@ -52,7 +52,12 @@ type WorkspaceFindSymbolArgs struct {
 var WorkspaceFindSymbol = Tool[WorkspaceFindSymbolArgs, workspacesdk.SemanticFindSymbolsResponse]{
 	Tool: aisdk.Tool{
 		Name: ToolNameWorkspaceFindSymbol,
-		Description: `Find semantic code symbols by name inside a file or directory.
+		Description: `Find semantic code symbols by name; prefer this over text search for supported source navigation.
+
+Prefer this over grep/rg or text search when the task is language-aware symbol
+navigation in supported source code. Use start_search for arbitrary text,
+filenames, configuration, documentation, generated files, or unsupported
+language content.
 
 This tool uses the workspace semantic engine rather than text search. root is
 required and limits the semantic search scope. Results include a reusable
@@ -120,7 +125,10 @@ type WorkspaceFindReferencesArgs struct {
 var WorkspaceFindReferences = Tool[WorkspaceFindReferencesArgs, workspacesdk.SemanticFindReferencesResponse]{
 	Tool: aisdk.Tool{
 		Name: ToolNameWorkspaceFindReferences,
-		Description: `Find semantic references to the symbol at an exact source position.
+		Description: `Find semantic references at an exact symbol position; prefer this for refactor impact analysis over text search.
+
+Use this as the default impact-analysis tool before refactoring a resolved
+symbol; prefer it over text search when you need actual language references.
 
 target uses an absolute file path plus 1-based line and Unicode-code-point
 column. Pass find_symbol.locator directly when available.
@@ -181,7 +189,11 @@ type WorkspaceFindImplementationsArgs struct {
 var WorkspaceFindImplementations = Tool[WorkspaceFindImplementationsArgs, workspacesdk.SemanticFindImplementationsResponse]{
 	Tool: aisdk.Tool{
 		Name: ToolNameWorkspaceFindImplementations,
-		Description: `Find semantic implementations of the symbol at an exact source position.
+		Description: `Find semantic implementations at an exact symbol position; prefer this over text/type-name search for implementations.
+
+Prefer this over text or type-name search when you need concrete
+implementations of an interface, trait, abstract/base symbol, or other
+language construct understood by the semantic backend.
 
 target uses an absolute file path plus 1-based line and Unicode-code-point
 column. Pass find_symbol.locator directly when available.
@@ -240,13 +252,15 @@ type WorkspaceGetDiagnosticsArgs struct {
 var WorkspaceGetDiagnostics = Tool[WorkspaceGetDiagnosticsArgs, workspacesdk.SemanticDiagnosticsResponse]{
 	Tool: aisdk.Tool{
 		Name: ToolNameWorkspaceGetDiagnostics,
-		Description: `Get semantic diagnostics for one or more explicit workspace files.
+		Description: `Get semantic diagnostics for explicit workspace files; prefer after supported-source edits while build/test remains authoritative.
 
 The Agent synchronizes current file contents with the semantic backend and
 returns diagnostics associated with the requested files. A clean supported file
 returns no diagnostics.
 
-paths is explicit and file-oriented; use normal build/test commands through
+Prefer this after editing supported source files when language-aware validation
+is useful. It complements rather than replaces project build/test validation.
+paths is explicit and file-oriented; use build/test commands through
 start_process for authoritative whole-project validation.
 
 limit is required and applies to the total returned diagnostic records across
