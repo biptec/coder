@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -40,6 +41,39 @@ import (
 	"github.com/coder/coder/v2/provisionersdk/proto"
 	"github.com/coder/coder/v2/testutil"
 )
+
+func TestWorkspaceToolSelectionGuidance(t *testing.T) {
+	t.Parallel()
+
+	firstLine := func(description string) string {
+		return strings.SplitN(description, "\n", 2)[0]
+	}
+	require.Contains(t, firstLine(toolsdk.WorkspaceFindSymbol.Description), "prefer this over text search")
+	require.Contains(t, firstLine(toolsdk.WorkspaceFindReferences.Description), "prefer this for refactor impact analysis")
+	require.Contains(t, firstLine(toolsdk.WorkspaceFindImplementations.Description), "prefer this over text/type-name search")
+	require.Contains(t, firstLine(toolsdk.WorkspaceGetDiagnostics.Description), "build/test remains authoritative")
+	require.Contains(t, firstLine(toolsdk.WorkspaceSearchStart.Description), "prefer semantic tools")
+	require.Contains(t, firstLine(toolsdk.WorkspaceProcessStartV2.Description), "prefer dedicated semantic/filesystem/search tools")
+	require.Contains(t, firstLine(toolsdk.WorkspaceBash.Description), "use only when shell semantics are needed")
+
+	require.Contains(t, toolsdk.WorkspaceFindSymbol.Description, "Prefer this over grep/rg or text search")
+	require.Contains(t, toolsdk.WorkspaceFindSymbol.Description, "Use start_search for arbitrary text")
+	require.Contains(t, toolsdk.WorkspaceFindReferences.Description, "default impact-analysis tool")
+	require.Contains(t, toolsdk.WorkspaceFindImplementations.Description, "Prefer this over text or type-name search")
+	require.Contains(t, toolsdk.WorkspaceGetDiagnostics.Description, "complements rather than replaces project build/test validation")
+
+	require.Contains(t, toolsdk.WorkspaceReadFileV2.Description, "Prefer this over shell commands")
+	require.Contains(t, toolsdk.WorkspaceReadFilesV2.Description, "several files are already identified")
+	require.Contains(t, toolsdk.WorkspaceEditFile.Description, "instead of sed/perl/Python shell rewrites")
+	require.Contains(t, toolsdk.WorkspaceEditFiles.Description, "validated before writes begin")
+	require.Contains(t, toolsdk.WorkspaceSearchStart.Description, "For language-aware symbol")
+	require.Contains(t, toolsdk.WorkspaceSearchStart.Description, "prefer find_symbol")
+
+	require.Contains(t, toolsdk.WorkspaceProcessStartV2.Description, "builds, tests, generators")
+	require.Contains(t, toolsdk.WorkspaceProcessStartV2.Description, "Semantic Engine manages them")
+	require.Contains(t, toolsdk.WorkspaceBash.Description, "when a dedicated tool fits")
+	require.Contains(t, toolsdk.WorkspaceBash.Description, "shell syntax")
+}
 
 // setupWorkspaceForAgent creates a workspace setup exactly like main SSH tests
 // nolint:gocritic // This is in a test package and does not end up in the build
