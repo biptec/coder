@@ -28,7 +28,12 @@ type WorkspaceSearchStartArgs struct {
 var WorkspaceSearchStart = Tool[WorkspaceSearchStartArgs, workspacesdk.SearchResultsResponse]{
 	Tool: aisdk.Tool{
 		Name: ToolNameWorkspaceSearchStart,
-		Description: `Start an asynchronous workspace search and return the initial snapshot.
+		Description: `Search literal/regex text or filenames and return an initial snapshot; prefer semantic tools for language symbols, references, and implementations.
+
+Use this for literal/regex text search, filenames, configuration, documentation,
+logs, or unsupported semantic-language cases. When the intent is to locate a
+language-level symbol, its references, or its implementations, prefer
+find_symbol/find_references/find_implementations instead of text search.
 
 Mode "files" matches relative paths; mode "content" matches file lines. Regex uses
 Go RE2 semantics. Omit wait_timeout_ms or use 0 to return immediately after the

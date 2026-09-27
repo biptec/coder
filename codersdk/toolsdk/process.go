@@ -98,7 +98,13 @@ type WorkspaceProcessStartV2Args struct {
 var WorkspaceProcessStartV2 = Tool[WorkspaceProcessStartV2Args, WorkspaceProcessResult]{
 	Tool: aisdk.Tool{
 		Name: ToolNameWorkspaceProcessStartV2,
-		Description: `Start a durable process by executable argv without shell parsing.
+		Description: `Run a direct executable for builds, tests, Git, Docker, and other CLIs; use semantic/file tools for code navigation and file operations.
+
+Use this for actual execution such as builds, tests, Git, formatters, package
+managers, Docker, and other CLIs. Do not use process commands as a substitute
+for semantic code navigation or direct file read/edit tools when those fit the
+task. Do not start or manage language servers manually; the workspace semantic
+engine owns their lifecycle.
 
 This is the canonical structured execution tool. argv[0] is the executable and
 each later element is passed as exactly one argument. Use execute_shell_command
