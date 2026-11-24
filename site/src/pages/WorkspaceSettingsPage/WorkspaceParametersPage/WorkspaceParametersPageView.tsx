@@ -1,5 +1,6 @@
 import { useFormik } from "formik";
 import type { FC } from "react";
+import * as Yup from "yup";
 import type {
 	PreviewParameter,
 	Workspace,
@@ -17,6 +18,9 @@ import {
 	getInitialParameterValues,
 	useValidationSchemaForDynamicParameters,
 } from "#/modules/workspaces/DynamicParameter/DynamicParameter";
+import { groupDynamicParameters } from "#/modules/workspaces/DynamicParameter/parameterGroups";
+import { RangeParameter } from "#/modules/workspaces/DynamicParameter/RangeParameter";
+import { getMonotonicParameterError } from "#/modules/workspaces/DynamicParameter/sliderParameters";
 import { cn } from "#/utils/cn";
 import { docs } from "#/utils/docs";
 import type { AutofillBuildParameter } from "#/utils/richParameters";
@@ -52,8 +56,29 @@ export const WorkspaceParametersPageView: FC<
 	onCancel,
 	templateVersionId,
 }) => {
+	// The last persisted build, not a subsequent preview or an unsaved edit,
+	// defines the monotonic limit for this form.
+	const lastBuildParameters = autofillParameters.filter(
+		(parameter) => parameter.source === "active_build",
+	);
+	const previousValues = new Map(
+		lastBuildParameters.map((parameter) => [parameter.name, parameter.value]),
+	);
+	const hasMonotonicErrors = (values: WorkspaceBuildParameter[]) =>
+		values.some(({ name, value }) => {
+			const parameter = parameters.find((parameter) => parameter.name === name);
+			return (
+				parameter &&
+				getMonotonicParameterError(parameter, value, previousValues.get(name))
+			);
+		});
 	const form = useFormik({
-		onSubmit,
+		onSubmit: (values, helpers) => {
+			if (!hasMonotonicErrors(values.rich_parameter_values)) {
+				return onSubmit(values);
+			}
+			helpers.setSubmitting(false);
+		},
 		initialValues: {
 			rich_parameter_values: getInitialParameterValues(
 				parameters,
@@ -63,12 +88,18 @@ export const WorkspaceParametersPageView: FC<
 		initialTouched: Object.fromEntries(
 			autofillParameters.map((p) => [p.name, true]),
 		),
-		validationSchema: useValidationSchemaForDynamicParameters(parameters),
+		validationSchema: Yup.object({
+			rich_parameter_values: useValidationSchemaForDynamicParameters(
+				parameters,
+				lastBuildParameters,
+			),
+		}),
 		enableReinitialize: false,
 		validateOnChange: true,
 		validateOnBlur: true,
 	});
 
+	const parameterGroups = groupDynamicParameters(parameters);
 	const disabled =
 		workspace.outdated &&
 		workspace.template_require_active_version &&
@@ -77,7 +108,7 @@ export const WorkspaceParametersPageView: FC<
 	// Debounce websocket sends to avoid stale responses overwriting
 	// the form while the user is still typing.
 	const { debounced: sendDynamicParamsRequest } = useDebouncedFunction(
-		(parameter: PreviewParameter, value: string) => {
+		(updates: Array<{ parameter: PreviewParameter; value: string }>) => {
 			const formInputs: Record<string, string> = {};
 			const formParameters = form.values.rich_parameter_values ?? [];
 			for (const param of formParameters) {
@@ -85,14 +116,18 @@ export const WorkspaceParametersPageView: FC<
 					formInputs[param.name] = param.value;
 				}
 			}
-			formInputs[parameter.name] = value;
+			for (const { parameter, value } of updates) {
+				formInputs[parameter.name] = value;
+			}
 			sendMessage(formInputs);
 		},
-		(parameter: PreviewParameter, _value: string) => {
+		(updates: Array<{ parameter: PreviewParameter; value: string }>) => {
 			// Return a debounce for string fields (those that involve typing) and
 			// zero debounce for all others (so the UI can react immediately).
-			return parameter.form_type === "input" ||
-				parameter.form_type === "textarea"
+			return updates.some(
+				({ parameter }) =>
+					parameter.form_type === "input" || parameter.form_type === "textarea",
+			)
 				? 500
 				: 0;
 		},
@@ -108,7 +143,33 @@ export const WorkspaceParametersPageView: FC<
 			value,
 		});
 		form.setFieldTouched(parameter.name, true);
-		sendDynamicParamsRequest(parameter, value);
+		sendDynamicParamsRequest([{ parameter, value }]);
+	};
+
+	const handleRangeChange = async (
+		minParameter: PreviewParameter,
+		maxParameter: PreviewParameter,
+		minField: string,
+		maxField: string,
+		minValue: string,
+		maxValue: string,
+	) => {
+		await Promise.all([
+			form.setFieldValue(minField, {
+				name: minParameter.name,
+				value: minValue,
+			}),
+			form.setFieldValue(maxField, {
+				name: maxParameter.name,
+				value: maxValue,
+			}),
+			form.setFieldTouched(minParameter.name, true),
+			form.setFieldTouched(maxParameter.name, true),
+		]);
+		sendDynamicParamsRequest([
+			{ parameter: minParameter, value: minValue },
+			{ parameter: maxParameter, value: maxValue },
+		]);
 	};
 
 	useSyncFormParameters({
@@ -234,23 +295,69 @@ export const WorkspaceParametersPageView: FC<
 								</Link>
 							</p>
 						</hgroup>
-						{parameters.map((parameter, index) => {
+						{parameterGroups.map((group) => {
+							if (group.type === "range") {
+								const { minParameter, maxParameter } = group;
+								const currentMinIndex =
+									form.values.rich_parameter_values?.findIndex(
+										(parameter) => parameter.name === minParameter.name,
+									) ?? -1;
+								const currentMaxIndex =
+									form.values.rich_parameter_values?.findIndex(
+										(parameter) => parameter.name === maxParameter.name,
+									) ?? -1;
+								const minFieldIndex =
+									currentMinIndex >= 0 ? currentMinIndex : group.minIndex;
+								const maxFieldIndex =
+									currentMaxIndex >= 0 ? currentMaxIndex : group.maxIndex;
+								const minValue =
+									form.values.rich_parameter_values?.[minFieldIndex]?.value ??
+									"";
+								const maxValue =
+									form.values.rich_parameter_values?.[maxFieldIndex]?.value ??
+									"";
+								const isDisabled =
+									disabled ||
+									minParameter.styling?.disabled ||
+									maxParameter.styling?.disabled ||
+									!minParameter.mutable ||
+									!maxParameter.mutable ||
+									isSubmitting;
+
+								return (
+									<RangeParameter
+										key={group.key}
+										minParameter={minParameter}
+										maxParameter={maxParameter}
+										minValue={minValue}
+										maxValue={maxValue}
+										onChange={(nextMin, nextMax) =>
+											handleRangeChange(
+												minParameter,
+												maxParameter,
+												`rich_parameter_values.${minFieldIndex}`,
+												`rich_parameter_values.${maxFieldIndex}`,
+												nextMin,
+												nextMax,
+											)
+										}
+										disabled={isDisabled}
+									/>
+								);
+							}
+
+							const { parameter, index } = group;
 							const currentParameterValueIndex =
 								form.values.rich_parameter_values?.findIndex(
 									(p) => p.name === parameter.name,
-								);
+								) ?? -1;
 							const parameterFieldIndex =
-								currentParameterValueIndex !== undefined
+								currentParameterValueIndex >= 0
 									? currentParameterValueIndex
 									: index;
-							// Get the form value by parameter name to ensure correct value mapping
 							const formValue =
-								currentParameterValueIndex !== undefined
-									? form.values?.rich_parameter_values?.[
-											currentParameterValueIndex
-										]?.value || ""
-									: "";
-
+								form.values.rich_parameter_values?.[parameterFieldIndex]
+									?.value ?? "";
 							const parameterField = `rich_parameter_values.${parameterFieldIndex}`;
 							const isDisabled =
 								disabled ||
@@ -260,7 +367,7 @@ export const WorkspaceParametersPageView: FC<
 
 							return (
 								<DynamicParameter
-									key={parameter.name}
+									key={group.key}
 									parameter={parameter}
 									onChange={(value) =>
 										handleChange(parameter, parameterField, value)
@@ -268,6 +375,7 @@ export const WorkspaceParametersPageView: FC<
 									autofill={false}
 									disabled={isDisabled}
 									value={formValue}
+									previousValue={previousValues.get(parameter.name)}
 								/>
 							);
 						})}
@@ -284,6 +392,8 @@ export const WorkspaceParametersPageView: FC<
 							isSubmitting ||
 							disabled ||
 							hasUnsyncedParameters ||
+							!form.isValid ||
+							hasMonotonicErrors(form.values.rich_parameter_values) ||
 							diagnostics.some(
 								(diagnostic) => diagnostic.severity === "error",
 							) ||

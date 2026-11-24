@@ -30,8 +30,10 @@ const (
 	mcpTraceIDHeader     = "X-Coder-MCP-Trace-Id"
 )
 
-type mcpAgentTraceContextKey struct{}
-type mcpTraceHTTPConnectionContextKey struct{}
+type (
+	mcpAgentTraceContextKey          struct{}
+	mcpTraceHTTPConnectionContextKey struct{}
+)
 
 type mcpTraceHTTPConnection struct {
 	id         uuid.UUID

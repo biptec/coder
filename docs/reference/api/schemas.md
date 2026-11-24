@@ -4265,9 +4265,9 @@ AuthorizationObject can represent a "set" of objects, such as: all workspaces in
 
 #### Enumerated Values
 
-| Value(s)                                                                             |
-|--------------------------------------------------------------------------------------|
-| `jetbrains`, `port_forwarding`, `reconnecting_pty`, `ssh`, `vscode`, `workspace_app` |
+| Value(s)                                                                                    |
+|---------------------------------------------------------------------------------------------|
+| `jetbrains`, `mcp`, `port_forwarding`, `reconnecting_pty`, `ssh`, `vscode`, `workspace_app` |
 
 ## codersdk.ConvertLoginRequest
 
@@ -5533,6 +5533,57 @@ CreateWorkspaceRequest provides options for creating a new workspace. Only one o
 | `agent_name` | string  | false    |              |             |
 | `port`       | integer | false    |              |             |
 
+## codersdk.DeleteWorkspaceCommandActivityRequest
+
+```json
+{
+  "filter": {
+    "duration_max_ms": 0,
+    "duration_min_ms": 0,
+    "exit_code": 0,
+    "id": "string",
+    "search": "string",
+    "sources": [
+      "agentproc"
+    ],
+    "started_after": "2019-08-24T14:15:22Z",
+    "started_before": "2019-08-24T14:15:22Z",
+    "statuses": [
+      "running"
+    ],
+    "tools": [
+      "string"
+    ]
+  },
+  "ids": [
+    "497f6eca-6276-4993-bfeb-53cbbbba6f08"
+  ],
+  "mode": "filtered"
+}
+```
+
+### Properties
+
+| Name     | Type                                                                                       | Required | Restrictions | Description |
+|----------|--------------------------------------------------------------------------------------------|----------|--------------|-------------|
+| `filter` | [codersdk.WorkspaceCommandActivityFilter](#codersdkworkspacecommandactivityfilter)         | false    |              |             |
+| `ids`    | array of string                                                                            | false    |              |             |
+| `mode`   | [codersdk.WorkspaceCommandActivityDeleteMode](#codersdkworkspacecommandactivitydeletemode) | false    |              |             |
+
+## codersdk.DeleteWorkspaceCommandActivityResponse
+
+```json
+{
+  "deleted": 0
+}
+```
+
+### Properties
+
+| Name      | Type    | Required | Restrictions | Description |
+|-----------|---------|----------|--------------|-------------|
+| `deleted` | integer | false    |              |             |
+
 ## codersdk.DeploymentConfig
 
 ```json
@@ -5768,6 +5819,10 @@ CreateWorkspaceRequest provides options for creating a new workspace. Only one o
       ],
       "stackdriver": "string"
     },
+    "mcp_result_bytes_max": 0,
+    "mcp_tool_timeout_max": 0,
+    "mcp_trace_enabled": true,
+    "mcp_trace_retention_hours": 0,
     "metrics_cache_refresh_interval": 0,
     "notifications": {
       "dispatch_timeout": 0,
@@ -5956,6 +6011,7 @@ CreateWorkspaceRequest provides options for creating a new workspace. Only one o
     },
     "scim_api_key": "string",
     "scim_use_legacy": true,
+    "server_tailnet_agent_idle_timeout": 0,
     "session_lifetime": {
       "default_duration": 0,
       "default_token_lifetime": 0,
@@ -6050,6 +6106,7 @@ CreateWorkspaceRequest provides options for creating a new workspace. Only one o
     "wgtunnel_host": "string",
     "wildcard_access_url": "string",
     "workspace_activity_now_threshold": 0,
+    "workspace_command_activity_history_limit": 0,
     "workspace_hostname_suffix": "string",
     "workspace_prebuilds": {
       "failure_hard_limit": 0,
@@ -6378,6 +6435,10 @@ CreateWorkspaceRequest provides options for creating a new workspace. Only one o
     ],
     "stackdriver": "string"
   },
+  "mcp_result_bytes_max": 0,
+  "mcp_tool_timeout_max": 0,
+  "mcp_trace_enabled": true,
+  "mcp_trace_retention_hours": 0,
   "metrics_cache_refresh_interval": 0,
   "notifications": {
     "dispatch_timeout": 0,
@@ -6566,6 +6627,7 @@ CreateWorkspaceRequest provides options for creating a new workspace. Only one o
   },
   "scim_api_key": "string",
   "scim_use_legacy": true,
+  "server_tailnet_agent_idle_timeout": 0,
   "session_lifetime": {
     "default_duration": 0,
     "default_token_lifetime": 0,
@@ -6660,6 +6722,7 @@ CreateWorkspaceRequest provides options for creating a new workspace. Only one o
   "wgtunnel_host": "string",
   "wildcard_access_url": "string",
   "workspace_activity_now_threshold": 0,
+  "workspace_command_activity_history_limit": 0,
   "workspace_hostname_suffix": "string",
   "workspace_prebuilds": {
     "failure_hard_limit": 0,
@@ -6713,6 +6776,10 @@ CreateWorkspaceRequest provides options for creating a new workspace. Only one o
 | `http_cookies`                                 | [codersdk.HTTPCookieConfig](#codersdkhttpcookieconfig)                                               | false    |              |                                                                    |
 | `job_hang_detector_interval`                   | integer                                                                                              | false    |              |                                                                    |
 | `logging`                                      | [codersdk.LoggingConfig](#codersdkloggingconfig)                                                     | false    |              |                                                                    |
+| `mcp_result_bytes_max`                         | integer                                                                                              | false    |              |                                                                    |
+| `mcp_tool_timeout_max`                         | integer                                                                                              | false    |              |                                                                    |
+| `mcp_trace_enabled`                            | boolean                                                                                              | false    |              |                                                                    |
+| `mcp_trace_retention_hours`                    | integer                                                                                              | false    |              |                                                                    |
 | `metrics_cache_refresh_interval`               | integer                                                                                              | false    |              |                                                                    |
 | `notifications`                                | [codersdk.NotificationsConfig](#codersdknotificationsconfig)                                         | false    |              |                                                                    |
 | `oauth2`                                       | [codersdk.OAuth2Config](#codersdkoauth2config)                                                       | false    |              |                                                                    |
@@ -6732,6 +6799,7 @@ CreateWorkspaceRequest provides options for creating a new workspace. Only one o
 | `retention`                                    | [codersdk.RetentionConfig](#codersdkretentionconfig)                                                 | false    |              |                                                                    |
 | `scim_api_key`                                 | string                                                                                               | false    |              |                                                                    |
 | `scim_use_legacy`                              | boolean                                                                                              | false    |              |                                                                    |
+| `server_tailnet_agent_idle_timeout`            | integer                                                                                              | false    |              |                                                                    |
 | `session_lifetime`                             | [codersdk.SessionLifetime](#codersdksessionlifetime)                                                 | false    |              |                                                                    |
 | `ssh_keygen_algorithm`                         | string                                                                                               | false    |              |                                                                    |
 | `stats_collection`                             | [codersdk.StatsCollectionConfig](#codersdkstatscollectionconfig)                                     | false    |              |                                                                    |
@@ -6751,6 +6819,7 @@ CreateWorkspaceRequest provides options for creating a new workspace. Only one o
 | `wgtunnel_host`                                | string                                                                                               | false    |              |                                                                    |
 | `wildcard_access_url`                          | string                                                                                               | false    |              |                                                                    |
 | `workspace_activity_now_threshold`             | integer                                                                                              | false    |              |                                                                    |
+| `workspace_command_activity_history_limit`     | integer                                                                                              | false    |              |                                                                    |
 | `workspace_hostname_suffix`                    | string                                                                                               | false    |              |                                                                    |
 | `workspace_prebuilds`                          | [codersdk.PrebuildsConfig](#codersdkprebuildsconfig)                                                 | false    |              |                                                                    |
 | `workspace_volume_copy_enabled`                | boolean                                                                                              | false    |              |                                                                    |
@@ -6874,10 +6943,18 @@ CreateWorkspaceRequest provides options for creating a new workspace. Only one o
       "order": 0,
       "required": true,
       "styling": {
+        "auto_max_multiplier": 0,
         "disabled": true,
+        "display_unit": "string",
         "label": "string",
         "mask_input": true,
-        "placeholder": "string"
+        "placeholder": "string",
+        "preset_mutable": true,
+        "range_group": "string",
+        "range_role": "min",
+        "slider_max": 0,
+        "slider_min": 0,
+        "step": 0
       },
       "type": "string",
       "validations": [
@@ -9900,10 +9977,18 @@ Only certain features set these fields: - FeatureManagedAgentLimit|
   "order": 0,
   "required": true,
   "styling": {
+    "auto_max_multiplier": 0,
     "disabled": true,
+    "display_unit": "string",
     "label": "string",
     "mask_input": true,
-    "placeholder": "string"
+    "placeholder": "string",
+    "preset_mutable": true,
+    "range_group": "string",
+    "range_role": "min",
+    "slider_max": 0,
+    "slider_min": 0,
+    "step": 0
   },
   "type": "string",
   "validations": [
@@ -9970,21 +10055,43 @@ Only certain features set these fields: - FeatureManagedAgentLimit|
 
 ```json
 {
+  "auto_max_multiplier": 0,
   "disabled": true,
+  "display_unit": "string",
   "label": "string",
   "mask_input": true,
-  "placeholder": "string"
+  "placeholder": "string",
+  "preset_mutable": true,
+  "range_group": "string",
+  "range_role": "min",
+  "slider_max": 0,
+  "slider_min": 0,
+  "step": 0
 }
 ```
 
 ### Properties
 
-| Name          | Type    | Required | Restrictions | Description |
-|---------------|---------|----------|--------------|-------------|
-| `disabled`    | boolean | false    |              |             |
-| `label`       | string  | false    |              |             |
-| `mask_input`  | boolean | false    |              |             |
-| `placeholder` | string  | false    |              |             |
+| Name                  | Type    | Required | Restrictions | Description |
+|-----------------------|---------|----------|--------------|-------------|
+| `auto_max_multiplier` | number  | false    |              |             |
+| `disabled`            | boolean | false    |              |             |
+| `display_unit`        | string  | false    |              |             |
+| `label`               | string  | false    |              |             |
+| `mask_input`          | boolean | false    |              |             |
+| `placeholder`         | string  | false    |              |             |
+| `preset_mutable`      | boolean | false    |              |             |
+| `range_group`         | string  | false    |              |             |
+| `range_role`          | string  | false    |              |             |
+| `slider_max`          | number  | false    |              |             |
+| `slider_min`          | number  | false    |              |             |
+| `step`                | number  | false    |              |             |
+
+#### Enumerated Values
+
+| Property     | Value(s)     |
+|--------------|--------------|
+| `range_role` | `max`, `min` |
 
 ## codersdk.PreviewParameterValidation
 
@@ -14713,7 +14820,8 @@ If the schedule is empty, the user will be updated to use the default schedule.|
   "template_require_active_version": true,
   "template_use_classic_parameter_flow": true,
   "ttl_ms": 0,
-  "updated_at": "2019-08-24T14:15:22Z"
+  "updated_at": "2019-08-24T14:15:22Z",
+  "volume_copy_operation_id": "5e7ec20b-441f-4c51-8ee8-b9e466a8bb2b"
 }
 ```
 
@@ -14754,6 +14862,7 @@ If the schedule is empty, the user will be updated to use the default schedule.|
 | `template_use_classic_parameter_flow`       | boolean                                                                 | false    |              |                                                                                                                                                                                                                                                                                                                                             |
 | `ttl_ms`                                    | integer                                                                 | false    |              |                                                                                                                                                                                                                                                                                                                                             |
 | `updated_at`                                | string                                                                  | false    |              |                                                                                                                                                                                                                                                                                                                                             |
+| `volume_copy_operation_id`                  | string                                                                  | false    |              |                                                                                                                                                                                                                                                                                                                                             |
 
 #### Enumerated Values
 
@@ -14814,6 +14923,39 @@ If the schedule is empty, the user will be updated to use the default schedule.|
 |---------|-------------------------------------------------------------|----------|--------------|-------------|
 | `group` | array of [codersdk.WorkspaceGroup](#codersdkworkspacegroup) | false    |              |             |
 | `users` | array of [codersdk.WorkspaceUser](#codersdkworkspaceuser)   | false    |              |             |
+
+## codersdk.WorkspaceActiveVolumeCopyOperation
+
+```json
+{
+  "operation": {
+    "allow_source_running": true,
+    "completed_at": "2019-08-24T14:15:22Z",
+    "created_at": "2019-08-24T14:15:22Z",
+    "destination_workspace_id": "6a0888b2-b076-46be-a2fa-ba26a4ef1783",
+    "error": "string",
+    "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
+    "initiator_id": "06588898-9a84-4b35-ba8f-f9cbd64946f3",
+    "source_workspace_id": "0bec99f5-fe9f-476a-a47b-d925ed169238",
+    "started_at": "2019-08-24T14:15:22Z",
+    "status": "pending",
+    "sync_of": "3a49bb49-0a60-4173-be25-94dc87a077c1",
+    "updated_at": "2019-08-24T14:15:22Z",
+    "volumes": [
+      {
+        "key": "string",
+        "overwrite": true
+      }
+    ]
+  }
+}
+```
+
+### Properties
+
+| Name        | Type                                                                           | Required | Restrictions | Description |
+|-------------|--------------------------------------------------------------------------------|----------|--------------|-------------|
+| `operation` | [codersdk.WorkspaceVolumeCopyOperation](#codersdkworkspacevolumecopyoperation) | false    |              |             |
 
 ## codersdk.WorkspaceAgent
 
@@ -16071,6 +16213,267 @@ If the schedule is empty, the user will be updated to use the default schedule.|
 | `agent_script_timings`     | array of [codersdk.AgentScriptTiming](#codersdkagentscripttiming)         | false    |              | Agent script timings Consolidate agent-related timing metrics into a single struct when updating the API version |
 | `provisioner_timings`      | array of [codersdk.ProvisionerTiming](#codersdkprovisionertiming)         | false    |              |                                                                                                                  |
 
+## codersdk.WorkspaceCommandActivity
+
+```json
+{
+  "agent_id": "2b1e3b65-2c04-4fa2-a2d7-467901e98978",
+  "argv": [
+    "string"
+  ],
+  "command": "string",
+  "environment": {
+    "property1": "string",
+    "property2": "string"
+  },
+  "exit_code": 0,
+  "finished_at": "2019-08-24T14:15:22Z",
+  "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
+  "kind": "command",
+  "output": "string",
+  "session_id": "1ffd059c-17ea-40a8-8aef-70fd0307db82",
+  "source": "agentproc",
+  "started_at": "2019-08-24T14:15:22Z",
+  "status": "running",
+  "tool": "string",
+  "work_dir": "string"
+}
+```
+
+### Properties
+
+| Name               | Type                                                                               | Required | Restrictions | Description |
+|--------------------|------------------------------------------------------------------------------------|----------|--------------|-------------|
+| `agent_id`         | string                                                                             | false    |              |             |
+| `argv`             | array of string                                                                    | false    |              |             |
+| `command`          | string                                                                             | false    |              |             |
+| `environment`      | object                                                                             | false    |              |             |
+| » `[any property]` | string                                                                             | false    |              |             |
+| `exit_code`        | integer                                                                            | false    |              |             |
+| `finished_at`      | string                                                                             | false    |              |             |
+| `id`               | string                                                                             | false    |              |             |
+| `kind`             | [codersdk.WorkspaceCommandActivityKind](#codersdkworkspacecommandactivitykind)     | false    |              |             |
+| `output`           | string                                                                             | false    |              |             |
+| `session_id`       | string                                                                             | false    |              |             |
+| `source`           | [codersdk.WorkspaceCommandActivitySource](#codersdkworkspacecommandactivitysource) | false    |              |             |
+| `started_at`       | string                                                                             | false    |              |             |
+| `status`           | [codersdk.WorkspaceCommandActivityStatus](#codersdkworkspacecommandactivitystatus) | false    |              |             |
+| `tool`             | string                                                                             | false    |              |             |
+| `work_dir`         | string                                                                             | false    |              |             |
+
+## codersdk.WorkspaceCommandActivityDeleteMode
+
+```json
+"filtered"
+```
+
+### Properties
+
+#### Enumerated Values
+
+| Value(s)               |
+|------------------------|
+| `filtered`, `selected` |
+
+## codersdk.WorkspaceCommandActivityFilter
+
+```json
+{
+  "duration_max_ms": 0,
+  "duration_min_ms": 0,
+  "exit_code": 0,
+  "id": "string",
+  "search": "string",
+  "sources": [
+    "agentproc"
+  ],
+  "started_after": "2019-08-24T14:15:22Z",
+  "started_before": "2019-08-24T14:15:22Z",
+  "statuses": [
+    "running"
+  ],
+  "tools": [
+    "string"
+  ]
+}
+```
+
+### Properties
+
+| Name              | Type                                                                                        | Required | Restrictions | Description |
+|-------------------|---------------------------------------------------------------------------------------------|----------|--------------|-------------|
+| `duration_max_ms` | integer                                                                                     | false    |              |             |
+| `duration_min_ms` | integer                                                                                     | false    |              |             |
+| `exit_code`       | integer                                                                                     | false    |              |             |
+| `id`              | string                                                                                      | false    |              |             |
+| `search`          | string                                                                                      | false    |              |             |
+| `sources`         | array of [codersdk.WorkspaceCommandActivitySource](#codersdkworkspacecommandactivitysource) | false    |              |             |
+| `started_after`   | string                                                                                      | false    |              |             |
+| `started_before`  | string                                                                                      | false    |              |             |
+| `statuses`        | array of [codersdk.WorkspaceCommandActivityStatus](#codersdkworkspacecommandactivitystatus) | false    |              |             |
+| `tools`           | array of string                                                                             | false    |              |             |
+
+## codersdk.WorkspaceCommandActivityKind
+
+```json
+"command"
+```
+
+### Properties
+
+#### Enumerated Values
+
+| Value(s)          |
+|-------------------|
+| `command`, `tool` |
+
+## codersdk.WorkspaceCommandActivityResponse
+
+```json
+{
+  "activity": [
+    {
+      "agent_id": "2b1e3b65-2c04-4fa2-a2d7-467901e98978",
+      "argv": [
+        "string"
+      ],
+      "command": "string",
+      "environment": {
+        "property1": "string",
+        "property2": "string"
+      },
+      "exit_code": 0,
+      "finished_at": "2019-08-24T14:15:22Z",
+      "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
+      "kind": "command",
+      "output": "string",
+      "session_id": "1ffd059c-17ea-40a8-8aef-70fd0307db82",
+      "source": "agentproc",
+      "started_at": "2019-08-24T14:15:22Z",
+      "status": "running",
+      "tool": "string",
+      "work_dir": "string"
+    }
+  ],
+  "available_tools": [
+    "string"
+  ],
+  "deletable_count": 0,
+  "history_limit": 0,
+  "idle_activity": [
+    {
+      "finished_at": "2019-08-24T14:15:22Z",
+      "started_at": "2019-08-24T14:15:22Z"
+    }
+  ],
+  "mcp_requests": [
+    {
+      "finished_at": "2019-08-24T14:15:22Z",
+      "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
+      "started_at": "2019-08-24T14:15:22Z",
+      "status": "running"
+    }
+  ],
+  "page": 0,
+  "page_size": 0,
+  "total_count": 0,
+  "total_pages": 0
+}
+```
+
+### Properties
+
+| Name              | Type                                                                                  | Required | Restrictions | Description |
+|-------------------|---------------------------------------------------------------------------------------|----------|--------------|-------------|
+| `activity`        | array of [codersdk.WorkspaceCommandActivity](#codersdkworkspacecommandactivity)       | false    |              |             |
+| `available_tools` | array of string                                                                       | false    |              |             |
+| `deletable_count` | integer                                                                               | false    |              |             |
+| `history_limit`   | integer                                                                               | false    |              |             |
+| `idle_activity`   | array of [codersdk.WorkspaceIdleActivity](#codersdkworkspaceidleactivity)             | false    |              |             |
+| `mcp_requests`    | array of [codersdk.WorkspaceMCPRequestActivity](#codersdkworkspacemcprequestactivity) | false    |              |             |
+| `page`            | integer                                                                               | false    |              |             |
+| `page_size`       | integer                                                                               | false    |              |             |
+| `total_count`     | integer                                                                               | false    |              |             |
+| `total_pages`     | integer                                                                               | false    |              |             |
+
+## codersdk.WorkspaceCommandActivitySource
+
+```json
+"agentproc"
+```
+
+### Properties
+
+#### Enumerated Values
+
+| Value(s)                                                                     |
+|------------------------------------------------------------------------------|
+| `agentproc`, `chat`, `jetbrains`, `mcp`, `reconnecting_pty`, `ssh`, `vscode` |
+
+## codersdk.WorkspaceCommandActivityStatus
+
+```json
+"running"
+```
+
+### Properties
+
+#### Enumerated Values
+
+| Value(s)                                        |
+|-------------------------------------------------|
+| `failed`, `interrupted`, `running`, `succeeded` |
+
+## codersdk.WorkspaceConnectionActivityResponse
+
+```json
+{
+  "active": true,
+  "active_connections": 0,
+  "last_activity_at": "2019-08-24T14:15:22Z",
+  "types": [
+    {
+      "active_connections": 0,
+      "last_activity_at": "2019-08-24T14:15:22Z",
+      "last_connected_at": "2019-08-24T14:15:22Z",
+      "last_disconnected_at": "2019-08-24T14:15:22Z",
+      "type": "ssh"
+    }
+  ]
+}
+```
+
+### Properties
+
+| Name                 | Type                                                                                          | Required | Restrictions | Description |
+|----------------------|-----------------------------------------------------------------------------------------------|----------|--------------|-------------|
+| `active`             | boolean                                                                                       | false    |              |             |
+| `active_connections` | integer                                                                                       | false    |              |             |
+| `last_activity_at`   | string                                                                                        | false    |              |             |
+| `types`              | array of [codersdk.WorkspaceConnectionActivityType](#codersdkworkspaceconnectionactivitytype) | false    |              |             |
+
+## codersdk.WorkspaceConnectionActivityType
+
+```json
+{
+  "active_connections": 0,
+  "last_activity_at": "2019-08-24T14:15:22Z",
+  "last_connected_at": "2019-08-24T14:15:22Z",
+  "last_disconnected_at": "2019-08-24T14:15:22Z",
+  "type": "ssh"
+}
+```
+
+### Properties
+
+| Name                   | Type                                               | Required | Restrictions | Description |
+|------------------------|----------------------------------------------------|----------|--------------|-------------|
+| `active_connections`   | integer                                            | false    |              |             |
+| `last_activity_at`     | string                                             | false    |              |             |
+| `last_connected_at`    | string                                             | false    |              |             |
+| `last_disconnected_at` | string                                             | false    |              |             |
+| `type`                 | [codersdk.ConnectionType](#codersdkconnectiontype) | false    |              |             |
+
 ## codersdk.WorkspaceConnectionLatencyMS
 
 ```json
@@ -16192,6 +16595,42 @@ If the schedule is empty, the user will be updated to use the default schedule.|
 |------------------|-----------------|----------|--------------|----------------------------------------------------------------------|
 | `failing_agents` | array of string | false    |              | Failing agents lists the IDs of the agents that are failing, if any. |
 | `healthy`        | boolean         | false    |              | Healthy is true if the workspace is healthy.                         |
+
+## codersdk.WorkspaceIdleActivity
+
+```json
+{
+  "finished_at": "2019-08-24T14:15:22Z",
+  "started_at": "2019-08-24T14:15:22Z"
+}
+```
+
+### Properties
+
+| Name          | Type   | Required | Restrictions | Description |
+|---------------|--------|----------|--------------|-------------|
+| `finished_at` | string | false    |              |             |
+| `started_at`  | string | false    |              |             |
+
+## codersdk.WorkspaceMCPRequestActivity
+
+```json
+{
+  "finished_at": "2019-08-24T14:15:22Z",
+  "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
+  "started_at": "2019-08-24T14:15:22Z",
+  "status": "running"
+}
+```
+
+### Properties
+
+| Name          | Type                                                                               | Required | Restrictions | Description |
+|---------------|------------------------------------------------------------------------------------|----------|--------------|-------------|
+| `finished_at` | string                                                                             | false    |              |             |
+| `id`          | string                                                                             | false    |              |             |
+| `started_at`  | string                                                                             | false    |              |             |
+| `status`      | [codersdk.WorkspaceCommandActivityStatus](#codersdkworkspacecommandactivitystatus) | false    |              |             |
 
 ## codersdk.WorkspaceProxy
 
@@ -16917,7 +17356,8 @@ If the schedule is empty, the user will be updated to use the default schedule.|
       "template_require_active_version": true,
       "template_use_classic_parameter_flow": true,
       "ttl_ms": 0,
-      "updated_at": "2019-08-24T14:15:22Z"
+      "updated_at": "2019-08-24T14:15:22Z",
+      "volume_copy_operation_id": "5e7ec20b-441f-4c51-8ee8-b9e466a8bb2b"
     }
   ]
 }

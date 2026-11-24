@@ -13424,6 +13424,41 @@ const docTemplate = `{
                 ]
             }
         },
+        "/api/v2/workspaces/{workspace}/activity/watch": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Workspaces"
+                ],
+                "summary": "Watch workspace activity history via WebSockets",
+                "operationId": "watch-workspace-activity-via-websockets",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Workspace ID",
+                        "name": "workspace",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/codersdk.ServerSentEvent"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "CoderSessionToken": []
+                    }
+                ]
+            }
+        },
         "/api/v2/workspaces/{workspace}/agent-connection-watch": {
             "get": {
                 "produces": [
@@ -13640,6 +13675,121 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/codersdk.WorkspaceBuild"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "CoderSessionToken": []
+                    }
+                ]
+            }
+        },
+        "/api/v2/workspaces/{workspace}/command-activity": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Workspaces"
+                ],
+                "summary": "Get workspace command activity",
+                "operationId": "get-workspace-command-activity",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Workspace ID",
+                        "name": "workspace",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/codersdk.WorkspaceCommandActivityResponse"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "CoderSessionToken": []
+                    }
+                ]
+            },
+            "delete": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Workspaces"
+                ],
+                "summary": "Delete workspace command activity",
+                "operationId": "delete-workspace-command-activity",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Workspace ID",
+                        "name": "workspace",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Delete command activity",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/codersdk.DeleteWorkspaceCommandActivityRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/codersdk.DeleteWorkspaceCommandActivityResponse"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "CoderSessionToken": []
+                    }
+                ]
+            }
+        },
+        "/api/v2/workspaces/{workspace}/connection-activity": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Workspaces"
+                ],
+                "summary": "Get workspace connection activity",
+                "operationId": "get-workspace-connection-activity",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Workspace ID",
+                        "name": "workspace",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/codersdk.WorkspaceConnectionActivityResponse"
                         }
                     }
                 },
@@ -14103,6 +14253,41 @@ const docTemplate = `{
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    }
+                },
+                "security": [
+                    {
+                        "CoderSessionToken": []
+                    }
+                ]
+            }
+        },
+        "/api/v2/workspaces/{workspace}/volume-copy-operation": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Workspaces"
+                ],
+                "summary": "Get the active persistent-volume copy operation for a workspace",
+                "operationId": "get-workspace-active-volume-copy",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Workspace ID",
+                        "name": "workspace",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/codersdk.WorkspaceActiveVolumeCopyOperation"
+                        }
                     }
                 },
                 "security": [
@@ -18291,7 +18476,8 @@ const docTemplate = `{
                 "jetbrains",
                 "reconnecting_pty",
                 "workspace_app",
-                "port_forwarding"
+                "port_forwarding",
+                "mcp"
             ],
             "x-enum-varnames": [
                 "ConnectionTypeSSH",
@@ -18299,7 +18485,8 @@ const docTemplate = `{
                 "ConnectionTypeJetBrains",
                 "ConnectionTypeReconnectingPTY",
                 "ConnectionTypeWorkspaceApp",
-                "ConnectionTypePortForwarding"
+                "ConnectionTypePortForwarding",
+                "ConnectionTypeMCP"
             ]
         },
         "codersdk.ConvertLoginRequest": {
@@ -19431,6 +19618,32 @@ const docTemplate = `{
                 }
             }
         },
+        "codersdk.DeleteWorkspaceCommandActivityRequest": {
+            "type": "object",
+            "properties": {
+                "filter": {
+                    "$ref": "#/definitions/codersdk.WorkspaceCommandActivityFilter"
+                },
+                "ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                },
+                "mode": {
+                    "$ref": "#/definitions/codersdk.WorkspaceCommandActivityDeleteMode"
+                }
+            }
+        },
+        "codersdk.DeleteWorkspaceCommandActivityResponse": {
+            "type": "object",
+            "properties": {
+                "deleted": {
+                    "type": "integer"
+                }
+            }
+        },
         "codersdk.DeploymentConfig": {
             "type": "object",
             "properties": {
@@ -19594,6 +19807,18 @@ const docTemplate = `{
                 "logging": {
                     "$ref": "#/definitions/codersdk.LoggingConfig"
                 },
+                "mcp_result_bytes_max": {
+                    "type": "integer"
+                },
+                "mcp_tool_timeout_max": {
+                    "type": "integer"
+                },
+                "mcp_trace_enabled": {
+                    "type": "boolean"
+                },
+                "mcp_trace_retention_hours": {
+                    "type": "integer"
+                },
                 "metrics_cache_refresh_interval": {
                     "type": "integer"
                 },
@@ -19657,6 +19882,9 @@ const docTemplate = `{
                 "scim_use_legacy": {
                     "type": "boolean"
                 },
+                "server_tailnet_agent_idle_timeout": {
+                    "type": "integer"
+                },
                 "session_lifetime": {
                     "$ref": "#/definitions/codersdk.SessionLifetime"
                 },
@@ -19715,6 +19943,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "workspace_activity_now_threshold": {
+                    "type": "integer"
+                },
+                "workspace_command_activity_history_limit": {
                     "type": "integer"
                 },
                 "workspace_hostname_suffix": {
@@ -22397,8 +22628,14 @@ const docTemplate = `{
         "codersdk.PreviewParameterStyling": {
             "type": "object",
             "properties": {
+                "auto_max_multiplier": {
+                    "type": "number"
+                },
                 "disabled": {
                     "type": "boolean"
+                },
+                "display_unit": {
+                    "type": "string"
                 },
                 "label": {
                     "type": "string"
@@ -22408,6 +22645,28 @@ const docTemplate = `{
                 },
                 "placeholder": {
                     "type": "string"
+                },
+                "preset_mutable": {
+                    "type": "boolean"
+                },
+                "range_group": {
+                    "type": "string"
+                },
+                "range_role": {
+                    "type": "string",
+                    "enum": [
+                        "min",
+                        "max"
+                    ]
+                },
+                "slider_max": {
+                    "type": "number"
+                },
+                "slider_min": {
+                    "type": "number"
+                },
+                "step": {
+                    "type": "number"
                 }
             }
         },
@@ -26459,6 +26718,10 @@ const docTemplate = `{
                 "updated_at": {
                     "type": "string",
                     "format": "date-time"
+                },
+                "volume_copy_operation_id": {
+                    "type": "string",
+                    "format": "uuid"
                 }
             }
         },
@@ -26476,6 +26739,14 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/codersdk.WorkspaceUser"
                     }
+                }
+            }
+        },
+        "codersdk.WorkspaceActiveVolumeCopyOperation": {
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "$ref": "#/definitions/codersdk.WorkspaceVolumeCopyOperation"
                 }
             }
         },
@@ -27516,6 +27787,262 @@ const docTemplate = `{
                 }
             }
         },
+        "codersdk.WorkspaceCommandActivity": {
+            "type": "object",
+            "properties": {
+                "agent_id": {
+                    "type": "string",
+                    "format": "uuid"
+                },
+                "argv": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "command": {
+                    "type": "string"
+                },
+                "environment": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "exit_code": {
+                    "type": "integer"
+                },
+                "finished_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "id": {
+                    "type": "string",
+                    "format": "uuid"
+                },
+                "kind": {
+                    "$ref": "#/definitions/codersdk.WorkspaceCommandActivityKind"
+                },
+                "output": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string",
+                    "format": "uuid"
+                },
+                "source": {
+                    "$ref": "#/definitions/codersdk.WorkspaceCommandActivitySource"
+                },
+                "started_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "status": {
+                    "$ref": "#/definitions/codersdk.WorkspaceCommandActivityStatus"
+                },
+                "tool": {
+                    "type": "string"
+                },
+                "work_dir": {
+                    "type": "string"
+                }
+            }
+        },
+        "codersdk.WorkspaceCommandActivityDeleteMode": {
+            "type": "string",
+            "enum": [
+                "filtered",
+                "selected"
+            ],
+            "x-enum-varnames": [
+                "WorkspaceCommandActivityDeleteFiltered",
+                "WorkspaceCommandActivityDeleteSelected"
+            ]
+        },
+        "codersdk.WorkspaceCommandActivityFilter": {
+            "type": "object",
+            "properties": {
+                "duration_max_ms": {
+                    "type": "integer"
+                },
+                "duration_min_ms": {
+                    "type": "integer"
+                },
+                "exit_code": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "search": {
+                    "type": "string"
+                },
+                "sources": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/codersdk.WorkspaceCommandActivitySource"
+                    }
+                },
+                "started_after": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "started_before": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "statuses": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/codersdk.WorkspaceCommandActivityStatus"
+                    }
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "codersdk.WorkspaceCommandActivityKind": {
+            "type": "string",
+            "enum": [
+                "command",
+                "tool"
+            ],
+            "x-enum-varnames": [
+                "WorkspaceCommandActivityKindCommand",
+                "WorkspaceCommandActivityKindTool"
+            ]
+        },
+        "codersdk.WorkspaceCommandActivityResponse": {
+            "type": "object",
+            "properties": {
+                "activity": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/codersdk.WorkspaceCommandActivity"
+                    }
+                },
+                "available_tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "deletable_count": {
+                    "type": "integer"
+                },
+                "history_limit": {
+                    "type": "integer"
+                },
+                "idle_activity": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/codersdk.WorkspaceIdleActivity"
+                    }
+                },
+                "mcp_requests": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/codersdk.WorkspaceMCPRequestActivity"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "total_count": {
+                    "type": "integer"
+                },
+                "total_pages": {
+                    "type": "integer"
+                }
+            }
+        },
+        "codersdk.WorkspaceCommandActivitySource": {
+            "type": "string",
+            "enum": [
+                "agentproc",
+                "ssh",
+                "mcp",
+                "reconnecting_pty",
+                "vscode",
+                "jetbrains",
+                "chat"
+            ],
+            "x-enum-varnames": [
+                "WorkspaceCommandActivitySourceAgentProc",
+                "WorkspaceCommandActivitySourceSSH",
+                "WorkspaceCommandActivitySourceMCP",
+                "WorkspaceCommandActivitySourceReconnectingPTY",
+                "WorkspaceCommandActivitySourceVSCode",
+                "WorkspaceCommandActivitySourceJetBrains",
+                "WorkspaceCommandActivitySourceChat"
+            ]
+        },
+        "codersdk.WorkspaceCommandActivityStatus": {
+            "type": "string",
+            "enum": [
+                "running",
+                "succeeded",
+                "failed",
+                "interrupted"
+            ],
+            "x-enum-varnames": [
+                "WorkspaceCommandActivityStatusRunning",
+                "WorkspaceCommandActivityStatusSucceeded",
+                "WorkspaceCommandActivityStatusFailed",
+                "WorkspaceCommandActivityStatusInterrupted"
+            ]
+        },
+        "codersdk.WorkspaceConnectionActivityResponse": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "active_connections": {
+                    "type": "integer"
+                },
+                "last_activity_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "types": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/codersdk.WorkspaceConnectionActivityType"
+                    }
+                }
+            }
+        },
+        "codersdk.WorkspaceConnectionActivityType": {
+            "type": "object",
+            "properties": {
+                "active_connections": {
+                    "type": "integer"
+                },
+                "last_activity_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "last_connected_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "last_disconnected_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "type": {
+                    "$ref": "#/definitions/codersdk.ConnectionType"
+                }
+            }
+        },
         "codersdk.WorkspaceConnectionLatencyMS": {
             "type": "object",
             "properties": {
@@ -27629,6 +28156,39 @@ const docTemplate = `{
                     "description": "Healthy is true if the workspace is healthy.",
                     "type": "boolean",
                     "example": false
+                }
+            }
+        },
+        "codersdk.WorkspaceIdleActivity": {
+            "type": "object",
+            "properties": {
+                "finished_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "started_at": {
+                    "type": "string",
+                    "format": "date-time"
+                }
+            }
+        },
+        "codersdk.WorkspaceMCPRequestActivity": {
+            "type": "object",
+            "properties": {
+                "finished_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "id": {
+                    "type": "string",
+                    "format": "uuid"
+                },
+                "started_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "status": {
+                    "$ref": "#/definitions/codersdk.WorkspaceCommandActivityStatus"
                 }
             }
         },

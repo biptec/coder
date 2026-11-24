@@ -257,7 +257,11 @@ func (r *dynamicRenderer) Render(ctx context.Context, ownerID uuid.UUID, values 
 		Logger: slog.New(slog.DiscardHandler),
 	}
 
-	return preview.Preview(ctx, input, r.templateFS)
+	output, diagnostics := preview.Preview(ctx, input, r.templateFS)
+	if output != nil {
+		validateParameterRanges(output.Parameters)
+	}
+	return output, diagnostics
 }
 
 func (r *dynamicRenderer) getWorkspaceOwnerData(ctx context.Context, ownerID uuid.UUID) error {

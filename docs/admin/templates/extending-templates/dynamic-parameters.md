@@ -159,11 +159,102 @@ data "coder_parameter" "styled_parameter" {
 
 Not all styling attributes are supported by all form types, use the reference below for syntax:
 
-| Styling Option | Compatible parameter types | Compatible form types | Notes                                                                               |
-|----------------|----------------------------|-----------------------|-------------------------------------------------------------------------------------|
-| `disabled`     | All parameter types        | All form types        | Disables the form control when `true`.                                              |
-| `placeholder`  | `string`                   | `input`, `textarea`   | Sets placeholder text. </br>This is overwritten by user entry.                      |
-| `mask_input`   | `string`, `number`         | `input`, `textarea`   | Masks inputs as asterisks (`*`). Used to cosmetically hide token or password entry. |
+| Styling option        | Compatible parameter types | Compatible form types | Notes                                                                                                                                                                                                                      |
+|-----------------------|----------------------------|-----------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `disabled`            | All parameter types        | All form types        | Disables the form control when `true`.                                                                                                                                                                                     |
+| `preset_mutable`      | All parameter types        | All form types        | Allows this parameter to participate in an editable prefill preset. Every parameter in a no-prebuild preset must opt in; otherwise the preset stays locked. Prebuild presets always stay locked. This only affects the UI. |
+| `placeholder`         | `string`                   | `input`, `textarea`   | Sets placeholder text. </br>This is overwritten by user entry.                                                                                                                                                             |
+| `mask_input`          | `string`, `number`         | `input`, `textarea`   | Masks inputs as asterisks (`*`). Used to cosmetically hide token or password entry.                                                                                                                                        |
+| `slider_min`          | `number`                   | `slider`              | Sets the slider's lower bound. Defaults to `0`.                                                                                                                                                                            |
+| `slider_max`          | `number`                   | `slider`              | Sets the slider's upper bound. Defaults to `100`.                                                                                                                                                                          |
+| `step`                | `number`                   | `slider`              | Sets the slider increment. Must be greater than zero; defaults to `1`.                                                                                                                                                     |
+| `display_unit`        | `number`                   | `slider`              | Displays a unit label beside the editable numeric value, such as `vCPU` or `GiB`.                                                                                                                                          |
+| `range_group`         | `number`                   | `slider`              | Identifies a Min/Max pair that renders as one two-thumb range control.                                                                                                                                                     |
+| `range_role`          | `number`                   | `slider`              | Identifies a member as `min` or `max`. Requires `range_group`; each group needs one of each.                                                                                                                               |
+| `auto_max_multiplier` | `number`                   | `slider`              | On the `min` member, calculates Max until you edit Max. If omitted, Min and Max remain independent. Must be at least `1`.                                                                                                  |
+
+#### Numeric sliders
+
+A numeric slider combines a slider with an editable numeric input.
+Use `slider_min`, `slider_max`, and `step` to define its range and precision.
+
+```terraform
+data "coder_parameter" "cpu" {
+  name         = "cpu"
+  display_name = "CPU"
+  type         = "number"
+  form_type    = "slider"
+  default      = 1.25
+
+  styling = jsonencode({
+    slider_min  = 0.25
+    slider_max  = 8
+    step        = 0.25
+    display_unit = "vCPU"
+  })
+}
+```
+
+The numeric `validation` block supports integer bounds only.
+For fractional slider bounds or increments, configure the bounds and step with `styling` as shown above and do not add a `validation` block.
+For integer sliders, existing validation bounds continue to constrain the effective slider range.
+When editing an existing workspace, a single slider with `validation.monotonic = "increasing"` cannot select a value below the previous build's value; a `decreasing` constraint similarly limits the upper bound.
+The exact-value input follows the same constraint, and the backend independently validates the submitted value.
+
+#### Min/Max range controls
+
+To render 2 numeric parameters as one range control, give them the same `range_group`.
+Set `range_role = "min"` on one parameter and `range_role = "max"` on the other.
+Both parameters must use the same slider bounds, step, and display unit.
+Each group must contain exactly 1 Min and 1 Max parameter, and the Min value must not exceed the Max value.
+
+```terraform
+data "coder_parameter" "cpu_min" {
+  name         = "cpu_min"
+  display_name = "CPU"
+  type         = "number"
+  form_type    = "slider"
+  default      = 0.5
+  order        = 1
+
+  styling = jsonencode({
+    slider_min          = 0.25
+    slider_max          = 8
+    step                = 0.25
+    display_unit        = "vCPU"
+    range_group         = "cpu"
+    range_role          = "min"
+    auto_max_multiplier = 2
+  })
+}
+
+data "coder_parameter" "cpu_max" {
+  name         = "cpu_max"
+  display_name = "CPU Max"
+  type         = "number"
+  form_type    = "slider"
+  default      = 2
+  order        = 2
+
+  styling = jsonencode({
+    slider_min   = 0.25
+    slider_max   = 8
+    step         = 0.25
+    display_unit = "vCPU"
+    range_group  = "cpu"
+    range_role   = "max"
+  })
+}
+```
+
+In this example, changing Min to `1.5` automatically changes Max to `3`.
+The calculated Max is rounded up to the next configured step and capped at `slider_max`.
+If you edit Max manually, the multiplier no longer determines Max for the current selection.
+If Min later exceeds Max, Max increases as needed to preserve `Min <= Max`.
+The multiplier `2` is illustrative. Set the multiplier in your template to match its resource policy.
+
+Values must stay within the effective slider bounds and align with the configured step.
+Invalid bounds, non-positive steps, incomplete or mismatched range groups, and Min values greater than Max produce parameter diagnostics during preview.
 
 ## Use Case Examples
 

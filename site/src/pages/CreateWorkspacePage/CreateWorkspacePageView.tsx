@@ -5,6 +5,7 @@ import {
 	useCallback,
 	useEffect,
 	useId,
+	useMemo,
 	useRef,
 	useState,
 } from "react";
@@ -48,6 +49,8 @@ import {
 	getInitialParameterValues,
 	useValidationSchemaForDynamicParameters,
 } from "#/modules/workspaces/DynamicParameter/DynamicParameter";
+import { groupDynamicParameters } from "#/modules/workspaces/DynamicParameter/parameterGroups";
+import { RangeParameter } from "#/modules/workspaces/DynamicParameter/RangeParameter";
 import { generateWorkspaceName } from "#/modules/workspaces/generateWorkspaceName";
 import { docs } from "#/utils/docs";
 import { nameValidator } from "#/utils/formUtils";
@@ -55,6 +58,7 @@ import type { AutofillBuildParameter } from "#/utils/richParameters";
 import type { CreateWorkspaceMode } from "./CreateWorkspacePage";
 import { ExternalAuthButton } from "./ExternalAuthButton";
 import type { CreateWorkspacePermissions } from "./permissions";
+import { isEditablePrefillPreset } from "./presetUtils";
 
 interface CreateWorkspacePageViewProps {
 	autofillParameters: AutofillBuildParameter[];
@@ -71,6 +75,7 @@ interface CreateWorkspacePageViewProps {
 	hasIgnoredUrlParams?: boolean;
 	mode: CreateWorkspaceMode;
 	parameters: PreviewParameter[];
+	presetMutableParameterNames: ReadonlySet<string>;
 	permissions: CreateWorkspacePermissions;
 	presets: TypesGen.Preset[];
 	template: TypesGen.Template;
@@ -105,6 +110,7 @@ export const CreateWorkspacePageView: FC<CreateWorkspacePageViewProps> = ({
 	hasIgnoredUrlParams,
 	mode,
 	parameters,
+	presetMutableParameterNames,
 	permissions,
 	presets = [],
 	template,
@@ -130,6 +136,25 @@ export const CreateWorkspacePageView: FC<CreateWorkspacePageViewProps> = ({
 
 	const autofillByName = Object.fromEntries(
 		autofillParameters.map((param) => [param.name, param]),
+	);
+	const parameterGroups = useMemo(
+		() => groupDynamicParameters(parameters),
+		[parameters],
+	);
+	const editablePrefillPresets = useMemo(
+		() =>
+			presets.filter((preset) =>
+				isEditablePrefillPreset(preset, presetMutableParameterNames),
+			),
+		[presets, presetMutableParameterNames],
+	);
+	const editablePrefillPresetIDs = useMemo(
+		() => new Set(editablePrefillPresets.map((preset) => preset.ID)),
+		[editablePrefillPresets],
+	);
+	const lockedPresets = useMemo(
+		() => presets.filter((preset) => !editablePrefillPresetIDs.has(preset.ID)),
+		[presets, editablePrefillPresetIDs],
 	);
 
 	// Only touched fields are sent to the websocket
@@ -192,41 +217,55 @@ export const CreateWorkspacePageView: FC<CreateWorkspacePageViewProps> = ({
 		}
 	}, [form.submitCount, form.errors]);
 
-	const [presetOptions, setPresetOptions] = useState([
-		{ label: "None", value: "undefined", icon: "", description: "" },
-	]);
-	const [selectedPresetIndex, setSelectedPresetIndex] = useState(0);
-	// Build options and keep default label/value in sync
-	useEffect(() => {
-		const options = [
+	const presetOptions = useMemo(
+		() => [
 			{ label: "None", value: "undefined", icon: "", description: "" },
-			...presets.map((preset) => ({
+			...lockedPresets.map((preset) => ({
 				label: preset.Default ? `${preset.Name} (Default)` : preset.Name,
 				value: preset.ID,
 				icon: preset.Icon,
 				description: preset.Description,
 			})),
-		];
-		setPresetOptions(options);
+		],
+		[lockedPresets],
+	);
+	const [selectedPresetIndex, setSelectedPresetIndex] = useState(0);
+	const [selectedPrefillPresetId, setSelectedPrefillPresetId] = useState<
+		string | undefined
+	>();
+	const [prefillRevision, setPrefillRevision] = useState(0);
+	const appliedPrefillPresetKey = useRef<string | undefined>(undefined);
 
-		// URL preset takes precedence over default preset.
-		if (urlPreset) {
-			const idx = presets.findIndex((p) => p.ID === urlPreset.ID) + 1;
-			setSelectedPresetIndex(idx);
-			form.setFieldValue("template_version_preset_id", urlPreset.ID);
+	useEffect(() => {
+		// URL preset takes precedence over the template default.
+		const initialPreset = urlPreset ?? presets.find((preset) => preset.Default);
+		if (initialPreset && editablePrefillPresetIDs.has(initialPreset.ID)) {
+			setSelectedPresetIndex(0);
+			setSelectedPrefillPresetId(initialPreset.ID);
+			form.setFieldValue("template_version_preset_id", undefined);
 			return;
 		}
 
-		const defaultPreset = presets.find((p) => p.Default);
-		if (defaultPreset) {
-			const idx = presets.indexOf(defaultPreset) + 1; // +1 for "None"
-			setSelectedPresetIndex(idx);
-			form.setFieldValue("template_version_preset_id", defaultPreset.ID);
-		} else {
-			setSelectedPresetIndex(0); // Explicitly set to "None"
-			form.setFieldValue("template_version_preset_id", undefined);
+		const lockedPresetIndex = lockedPresets.findIndex(
+			(preset) => preset.ID === initialPreset?.ID,
+		);
+		if (initialPreset && lockedPresetIndex >= 0) {
+			setSelectedPresetIndex(lockedPresetIndex + 1);
+			setSelectedPrefillPresetId(undefined);
+			form.setFieldValue("template_version_preset_id", initialPreset.ID);
+			return;
 		}
-	}, [presets, form.setFieldValue, urlPreset]);
+
+		setSelectedPresetIndex(0);
+		setSelectedPrefillPresetId(undefined);
+		form.setFieldValue("template_version_preset_id", undefined);
+	}, [
+		presets,
+		lockedPresets,
+		editablePrefillPresetIDs,
+		form.setFieldValue,
+		urlPreset,
+	]);
 
 	const [presetParameterNames, setPresetParameterNames] = useState<string[]>(
 		[],
@@ -235,21 +274,22 @@ export const CreateWorkspacePageView: FC<CreateWorkspacePageViewProps> = ({
 	// include any modified parameters and all touched parameters to the websocket request
 	const { debounced: sendDynamicParamsRequest } = useDebouncedFunction(
 		(
-			parameters: Array<{ parameter: PreviewParameter; value: string }>,
+			parameters: Array<{
+				name: string;
+				value: string;
+				formType?: PreviewParameter["form_type"];
+			}>,
 			ownerId?: string,
 		) => {
 			const formInputs: Record<string, string> = {};
 			const formParameters = form.values.rich_parameter_values ?? [];
 
-			for (const { parameter, value } of parameters) {
-				formInputs[parameter.name] = value;
+			for (const { name, value } of parameters) {
+				formInputs[name] = value;
 			}
 
 			for (const [fieldName, isTouched] of Object.entries(form.touched)) {
-				if (
-					isTouched &&
-					!parameters.some((p) => p.parameter.name === fieldName)
-				) {
+				if (isTouched && !parameters.some((p) => p.name === fieldName)) {
 					const param = formParameters.find((p) => p.name === fieldName);
 					if (param?.value) {
 						formInputs[fieldName] = param.value;
@@ -260,14 +300,17 @@ export const CreateWorkspacePageView: FC<CreateWorkspacePageViewProps> = ({
 			sendMessage(formInputs, ownerId);
 		},
 		(
-			parameters: Array<{ parameter: PreviewParameter; value: string }>,
+			parameters: Array<{
+				name: string;
+				value: string;
+				formType?: PreviewParameter["form_type"];
+			}>,
 			_ownerId?: string,
 		) => {
 			// Return a debounce for string fields (those that involve typing) and
 			// zero debounce for all others (so the UI can react immediately).
 			return parameters.some(
-				({ parameter }) =>
-					parameter.form_type === "input" || parameter.form_type === "textarea",
+				({ formType }) => formType === "input" || formType === "textarea",
 			)
 				? 500
 				: 0;
@@ -275,24 +318,34 @@ export const CreateWorkspacePageView: FC<CreateWorkspacePageViewProps> = ({
 	);
 
 	useEffect(() => {
-		const selectedPresetOption = presetOptions[selectedPresetIndex];
-		let selectedPreset: TypesGen.Preset | undefined;
-		for (const preset of presets) {
-			if (preset.ID === selectedPresetOption.value) {
-				selectedPreset = preset;
-				break;
-			}
-		}
+		const selectedBuildPreset = presets.find(
+			(preset) => preset.ID === presetOptions[selectedPresetIndex]?.value,
+		);
+		const selectedPrefillPreset = presets.find(
+			(preset) => preset.ID === selectedPrefillPresetId,
+		);
+		const selectedPreset = selectedPrefillPreset ?? selectedBuildPreset;
+		const isEditablePrefill = selectedPrefillPreset !== undefined;
 
 		if (!selectedPreset?.Parameters) {
 			setPresetParameterNames([]);
+			appliedPrefillPresetKey.current = undefined;
 			return;
 		}
 
-		setPresetParameterNames(selectedPreset.Parameters.map((p) => p.Name));
+		if (isEditablePrefill) {
+			setPresetParameterNames([]);
+			const presetKey = `${selectedPreset.ID}:${prefillRevision}`;
+			if (appliedPrefillPresetKey.current === presetKey) {
+				return;
+			}
+			appliedPrefillPresetKey.current = presetKey;
+		} else {
+			appliedPrefillPresetKey.current = undefined;
+			setPresetParameterNames(selectedPreset.Parameters.map((p) => p.Name));
+		}
 
 		const currentValues = form.values.rich_parameter_values ?? [];
-
 		const updates: Array<{
 			field: string;
 			fieldValue: TypesGen.WorkspaceBuildParameter;
@@ -302,19 +355,18 @@ export const CreateWorkspacePageView: FC<CreateWorkspacePageViewProps> = ({
 
 		for (const presetParameter of selectedPreset.Parameters) {
 			const parameterIndex = parameters.findIndex(
-				(p) => p.name === presetParameter.Name,
+				(parameter) => parameter.name === presetParameter.Name,
 			);
 			if (parameterIndex === -1) continue;
 
-			const parameterField = `rich_parameter_values.${parameterIndex}`;
 			const parameter = parameters[parameterIndex];
 			const currentValue = currentValues.find(
-				(p) => p.name === presetParameter.Name,
+				(value) => value.name === presetParameter.Name,
 			)?.value;
 
 			if (currentValue !== presetParameter.Value) {
 				updates.push({
-					field: parameterField,
+					field: `rich_parameter_values.${parameterIndex}`,
 					fieldValue: {
 						name: presetParameter.Name,
 						value: presetParameter.Value,
@@ -325,22 +377,38 @@ export const CreateWorkspacePageView: FC<CreateWorkspacePageViewProps> = ({
 			}
 		}
 
-		if (updates.length > 0) {
-			for (const update of updates) {
-				form.setFieldValue(update.field, update.fieldValue);
-				form.setFieldTouched(update.parameter.name, true);
-			}
+		for (const update of updates) {
+			form.setFieldValue(update.field, update.fieldValue);
+			form.setFieldTouched(update.parameter.name, true);
+		}
 
+		if (isEditablePrefill) {
+			// A preset can enable conditional parameters that are not in the
+			// current preview. Send their values together with the enabling
+			// parameter so the next preview resolves the complete preset.
+			for (const parameter of selectedPreset.Parameters) {
+				form.setFieldTouched(parameter.Name, true);
+			}
+			sendDynamicParamsRequest(
+				selectedPreset.Parameters.map(({ Name, Value }) => ({
+					name: Name,
+					value: Value,
+				})),
+			);
+		} else if (updates.length > 0) {
 			sendDynamicParamsRequest(
 				updates.map((update) => ({
-					parameter: update.parameter,
+					name: update.parameter.name,
 					value: update.presetValue,
+					formType: update.parameter.form_type,
 				})),
 			);
 		}
 	}, [
 		presetOptions,
 		selectedPresetIndex,
+		selectedPrefillPresetId,
+		prefillRevision,
 		presets,
 		form.setFieldValue,
 		form.setFieldTouched,
@@ -371,7 +439,46 @@ export const CreateWorkspacePageView: FC<CreateWorkspacePageViewProps> = ({
 		// Only send the request if the value has changed from the form value
 		if (currentFormValue !== value) {
 			form.setFieldTouched(parameter.name, true);
-			sendDynamicParamsRequest([{ parameter, value }]);
+			sendDynamicParamsRequest([
+				{ name: parameter.name, value, formType: parameter.form_type },
+			]);
+		}
+	};
+
+	const handleRangeChange = async (
+		minParameter: PreviewParameter,
+		maxParameter: PreviewParameter,
+		minField: string,
+		maxField: string,
+		minValue: string,
+		maxValue: string,
+	) => {
+		const currentValues = form.values.rich_parameter_values ?? [];
+		const currentMinValue = currentValues.find(
+			(parameter) => parameter.name === minParameter.name,
+		)?.value;
+		const currentMaxValue = currentValues.find(
+			(parameter) => parameter.name === maxParameter.name,
+		)?.value;
+
+		await Promise.all([
+			form.setFieldValue(minField, {
+				name: minParameter.name,
+				value: minValue,
+			}),
+			form.setFieldValue(maxField, {
+				name: maxParameter.name,
+				value: maxValue,
+			}),
+			form.setFieldTouched(minParameter.name, true),
+			form.setFieldTouched(maxParameter.name, true),
+		]);
+
+		if (currentMinValue !== minValue || currentMaxValue !== maxValue) {
+			sendDynamicParamsRequest([
+				{ name: minParameter.name, value: minValue },
+				{ name: maxParameter.name, value: maxValue },
+			]);
 		}
 	};
 
@@ -389,6 +496,17 @@ export const CreateWorkspacePageView: FC<CreateWorkspacePageViewProps> = ({
 		parameters.some((parameter) =>
 			parameter.diagnostics.some(
 				(diagnostic) => diagnostic.severity === "error",
+			),
+		);
+	const parameterFieldsDisabled =
+		creatingWorkspace ||
+		!hasAllRequiredExternalAuth ||
+		diagnostics.some((diagnostic) => diagnostic.severity === "error") ||
+		parameters.some((parameter) =>
+			parameter.diagnostics.some(
+				(diagnostic) =>
+					diagnostic.severity === "error" &&
+					diagnostic.extra?.code !== "range_validation",
 			),
 		);
 
@@ -622,12 +740,50 @@ export const CreateWorkspacePageView: FC<CreateWorkspacePageViewProps> = ({
 							{diagnostics.length > 0 && (
 								<Diagnostics diagnostics={diagnostics} />
 							)}
-							{presets.length > 0 && (
-								<div className="flex flex-col gap-2">
-									<div className="flex gap-2 items-center">
-										<Label className="text-sm">Preset</Label>
-									</div>
-									<div className="flex flex-col gap-4">
+							{(editablePrefillPresets.length > 0 ||
+								lockedPresets.length > 0) && (
+								<div className="flex flex-col gap-3">
+									<Label className="text-sm">Preset</Label>
+									{editablePrefillPresets.length > 0 && (
+										<div
+											className="flex flex-wrap gap-2"
+											role="group"
+											aria-label="Resource presets"
+										>
+											{editablePrefillPresets.map((preset) => (
+												<Button
+													key={preset.ID}
+													size="sm"
+													variant={
+														selectedPrefillPresetId === preset.ID
+															? "default"
+															: "outline"
+													}
+													aria-pressed={selectedPrefillPresetId === preset.ID}
+													onClick={() => {
+														setSelectedPresetIndex(0);
+														appliedPrefillPresetKey.current = undefined;
+														setSelectedPrefillPresetId(preset.ID);
+														setPrefillRevision((revision) => revision + 1);
+														form.setFieldValue(
+															"template_version_preset_id",
+															undefined,
+														);
+													}}
+												>
+													{preset.Icon && (
+														<ExternalImage
+															src={preset.Icon}
+															alt=""
+															className="w-4 h-4"
+														/>
+													)}
+													{preset.Name}
+												</Button>
+											))}
+										</div>
+									)}
+									{lockedPresets.length > 0 && (
 										<div className="max-w-lg">
 											<Combobox
 												value={presetOptions[selectedPresetIndex]?.value}
@@ -639,11 +795,9 @@ export const CreateWorkspacePageView: FC<CreateWorkspacePageViewProps> = ({
 														return;
 													}
 													setSelectedPresetIndex(index);
+													setSelectedPrefillPresetId(undefined);
 													form.setFieldValue(
 														"template_version_preset_id",
-														// "undefined" string is equivalent to using None option.
-														// Combobox requires a value in order to correctly
-														// highlight the None option.
 														presetOptions[index].value === "undefined"
 															? undefined
 															: presetOptions[index].value,
@@ -680,45 +834,114 @@ export const CreateWorkspacePageView: FC<CreateWorkspacePageViewProps> = ({
 												</ComboboxContent>
 											</Combobox>
 										</div>
-										{/* Only show the preset parameter visibility toggle if preset parameters are actually being modified, otherwise it is ineffectual */}
-										{presetParameterNames.length > 0 && (
-											<span className="flex items-center gap-3">
-												<Switch
-													id="show-preset-parameters"
-													checked={showPresetParameters}
-													onCheckedChange={setShowPresetParameters}
-												/>
-												<Label htmlFor="show-preset-parameters">
-													Show preset parameters
-												</Label>
-											</span>
-										)}
-									</div>
+									)}
+									{presetParameterNames.length > 0 && (
+										<span className="flex items-center gap-3">
+											<Switch
+												id="show-preset-parameters"
+												checked={showPresetParameters}
+												onCheckedChange={setShowPresetParameters}
+											/>
+											<Label htmlFor="show-preset-parameters">
+												Show preset parameters
+											</Label>
+										</span>
+									)}
 								</div>
 							)}
 
 							<div className="flex flex-col gap-9">
-								{parameters.map((parameter, index) => {
+								{parameterGroups.map((group) => {
+									if (group.type === "range") {
+										const { minParameter, maxParameter } = group;
+										const currentMinIndex =
+											form.values.rich_parameter_values?.findIndex(
+												(parameter) => parameter.name === minParameter.name,
+											) ?? -1;
+										const currentMaxIndex =
+											form.values.rich_parameter_values?.findIndex(
+												(parameter) => parameter.name === maxParameter.name,
+											) ?? -1;
+										const minFieldIndex =
+											currentMinIndex >= 0 ? currentMinIndex : group.minIndex;
+										const maxFieldIndex =
+											currentMaxIndex >= 0 ? currentMaxIndex : group.maxIndex;
+										const minValue =
+											form.values.rich_parameter_values?.[minFieldIndex]
+												?.value ?? "";
+										const maxValue =
+											form.values.rich_parameter_values?.[maxFieldIndex]
+												?.value ?? "";
+										const isPresetParameter =
+											presetParameterNames.includes(minParameter.name) ||
+											presetParameterNames.includes(maxParameter.name);
+										const isDisabledParameter = (parameter: PreviewParameter) =>
+											parameterFieldsDisabled ||
+											disabledParams?.includes(
+												parameter.name.toLowerCase().replace(/ /g, "_"),
+											) ||
+											parameter.styling?.disabled ||
+											creatingWorkspace;
+										const isDisabled =
+											isDisabledParameter(minParameter) ||
+											isDisabledParameter(maxParameter) ||
+											isPresetParameter;
+										if (
+											!showPresetParameters &&
+											isPresetParameter &&
+											minParameter.diagnostics.length === 0 &&
+											maxParameter.diagnostics.length === 0
+										) {
+											return null;
+										}
+
+										return (
+											<RangeParameter
+												key={group.key}
+												minParameter={minParameter}
+												maxParameter={maxParameter}
+												minValue={minValue}
+												maxValue={maxValue}
+												onChange={(nextMin, nextMax) =>
+													handleRangeChange(
+														minParameter,
+														maxParameter,
+														`rich_parameter_values.${minFieldIndex}`,
+														`rich_parameter_values.${maxFieldIndex}`,
+														nextMin,
+														nextMax,
+													)
+												}
+												disabled={isDisabled}
+												isPreset={isPresetParameter}
+												autofill={
+													!isPresetParameter &&
+													(autofillByName[minParameter.name] !== undefined ||
+														autofillByName[maxParameter.name] !== undefined)
+												}
+												resetAutoMaxKey={`${selectedPrefillPresetId ?? presetOptions[selectedPresetIndex]?.value ?? ""}:${prefillRevision}`}
+											/>
+										);
+									}
+
+									const { parameter, index } = group;
 									const currentParameterValueIndex =
 										form.values.rich_parameter_values?.findIndex(
 											(p) => p.name === parameter.name,
-										);
+										) ?? -1;
 									const parameterFieldIndex =
-										currentParameterValueIndex !== undefined
+										currentParameterValueIndex >= 0
 											? currentParameterValueIndex
 											: index;
-									// Get the form value by parameter name to ensure correct value mapping
 									const formValue =
-										currentParameterValueIndex !== undefined
-											? form.values?.rich_parameter_values?.[
-													currentParameterValueIndex
-												]?.value || ""
-											: "";
+										form.values.rich_parameter_values?.[parameterFieldIndex]
+											?.value ?? "";
 									const parameterField = `rich_parameter_values.${parameterFieldIndex}`;
 									const isPresetParameter = presetParameterNames.includes(
 										parameter.name,
 									);
 									const isDisabled =
+										parameterFieldsDisabled ||
 										disabledParams?.includes(
 											parameter.name.toLowerCase().replace(/ /g, "_"),
 										) ||
@@ -726,7 +949,6 @@ export const CreateWorkspacePageView: FC<CreateWorkspacePageViewProps> = ({
 										creatingWorkspace ||
 										isPresetParameter;
 
-									// Always show preset parameters if they have any diagnostics
 									if (
 										!showPresetParameters &&
 										isPresetParameter &&
@@ -737,7 +959,7 @@ export const CreateWorkspacePageView: FC<CreateWorkspacePageViewProps> = ({
 
 									return (
 										<DynamicParameter
-											key={parameter.name}
+											key={group.key}
 											parameter={parameter}
 											onChange={(value) =>
 												handleChange(parameter, parameterField, value)
