@@ -23,6 +23,7 @@ import (
 	"github.com/coder/coder/v2/coderd/database"
 	"github.com/coder/coder/v2/coderd/database/dbtime"
 	"github.com/coder/coder/v2/coderd/externalauth/gitprovider"
+	"github.com/coder/coder/v2/coderd/parameterstyling"
 	"github.com/coder/coder/v2/coderd/rbac"
 	"github.com/coder/coder/v2/coderd/rbac/policy"
 	"github.com/coder/coder/v2/coderd/render"
@@ -1018,12 +1019,12 @@ func PreviewParameter(param previewtypes.Parameter) codersdk.PreviewParameter {
 			Description: param.Description,
 			Type:        codersdk.OptionType(param.Type),
 			FormType:    codersdk.ParameterFormType(param.FormType),
-			Styling: codersdk.PreviewParameterStyling{
+			Styling: parameterstyling.PreviewParameterStyling(param.Source, codersdk.PreviewParameterStyling{
 				Placeholder: param.Styling.Placeholder,
 				Disabled:    param.Styling.Disabled,
 				Label:       param.Styling.Label,
 				MaskInput:   param.Styling.MaskInput,
-			},
+			}),
 			Mutable:      param.Mutable,
 			DefaultValue: PreviewHCLString(param.DefaultValue),
 			Icon:         param.Icon,

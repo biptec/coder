@@ -1675,7 +1675,7 @@ func TestMCPHTTP_E2E_UserToolsets(t *testing.T) {
 	require.NotContains(t, getWorkspaceTool.InputSchema.Properties, "workspace_id")
 
 	processStartTool := toolByName(developerToolSpecs, "start_process")
-	require.Contains(t, processStartTool.Description, "executable argv")
+	require.Contains(t, processStartTool.Description, "argv[0] is the executable")
 	require.Contains(t, processStartTool.Description, "initial output")
 	require.Contains(t, processStartTool.Description, "wait_timeout_ms")
 	require.Contains(t, processStartTool.Description, "list_sessions")

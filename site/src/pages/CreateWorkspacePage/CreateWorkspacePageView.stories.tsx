@@ -1,15 +1,26 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { expect, screen, within } from "storybook/test";
+import { useMemo, useState } from "react";
+import { expect, screen, userEvent, within } from "storybook/test";
 import { DetailedError } from "#/api/errors";
 import type { Preset, PreviewParameter } from "#/api/typesGenerated";
 import { chromatic } from "#/testHelpers/chromatic";
 import { MockTemplate, MockUserOwner } from "#/testHelpers/entities";
 import { CreateWorkspacePageView } from "./CreateWorkspacePageView";
+import { mergePresetMutableParameterNames } from "./presetUtils";
 
 const meta: Meta<typeof CreateWorkspacePageView> = {
 	title: "Pages/CreateWorkspacePageView",
 	parameters: { chromatic },
 	component: CreateWorkspacePageView,
+	render: function Render(args) {
+		const names = useMemo(
+			() => mergePresetMutableParameterNames(new Set(), args.parameters),
+			[args.parameters],
+		);
+		return (
+			<CreateWorkspacePageView {...args} presetMutableParameterNames={names} />
+		);
+	},
 	args: {
 		autofillParameters: [],
 		diagnostics: [],
@@ -20,6 +31,7 @@ const meta: Meta<typeof CreateWorkspacePageView> = {
 		hasAllRequiredExternalAuth: true,
 		mode: "form",
 		parameters: [],
+		presetMutableParameterNames: new Set(),
 		permissions: {
 			createWorkspaceForAny: true,
 			canUpdateTemplate: false,
@@ -154,6 +166,45 @@ const parameterSlider: PreviewParameter = {
 	required: true,
 	order: 2,
 	ephemeral: false,
+};
+
+const rangeMinParameter: PreviewParameter = {
+	...parameterSlider,
+	name: "cpu_min",
+	display_name: "CPU",
+	value: { valid: true, value: "2" },
+	default_value: { valid: true, value: "2" },
+	styling: {
+		slider_min: 0.25,
+		slider_max: 8,
+		step: 0.25,
+		display_unit: "vCPU",
+		range_group: "cpu",
+		range_role: "min",
+		auto_max_multiplier: 2,
+	},
+	diagnostics: [
+		{
+			severity: "error",
+			summary: "Invalid parameter range",
+			detail: "Minimum value must be less than or equal to maximum value.",
+			extra: { code: "range_validation" },
+		},
+	],
+};
+
+const rangeMaxParameter: PreviewParameter = {
+	...rangeMinParameter,
+	name: "cpu_max",
+	display_name: "CPU Max",
+	value: { valid: true, value: "1" },
+	default_value: { valid: true, value: "1" },
+	styling: {
+		...rangeMinParameter.styling,
+		range_role: "max",
+		auto_max_multiplier: undefined,
+	},
+	diagnostics: [],
 };
 
 const parameterSwitch: PreviewParameter = {
@@ -352,6 +403,28 @@ export const WithParameters: Story = {
 	},
 };
 
+export const WithInvalidRangeParameters: Story = {
+	args: {
+		parameters: [rangeMinParameter, rangeMaxParameter],
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const minInput = canvas.getByRole("spinbutton", { name: /Min/ });
+		const maxInput = canvas.getByRole("spinbutton", { name: /Max/ });
+
+		await expect(
+			canvas.getByText(
+				"Minimum value must be less than or equal to maximum value.",
+			),
+		).toBeVisible();
+		await expect(minInput).toBeEnabled();
+		await expect(maxInput).toBeEnabled();
+		await expect(
+			canvas.getByRole("button", { name: /create workspace/i }),
+		).toBeDisabled();
+	},
+};
+
 export const WithTooLongPrefilledName: Story = {
 	args: {
 		defaultName: "this-name-is-way-too-long-and-exceeds-the-limit",
@@ -386,7 +459,97 @@ export const WithPresets: Story = {
 				Icon: "/emojis/1f4bc.png",
 			},
 		],
-		parameters: [parameterInput, parameterDropdown],
+		parameters: [
+			{
+				...parameterInput,
+				styling: { ...parameterInput.styling, preset_mutable: true },
+			},
+			parameterDropdown,
+		],
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const parameterField = within(
+			canvas.getByTestId("parameter-field-workspace_name"),
+		);
+		const input = parameterField.getByRole("textbox");
+
+		await userEvent.click(canvas.getByRole("button", { name: "Preset 1" }));
+
+		await expect(input).toHaveValue("my-workspace");
+		await expect(input).toBeEnabled();
+	},
+};
+
+export const WithConditionalDockerPresets: Story = {
+	args: {
+		presets: [
+			{
+				...cpuSmallPreset,
+				ID: "micro",
+				Name: "Micro",
+				Parameters: [{ Name: "enable_docker", Value: "false" }],
+			},
+			{
+				...cpuSmallPreset,
+				ID: "medium",
+				Name: "Medium",
+				Parameters: [
+					{ Name: "enable_docker", Value: "true" },
+					{ Name: "docker_cpu", Value: "4" },
+				],
+			},
+		],
+	},
+	render: function Render(args) {
+		const [knownNames] = useState(
+			() => new Set(["enable_docker", "docker_cpu"]),
+		);
+		const [values, setValues] = useState<Record<string, string>>({
+			enable_docker: "true",
+			docker_cpu: "2",
+		});
+		const parameters = useMemo<PreviewParameter[]>(() => {
+			const enableDocker: PreviewParameter = {
+				...parameterCheckbox,
+				name: "enable_docker",
+				display_name: "Enable Docker",
+				value: { valid: true, value: values.enable_docker },
+				styling: { preset_mutable: true },
+			};
+			const dockerCpu: PreviewParameter = {
+				...parameterSlider,
+				name: "docker_cpu",
+				display_name: "Docker CPU",
+				value: { valid: true, value: values.docker_cpu },
+				styling: { preset_mutable: true },
+			};
+			return values.enable_docker === "true"
+				? [enableDocker, dockerCpu]
+				: [enableDocker];
+		}, [values]);
+		return (
+			<CreateWorkspacePageView
+				{...args}
+				parameters={parameters}
+				presetMutableParameterNames={knownNames}
+				sendMessage={(inputs) => {
+					setValues((previous) => ({ ...previous, ...inputs }));
+				}}
+			/>
+		);
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await userEvent.click(canvas.getByRole("button", { name: "Micro" }));
+		await expect(
+			canvas.queryByTestId("parameter-field-docker_cpu"),
+		).not.toBeInTheDocument();
+		await expect(canvas.getByRole("button", { name: "Medium" })).toBeVisible();
+		await userEvent.click(canvas.getByRole("button", { name: "Medium" }));
+		const docker = await canvas.findByTestId("parameter-field-docker_cpu");
+		await expect(within(docker).getByRole("spinbutton")).toHaveValue(4);
+		await expect(within(docker).getByRole("spinbutton")).toBeEnabled();
 	},
 };
 
@@ -394,13 +557,66 @@ export const WithUrlPreset: Story = {
 	args: {
 		presets: [gpuLargePreset, cpuSmallPreset],
 		urlPreset: gpuLargePreset,
-		parameters: [parameterDropdown, parameterSwitch],
+		parameters: [
+			{
+				...parameterDropdown,
+				styling: { ...parameterDropdown.styling, preset_mutable: true },
+			},
+			{
+				...parameterSwitch,
+				styling: { ...parameterSwitch.styling, preset_mutable: true },
+			},
+		],
 	},
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
 		expect(
 			canvas.getByRole("button", { name: /GPU Large/i }),
 		).toBeInTheDocument();
+	},
+};
+
+export const WithLegacyLockedPreset: Story = {
+	args: {
+		presets: [gpuLargePreset],
+		urlPreset: gpuLargePreset,
+		parameters: [parameterDropdown],
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await userEvent.click(
+			canvas.getByRole("switch", { name: /show preset parameters/i }),
+		);
+		const parameterField = within(
+			canvas.getByTestId("parameter-field-instance_type"),
+		);
+		await expect(parameterField.getByRole("combobox")).toBeDisabled();
+	},
+};
+
+export const WithPrebuildPreset: Story = {
+	args: {
+		presets: [
+			{
+				...gpuLargePreset,
+				DesiredPrebuildInstances: 1,
+			},
+		],
+		urlPreset: {
+			...gpuLargePreset,
+			DesiredPrebuildInstances: 1,
+		},
+		parameters: [parameterDropdown],
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await userEvent.click(
+			canvas.getByRole("switch", { name: /show preset parameters/i }),
+		);
+		const parameterField = within(
+			canvas.getByTestId("parameter-field-instance_type"),
+		);
+		await expect(parameterField.getByRole("combobox")).toBeDisabled();
 	},
 };
 
@@ -447,7 +663,12 @@ export const WithUrlPresetOverridesDefault: Story = {
 			urlPreset,
 		],
 		urlPreset,
-		parameters: [parameterDropdown],
+		parameters: [
+			{
+				...parameterDropdown,
+				styling: { ...parameterDropdown.styling, preset_mutable: true },
+			},
+		],
 	},
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);

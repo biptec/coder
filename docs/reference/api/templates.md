@@ -2792,10 +2792,18 @@ curl -X POST http://coder-server:8080/api/v2/templateversions/{templateversion}/
       "order": 0,
       "required": true,
       "styling": {
+        "auto_max_multiplier": 0,
         "disabled": true,
+        "display_unit": "string",
         "label": "string",
         "mask_input": true,
-        "placeholder": "string"
+        "placeholder": "string",
+        "preset_mutable": true,
+        "range_group": "string",
+        "range_role": "min",
+        "slider_max": 0,
+        "slider_min": 0,
+        "step": 0
       },
       "type": "string",
       "validations": [

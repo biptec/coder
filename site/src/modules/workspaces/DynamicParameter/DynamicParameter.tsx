@@ -35,7 +35,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "#/components/Select/Select";
-import { Slider } from "#/components/Slider/Slider";
 import { Switch } from "#/components/Switch/Switch";
 import { TagInput } from "#/components/TagInput/TagInput";
 import { Textarea } from "#/components/Textarea/Textarea";
@@ -47,6 +46,8 @@ import {
 } from "#/components/Tooltip/Tooltip";
 import { cn } from "#/utils/cn";
 import type { AutofillBuildParameter } from "#/utils/richParameters";
+import { NumericSlider } from "./NumericSlider";
+import { getMonotonicParameterError } from "./sliderParameters";
 
 interface DynamicParameterProps {
 	parameter: PreviewParameter;
@@ -55,6 +56,7 @@ interface DynamicParameterProps {
 	disabled?: boolean;
 	isPreset?: boolean;
 	autofill?: boolean;
+	previousValue?: string;
 }
 
 export const DynamicParameter: FC<DynamicParameterProps> = ({
@@ -64,8 +66,14 @@ export const DynamicParameter: FC<DynamicParameterProps> = ({
 	disabled,
 	isPreset,
 	autofill = false,
+	previousValue,
 }) => {
 	const id = useId();
+	const monotonicError = getMonotonicParameterError(
+		parameter,
+		value ?? validValue(parameter.value),
+		previousValue,
+	);
 
 	return (
 		<div
@@ -85,8 +93,14 @@ export const DynamicParameter: FC<DynamicParameterProps> = ({
 					value={value}
 					onChange={onChange}
 					disabled={disabled}
+					previousValue={previousValue}
 				/>
 			</div>
+			{monotonicError && (
+				<p className="m-0 text-xs text-content-destructive" role="alert">
+					{monotonicError}
+				</p>
+			)}
 			{parameter.form_type !== "error" && (
 				<ParameterDiagnostics diagnostics={parameter.diagnostics} />
 			)}
@@ -94,14 +108,14 @@ export const DynamicParameter: FC<DynamicParameterProps> = ({
 	);
 };
 
-interface ParameterLabelProps {
+export interface ParameterLabelProps {
 	parameter: PreviewParameter;
 	isPreset?: boolean;
 	autofill: boolean;
 	id: string;
 }
 
-const ParameterLabel: FC<ParameterLabelProps> = ({
+export const ParameterLabel: FC<ParameterLabelProps> = ({
 	parameter,
 	isPreset,
 	autofill,
@@ -241,6 +255,7 @@ interface ParameterFieldProps {
 	onChange: (value: string) => void;
 	disabled?: boolean;
 	id: string;
+	previousValue?: string;
 }
 
 const ParameterField: FC<ParameterFieldProps> = ({
@@ -249,6 +264,7 @@ const ParameterField: FC<ParameterFieldProps> = ({
 	onChange,
 	disabled,
 	id,
+	previousValue,
 }) => {
 	if (value === undefined && parameter.value.valid) {
 		value = parameter.value.value;
@@ -309,28 +325,17 @@ const ParameterField: FC<ParameterFieldProps> = ({
 			);
 		}
 
-		case "slider": {
-			const numericValue = Number.isFinite(Number(value)) ? Number(value) : 0;
-			const { validation_min: min = 0, validation_max: max = 100 } =
-				parameter.validations[0] ?? {};
-
+		case "slider":
 			return (
-				<div className="flex flex-row items-baseline gap-3">
-					<Slider
-						id={id}
-						className="mt-2"
-						value={[numericValue]}
-						onValueChange={([value]) => {
-							onChange(value.toString());
-						}}
-						min={min ?? undefined}
-						max={max ?? undefined}
-						disabled={disabled}
-					/>
-					<span className="w-4 font-medium">{numericValue}</span>
-				</div>
+				<NumericSlider
+					id={id}
+					parameter={parameter}
+					value={value}
+					onChange={onChange}
+					disabled={disabled}
+					previousValue={previousValue}
+				/>
 			);
-		}
 
 		case "dropdown": {
 			return (
@@ -648,11 +653,11 @@ const OptionDisplay: FC<OptionDisplayProps> = ({ option }) => {
 	);
 };
 
-interface ParameterDiagnosticsProps {
+export interface ParameterDiagnosticsProps {
 	diagnostics: PreviewParameter["diagnostics"];
 }
 
-const ParameterDiagnostics: FC<ParameterDiagnosticsProps> = ({
+export const ParameterDiagnostics: FC<ParameterDiagnosticsProps> = ({
 	diagnostics,
 }) => {
 	return (
@@ -821,36 +826,17 @@ export const useValidationSchemaForDynamicParameters = (
 										});
 									}
 
-									const monotonic = parameter.validations.find(
-										(v) =>
-											v.validation_monotonic !== null &&
-											v.validation_monotonic !== "",
+									const monotonicError = getMonotonicParameterError(
+										parameter,
+										val,
+										lastBuildParameters?.find((last) => last.name === name)
+											?.value,
 									);
-
-									if (monotonic && lastBuildParameters) {
-										const lastBuildParameter = lastBuildParameters.find(
-											(last: { name: string }) => last.name === name,
-										);
-										if (lastBuildParameter) {
-											switch (monotonic.validation_monotonic) {
-												case "increasing":
-													if (Number(lastBuildParameter.value) > Number(val)) {
-														return ctx.createError({
-															path: ctx.path,
-															message: `Value must only ever increase (last value was ${lastBuildParameter.value})`,
-														});
-													}
-													break;
-												case "decreasing":
-													if (Number(lastBuildParameter.value) < Number(val)) {
-														return ctx.createError({
-															path: ctx.path,
-															message: `Value must only ever decrease (last value was ${lastBuildParameter.value})`,
-														});
-													}
-													break;
-											}
-										}
+									if (monotonicError) {
+										return ctx.createError({
+											path: ctx.path,
+											message: monotonicError,
+										});
 									}
 									break;
 								}

@@ -357,6 +357,10 @@ curl -X GET http://coder-server:8080/api/v2/deployment/config \
       ],
       "stackdriver": "string"
     },
+    "mcp_result_bytes_max": 0,
+    "mcp_tool_timeout_max": 0,
+    "mcp_trace_enabled": true,
+    "mcp_trace_retention_hours": 0,
     "metrics_cache_refresh_interval": 0,
     "notifications": {
       "dispatch_timeout": 0,
@@ -545,6 +549,7 @@ curl -X GET http://coder-server:8080/api/v2/deployment/config \
     },
     "scim_api_key": "string",
     "scim_use_legacy": true,
+    "server_tailnet_agent_idle_timeout": 0,
     "session_lifetime": {
       "default_duration": 0,
       "default_token_lifetime": 0,
@@ -639,6 +644,7 @@ curl -X GET http://coder-server:8080/api/v2/deployment/config \
     "wgtunnel_host": "string",
     "wildcard_access_url": "string",
     "workspace_activity_now_threshold": 0,
+    "workspace_command_activity_history_limit": 0,
     "workspace_hostname_suffix": "string",
     "workspace_prebuilds": {
       "failure_hard_limit": 0,

@@ -6769,6 +6769,14 @@ export interface PreviewParameterStyling {
 	readonly disabled?: boolean;
 	readonly label?: string;
 	readonly mask_input?: boolean;
+	readonly step?: number;
+	readonly slider_min?: number;
+	readonly slider_max?: number;
+	readonly display_unit?: string;
+	readonly range_group?: string;
+	readonly range_role?: string;
+	readonly auto_max_multiplier?: number;
+	readonly preset_mutable?: boolean;
 }
 
 // From codersdk/parameters.go

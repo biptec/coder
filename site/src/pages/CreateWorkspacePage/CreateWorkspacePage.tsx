@@ -38,6 +38,9 @@ import {
 	type CreateWorkspacePermissions,
 	createWorkspaceChecks,
 } from "./permissions";
+import { mergePresetMutableParameterNames } from "./presetUtils";
+
+const emptyPresetMutableParameterNames: ReadonlySet<string> = new Set();
 
 const createWorkspaceModes = ["form", "auto", "duplicate"] as const;
 export type CreateWorkspaceMode = (typeof createWorkspaceModes)[number];
@@ -51,6 +54,10 @@ const CreateWorkspacePage: FC = () => {
 
 	const [latestResponse, setLatestResponse] =
 		useState<DynamicParametersResponse | null>(null);
+	const [presetParameterObservation, setPresetParameterObservation] = useState<{
+		versionId: string;
+		names: ReadonlySet<string>;
+	}>();
 	const wsResponseId = useRef<number>(-1);
 	const ws = useRef<WebSocket | null>(null);
 	const [wsError, setWsError] = useState<Error | null>(null);
@@ -209,6 +216,20 @@ const CreateWorkspacePage: FC = () => {
 			sendInitialParameters([...response.parameters]);
 		}
 
+		if (realizedVersionId && response.parameters) {
+			setPresetParameterObservation((previous) => {
+				const names = mergePresetMutableParameterNames(
+					previous?.versionId === realizedVersionId
+						? previous.names
+						: emptyPresetMutableParameterNames,
+					response.parameters,
+				);
+				return previous?.versionId === realizedVersionId &&
+					previous.names === names
+					? previous
+					: { versionId: realizedVersionId, names };
+			});
+		}
 		setLatestResponse(response);
 	});
 
@@ -425,6 +446,12 @@ const CreateWorkspacePage: FC = () => {
 					hasAllRequiredExternalAuth={hasAllRequiredExternalAuth}
 					permissions={permissionsQuery.data as CreateWorkspacePermissions}
 					parameters={sortedParams}
+					presetMutableParameterNames={
+						presetParameterObservation?.versionId === realizedVersionId
+							? (presetParameterObservation?.names ??
+								emptyPresetMutableParameterNames)
+							: emptyPresetMutableParameterNames
+					}
 					presets={presets}
 					urlPreset={urlPresetResult.preset}
 					urlPresetError={

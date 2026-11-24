@@ -322,7 +322,8 @@ of the template will be used.
   "template_require_active_version": true,
   "template_use_classic_parameter_flow": true,
   "ttl_ms": 0,
-  "updated_at": "2019-08-24T14:15:22Z"
+  "updated_at": "2019-08-24T14:15:22Z",
+  "volume_copy_operation_id": "5e7ec20b-441f-4c51-8ee8-b9e466a8bb2b"
 }
 ```
 
@@ -688,7 +689,8 @@ curl -X GET http://coder-server:8080/api/v2/users/{user}/workspace/{workspacenam
   "template_require_active_version": true,
   "template_use_classic_parameter_flow": true,
   "ttl_ms": 0,
-  "updated_at": "2019-08-24T14:15:22Z"
+  "updated_at": "2019-08-24T14:15:22Z",
+  "volume_copy_operation_id": "5e7ec20b-441f-4c51-8ee8-b9e466a8bb2b"
 }
 ```
 
@@ -1021,7 +1023,8 @@ of the template will be used.
   "template_require_active_version": true,
   "template_use_classic_parameter_flow": true,
   "ttl_ms": 0,
-  "updated_at": "2019-08-24T14:15:22Z"
+  "updated_at": "2019-08-24T14:15:22Z",
+  "volume_copy_operation_id": "5e7ec20b-441f-4c51-8ee8-b9e466a8bb2b"
 }
 ```
 
@@ -1423,7 +1426,8 @@ curl -X GET http://coder-server:8080/api/v2/workspaces \
       "template_require_active_version": true,
       "template_use_classic_parameter_flow": true,
       "ttl_ms": 0,
-      "updated_at": "2019-08-24T14:15:22Z"
+      "updated_at": "2019-08-24T14:15:22Z",
+      "volume_copy_operation_id": "5e7ec20b-441f-4c51-8ee8-b9e466a8bb2b"
     }
   ]
 }
@@ -1732,7 +1736,8 @@ curl -X GET http://coder-server:8080/api/v2/workspaces/{workspace} \
   "template_require_active_version": true,
   "template_use_classic_parameter_flow": true,
   "ttl_ms": 0,
-  "updated_at": "2019-08-24T14:15:22Z"
+  "updated_at": "2019-08-24T14:15:22Z",
+  "volume_copy_operation_id": "5e7ec20b-441f-4c51-8ee8-b9e466a8bb2b"
 }
 ```
 
@@ -1925,6 +1930,44 @@ curl -X PATCH http://coder-server:8080/api/v2/workspaces/{workspace}/acl \
 
 To perform this operation, you must be authenticated. [Learn more](authentication.md).
 
+## Watch workspace activity history via WebSockets
+
+### Code samples
+
+```shell
+# Example request using curl
+curl -X GET http://coder-server:8080/api/v2/workspaces/{workspace}/activity/watch \
+  -H 'Accept: application/json' \
+  -H 'Coder-Session-Token: API_KEY'
+```
+
+`GET /api/v2/workspaces/{workspace}/activity/watch`
+
+### Parameters
+
+| Name        | In   | Type         | Required | Description  |
+|-------------|------|--------------|----------|--------------|
+| `workspace` | path | string(uuid) | true     | Workspace ID |
+
+### Example responses
+
+> 200 Response
+
+```json
+{
+  "data": null,
+  "type": "ping"
+}
+```
+
+### Responses
+
+| Status | Meaning                                                 | Description | Schema                                                         |
+|--------|---------------------------------------------------------|-------------|----------------------------------------------------------------|
+| 200    | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | OK          | [codersdk.ServerSentEvent](schemas.md#codersdkserversentevent) |
+
+To perform this operation, you must be authenticated. [Learn more](authentication.md).
+
 ## Workspace Agent Connection Watch
 
 ### Code samples
@@ -2044,6 +2087,205 @@ curl -X PUT http://coder-server:8080/api/v2/workspaces/{workspace}/autoupdates \
 | Status | Meaning                                                         | Description | Schema |
 |--------|-----------------------------------------------------------------|-------------|--------|
 | 204    | [No Content](https://tools.ietf.org/html/rfc7231#section-6.3.5) | No Content  |        |
+
+To perform this operation, you must be authenticated. [Learn more](authentication.md).
+
+## Get workspace command activity
+
+### Code samples
+
+```shell
+# Example request using curl
+curl -X GET http://coder-server:8080/api/v2/workspaces/{workspace}/command-activity \
+  -H 'Accept: application/json' \
+  -H 'Coder-Session-Token: API_KEY'
+```
+
+`GET /api/v2/workspaces/{workspace}/command-activity`
+
+### Parameters
+
+| Name        | In   | Type         | Required | Description  |
+|-------------|------|--------------|----------|--------------|
+| `workspace` | path | string(uuid) | true     | Workspace ID |
+
+### Example responses
+
+> 200 Response
+
+```json
+{
+  "activity": [
+    {
+      "agent_id": "2b1e3b65-2c04-4fa2-a2d7-467901e98978",
+      "argv": [
+        "string"
+      ],
+      "command": "string",
+      "environment": {
+        "property1": "string",
+        "property2": "string"
+      },
+      "exit_code": 0,
+      "finished_at": "2019-08-24T14:15:22Z",
+      "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
+      "kind": "command",
+      "output": "string",
+      "session_id": "1ffd059c-17ea-40a8-8aef-70fd0307db82",
+      "source": "agentproc",
+      "started_at": "2019-08-24T14:15:22Z",
+      "status": "running",
+      "tool": "string",
+      "work_dir": "string"
+    }
+  ],
+  "available_tools": [
+    "string"
+  ],
+  "deletable_count": 0,
+  "history_limit": 0,
+  "idle_activity": [
+    {
+      "finished_at": "2019-08-24T14:15:22Z",
+      "started_at": "2019-08-24T14:15:22Z"
+    }
+  ],
+  "mcp_requests": [
+    {
+      "finished_at": "2019-08-24T14:15:22Z",
+      "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
+      "started_at": "2019-08-24T14:15:22Z",
+      "status": "running"
+    }
+  ],
+  "page": 0,
+  "page_size": 0,
+  "total_count": 0,
+  "total_pages": 0
+}
+```
+
+### Responses
+
+| Status | Meaning                                                 | Description | Schema                                                                                           |
+|--------|---------------------------------------------------------|-------------|--------------------------------------------------------------------------------------------------|
+| 200    | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | OK          | [codersdk.WorkspaceCommandActivityResponse](schemas.md#codersdkworkspacecommandactivityresponse) |
+
+To perform this operation, you must be authenticated. [Learn more](authentication.md).
+
+## Delete workspace command activity
+
+### Code samples
+
+```shell
+# Example request using curl
+curl -X DELETE http://coder-server:8080/api/v2/workspaces/{workspace}/command-activity \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' \
+  -H 'Coder-Session-Token: API_KEY'
+```
+
+`DELETE /api/v2/workspaces/{workspace}/command-activity`
+
+> Body parameter
+
+```json
+{
+  "filter": {
+    "duration_max_ms": 0,
+    "duration_min_ms": 0,
+    "exit_code": 0,
+    "id": "string",
+    "search": "string",
+    "sources": [
+      "agentproc"
+    ],
+    "started_after": "2019-08-24T14:15:22Z",
+    "started_before": "2019-08-24T14:15:22Z",
+    "statuses": [
+      "running"
+    ],
+    "tools": [
+      "string"
+    ]
+  },
+  "ids": [
+    "497f6eca-6276-4993-bfeb-53cbbbba6f08"
+  ],
+  "mode": "filtered"
+}
+```
+
+### Parameters
+
+| Name        | In   | Type                                                                                                       | Required | Description             |
+|-------------|------|------------------------------------------------------------------------------------------------------------|----------|-------------------------|
+| `workspace` | path | string(uuid)                                                                                               | true     | Workspace ID            |
+| `body`      | body | [codersdk.DeleteWorkspaceCommandActivityRequest](schemas.md#codersdkdeleteworkspacecommandactivityrequest) | true     | Delete command activity |
+
+### Example responses
+
+> 200 Response
+
+```json
+{
+  "deleted": 0
+}
+```
+
+### Responses
+
+| Status | Meaning                                                 | Description | Schema                                                                                                       |
+|--------|---------------------------------------------------------|-------------|--------------------------------------------------------------------------------------------------------------|
+| 200    | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | OK          | [codersdk.DeleteWorkspaceCommandActivityResponse](schemas.md#codersdkdeleteworkspacecommandactivityresponse) |
+
+To perform this operation, you must be authenticated. [Learn more](authentication.md).
+
+## Get workspace connection activity
+
+### Code samples
+
+```shell
+# Example request using curl
+curl -X GET http://coder-server:8080/api/v2/workspaces/{workspace}/connection-activity \
+  -H 'Accept: application/json' \
+  -H 'Coder-Session-Token: API_KEY'
+```
+
+`GET /api/v2/workspaces/{workspace}/connection-activity`
+
+### Parameters
+
+| Name        | In   | Type         | Required | Description  |
+|-------------|------|--------------|----------|--------------|
+| `workspace` | path | string(uuid) | true     | Workspace ID |
+
+### Example responses
+
+> 200 Response
+
+```json
+{
+  "active": true,
+  "active_connections": 0,
+  "last_activity_at": "2019-08-24T14:15:22Z",
+  "types": [
+    {
+      "active_connections": 0,
+      "last_activity_at": "2019-08-24T14:15:22Z",
+      "last_connected_at": "2019-08-24T14:15:22Z",
+      "last_disconnected_at": "2019-08-24T14:15:22Z",
+      "type": "ssh"
+    }
+  ]
+}
+```
+
+### Responses
+
+| Status | Meaning                                                 | Description | Schema                                                                                                 |
+|--------|---------------------------------------------------------|-------------|--------------------------------------------------------------------------------------------------------|
+| 200    | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | OK          | [codersdk.WorkspaceConnectionActivityResponse](schemas.md#codersdkworkspaceconnectionactivityresponse) |
 
 To perform this operation, you must be authenticated. [Learn more](authentication.md).
 
@@ -2351,7 +2593,8 @@ curl -X PUT http://coder-server:8080/api/v2/workspaces/{workspace}/dormant \
   "template_require_active_version": true,
   "template_use_classic_parameter_flow": true,
   "ttl_ms": 0,
-  "updated_at": "2019-08-24T14:15:22Z"
+  "updated_at": "2019-08-24T14:15:22Z",
+  "volume_copy_operation_id": "5e7ec20b-441f-4c51-8ee8-b9e466a8bb2b"
 }
 ```
 
@@ -2644,6 +2887,62 @@ curl -X POST http://coder-server:8080/api/v2/workspaces/{workspace}/usage \
 | Status | Meaning                                                         | Description | Schema |
 |--------|-----------------------------------------------------------------|-------------|--------|
 | 204    | [No Content](https://tools.ietf.org/html/rfc7231#section-6.3.5) | No Content  |        |
+
+To perform this operation, you must be authenticated. [Learn more](authentication.md).
+
+## Get the active persistent-volume copy operation for a workspace
+
+### Code samples
+
+```shell
+# Example request using curl
+curl -X GET http://coder-server:8080/api/v2/workspaces/{workspace}/volume-copy-operation \
+  -H 'Accept: application/json' \
+  -H 'Coder-Session-Token: API_KEY'
+```
+
+`GET /api/v2/workspaces/{workspace}/volume-copy-operation`
+
+### Parameters
+
+| Name        | In   | Type         | Required | Description  |
+|-------------|------|--------------|----------|--------------|
+| `workspace` | path | string(uuid) | true     | Workspace ID |
+
+### Example responses
+
+> 200 Response
+
+```json
+{
+  "operation": {
+    "allow_source_running": true,
+    "completed_at": "2019-08-24T14:15:22Z",
+    "created_at": "2019-08-24T14:15:22Z",
+    "destination_workspace_id": "6a0888b2-b076-46be-a2fa-ba26a4ef1783",
+    "error": "string",
+    "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
+    "initiator_id": "06588898-9a84-4b35-ba8f-f9cbd64946f3",
+    "source_workspace_id": "0bec99f5-fe9f-476a-a47b-d925ed169238",
+    "started_at": "2019-08-24T14:15:22Z",
+    "status": "pending",
+    "sync_of": "3a49bb49-0a60-4173-be25-94dc87a077c1",
+    "updated_at": "2019-08-24T14:15:22Z",
+    "volumes": [
+      {
+        "key": "string",
+        "overwrite": true
+      }
+    ]
+  }
+}
+```
+
+### Responses
+
+| Status | Meaning                                                 | Description | Schema                                                                                               |
+|--------|---------------------------------------------------------|-------------|------------------------------------------------------------------------------------------------------|
+| 200    | [OK](https://tools.ietf.org/html/rfc7231#section-6.3.1) | OK          | [codersdk.WorkspaceActiveVolumeCopyOperation](schemas.md#codersdkworkspaceactivevolumecopyoperation) |
 
 To perform this operation, you must be authenticated. [Learn more](authentication.md).
 

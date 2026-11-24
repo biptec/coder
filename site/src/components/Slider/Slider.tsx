@@ -5,9 +5,20 @@
 import { Slider as SliderPrimitive } from "radix-ui";
 import { cn } from "#/utils/cn";
 
-export const Slider: React.FC<
-	React.ComponentPropsWithRef<typeof SliderPrimitive.Root>
-> = ({ className, ...props }) => {
+type SliderProps = React.ComponentPropsWithRef<typeof SliderPrimitive.Root> & {
+	thumbLabels?: readonly [string?, string?];
+};
+
+export const Slider: React.FC<SliderProps> = ({
+	className,
+	thumbLabels,
+	...props
+}) => {
+	const thumbCount = Math.max(
+		1,
+		props.value?.length ?? props.defaultValue?.length ?? 1,
+	);
+
 	return (
 		<SliderPrimitive.Root
 			className={cn(
@@ -21,17 +32,21 @@ export const Slider: React.FC<
 				<SliderPrimitive.Range className="absolute h-full bg-content-primary" />
 			</SliderPrimitive.Track>
 			<SliderPrimitive.Thumb
+				aria-label={thumbLabels?.[0]}
 				className="block h-4 w-4 rounded-full border border-solid border-surface-invert-secondary bg-surface-primary shadow transition-colors
 			focus-visible:outline-none hover:border-content-primary
 			focus-visible:ring-0 focus-visible:ring-content-primary focus-visible:ring-offset-surface-primary
 			disabled:pointer-events-none data-[disabled]:opacity-100 data-[disabled]:border-border"
 			/>
-			<SliderPrimitive.Thumb
-				className="block h-4 w-4 rounded-full border border-solid border-surface-invert-secondary bg-surface-primary shadow transition-colors
-			focus-visible:outline-none hover:border-content-primary
-			focus-visible:ring-0 focus-visible:ring-content-primary focus-visible:ring-offset-surface-primary
-			disabled:pointer-events-none data-[disabled]:opacity-100 data-[disabled]:border-border"
-			/>
+			{thumbCount > 1 && (
+				<SliderPrimitive.Thumb
+					aria-label={thumbLabels?.[1]}
+					className="block h-4 w-4 rounded-full border border-solid border-surface-invert-secondary bg-surface-primary shadow transition-colors
+					focus-visible:outline-none hover:border-content-primary
+					focus-visible:ring-0 focus-visible:ring-content-primary focus-visible:ring-offset-surface-primary
+					disabled:pointer-events-none data-[disabled]:opacity-100 data-[disabled]:border-border"
+				/>
+			)}
 		</SliderPrimitive.Root>
 	);
 };

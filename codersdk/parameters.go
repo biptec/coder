@@ -138,10 +138,18 @@ type PreviewParameterData struct {
 }
 
 type PreviewParameterStyling struct {
-	Placeholder *string `json:"placeholder,omitempty"`
-	Disabled    *bool   `json:"disabled,omitempty"`
-	Label       *string `json:"label,omitempty"`
-	MaskInput   *bool   `json:"mask_input,omitempty"`
+	Placeholder       *string  `json:"placeholder,omitempty"`
+	Disabled          *bool    `json:"disabled,omitempty"`
+	Label             *string  `json:"label,omitempty"`
+	MaskInput         *bool    `json:"mask_input,omitempty"`
+	Step              *float64 `json:"step,omitempty"`
+	SliderMin         *float64 `json:"slider_min,omitempty"`
+	SliderMax         *float64 `json:"slider_max,omitempty"`
+	DisplayUnit       string   `json:"display_unit,omitempty"`
+	RangeGroup        string   `json:"range_group,omitempty"`
+	RangeRole         string   `json:"range_role,omitempty" enums:"min,max"`
+	AutoMaxMultiplier *float64 `json:"auto_max_multiplier,omitempty"`
+	PresetMutable     bool     `json:"preset_mutable,omitempty"`
 }
 
 type PreviewParameterOption struct {
